@@ -13,8 +13,10 @@ import {
 } from "../../../src/server/index.ts";
 import { ProtoError, type ErrorCode } from "../../../src/model/errors.ts";
 import type { Author } from "../../../src/model/review.ts";
-export const publicOrigin = "https://gallery.example.com",
-  renderOrigin = "https://render.example.net";
+// Chromium resolves these hosts to loopback without resolver flags. tldts treats
+// them as distinct registrable domains, preserving the production same-site guard.
+export const publicOrigin = "https://gallery.localhost",
+  renderOrigin = "https://render.localhost";
 export async function serverHarness(storage?: ReviewStorage) {
   const root = await mkdtemp(join(tmpdir(), "proto-server-"));
   await mkdir(join(root, "gallery/__proto/render/assets"), { recursive: true });
@@ -296,43 +298,51 @@ export async function browserServer(
     "-days",
     "1",
     "-subj",
-    "/CN=gallery.example.com",
+    "/CN=gallery.localhost",
   ]);
   const seen: { host: string; cookie: string }[] = [];
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
     async (req, res) => {
-      seen.push({ host: req.headers.host ?? "", cookie: req.headers.cookie ?? "" });
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const body = Buffer.concat(chunks);
-      const response = await (dispatch ?? h.handler)(
-        new Request(`https://${req.headers.host}${req.url}`, {
-          method: req.method,
-          headers: req.headers as Record<string, string>,
-          ...(body.length ? { body } : {}),
-        })
-      );
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.headers.get("content-type")?.includes("text/event-stream")) {
-        res.flushHeaders();
-        const reader = response.body!.getReader();
-        res.once("close", () => {
-          void reader.cancel();
-        });
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          res.write(Buffer.from(chunk.value));
-        }
-        res.end();
-      } else res.end(Buffer.from(await response.arrayBuffer()));
+      try {
+        seen.push({ host: req.headers.host ?? "", cookie: req.headers.cookie ?? "" });
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        const body = Buffer.concat(chunks);
+        const response = await (dispatch ?? h.handler)(
+          new Request(`https://${req.headers.host}${req.url}`, {
+            method: req.method,
+            headers: req.headers as Record<string, string>,
+            ...(body.length ? { body } : {}),
+          })
+        );
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        if (response.headers.get("content-type")?.includes("text/event-stream")) {
+          res.flushHeaders();
+          const reader = response.body!.getReader();
+          res.once("close", () => {
+            void reader.cancel();
+          });
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            res.write(Buffer.from(chunk.value));
+          }
+          res.end();
+        } else res.end(Buffer.from(await response.arrayBuffer()));
+      } catch (error) {
+        // An upstream Vite/dispatch failure must end the HTTP request, not hang navigation.
+        if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end(
+          "Test upstream failed: " + (error instanceof Error ? error.message : String(error))
+        );
+      }
     }
   );
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
-  h.options.publicOrigin = `https://gallery.example.com:${port}`;
-  h.options.renderOrigin = `https://render.example.net:${port}`;
+  h.options.publicOrigin = `https://gallery.localhost:${port}`;
+  h.options.renderOrigin = `https://render.localhost:${port}`;
   h.rebuild();
   return {
     seen,

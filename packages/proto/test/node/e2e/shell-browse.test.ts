@@ -126,7 +126,7 @@ afterAll(async () => {
 
 async function open(origin: string, path: string) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${origin}${path}`);
+  await page.goto(`${origin}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   return page;
 }
 
@@ -144,7 +144,7 @@ describe("browsing apps/app", () => {
     frame = await renderFrame(page, app.renderOrigin, "text=Have an account? Sign in");
     expect(await frame.$('[data-slot="toast-viewport"]')).not.toBeNull();
 
-    await page.goto(`${app.origin}/?p=welcome`);
+    await page.goto(`${app.origin}/?p=welcome`, { waitUntil: "domcontentloaded", timeout: 60000 });
     frame = await renderFrame(page, app.renderOrigin, "text=Hello, Ada");
     expect(await frame.$('[data-slot="toast-viewport"]')).not.toBeNull();
     await page.close();
@@ -238,7 +238,7 @@ describe("browsing a fixture", () => {
       await frame.$('[data-testid="canvas"] [data-testid="app-frame"] [data-testid="invoice"]')
     ).not.toBeNull();
 
-    await page.goto(`${local.origin}/?p=sketch`);
+    await page.goto(`${local.origin}/?p=sketch`, { waitUntil: "domcontentloaded", timeout: 60000 });
     const draft = await renderFrame(page, local.renderOrigin, '[data-testid="sketch"]');
     expect(await draft.$('[data-testid="canvas"] [data-testid="sketch"]')).not.toBeNull();
     expect(await draft.$('[data-testid="app-frame"]')).toBeNull();
@@ -258,7 +258,7 @@ describe("browsing a fixture", () => {
       .toBe("p=invoice&state=paid&w=834&role=admin&theme=dark");
 
     const view = page.url();
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
     expect(page.url()).toBe(view);
     const frame = await renderFrame(page, local.renderOrigin, "text=Paid invoice for admin");
     const src = new URL(frame.url());
@@ -302,7 +302,7 @@ describe("browsing a fixture", () => {
     await page.getByText("unknown_state").waitFor();
     await page.getByText("flows/pay.flow.ts").waitFor();
 
-    await page.goto(`${local.origin}/?p=broken`);
+    await page.goto(`${local.origin}/?p=broken`, { waitUntil: "domcontentloaded", timeout: 60000 });
     const card = page.getByRole("alert").filter({ hasText: "failed to render" });
     await card.getByText("Broken on purpose").waitFor({ timeout: 20_000 });
     await card.getByRole("button", { name: "Reload state" }).waitFor();

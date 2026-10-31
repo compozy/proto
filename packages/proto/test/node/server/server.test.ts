@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createReviewServer } from "../../../src/server/index.ts";
 import { runStoreContract, input, png } from "../store/contract.ts";
@@ -22,6 +22,14 @@ describe("Remote authorization and render grants", () => {
   });
   afterEach(async () => {
     await h.dispose();
+  });
+  // Owner: remote HTTP boundary; absent gallery output must respond instead of hanging.
+  it("IT-026: missing gallery files fail immediately", async () => {
+    await rm(h.options.gallery.dir, { recursive: true, force: true });
+    expect((await h.request("")).status).toBe(404);
+    const bootstrap = await h.request("__proto/bootstrap.json");
+    expect(bootstrap.status).toBe(500);
+    expect(await bootstrap.json()).toMatchObject({ error: { code: "internal_error" } });
   });
   it("UT-055/075/076/077/093: bootstrap and both sign-in handoffs preserve relative returnTo", async () => {
     const anonymous = await h.request("api/comments", "GET", undefined, "");
@@ -306,10 +314,7 @@ describe("Remote authorization and render grants", () => {
     await buildRemoteGallery(h);
     const browser = await chromium.launch({
       headless: true,
-      args: [
-        "--no-proxy-server",
-        "--host-resolver-rules=MAP gallery.example.com 127.0.0.1, MAP render.example.net 127.0.0.1",
-      ],
+      args: ["--no-proxy-server"],
     });
     try {
       const context = await browser.newContext({ ignoreHTTPSErrors: true });

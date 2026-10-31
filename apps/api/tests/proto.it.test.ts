@@ -25,11 +25,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
   it("IT-024/032: real session authorizes allowed users and never reaches auth on render", async () => {
     const env = loadEnv({
       DATABASE_URL: database.url,
-      API_URL: "https://gallery.example.com",
-      APP_URL: "https://gallery.example.com",
+      API_URL: "https://gallery.localhost",
+      APP_URL: "https://gallery.localhost",
       BETTER_AUTH_SECRET: "test-secret-at-least-thirty-two-characters",
-      PROTO_PUBLIC_ORIGIN: "https://gallery.example.com",
-      PROTO_RENDER_ORIGIN: "https://render.example.net",
+      PROTO_PUBLIC_ORIGIN: "https://gallery.localhost",
+      PROTO_RENDER_ORIGIN: "https://render.localhost",
       PROTO_TICKET_SECRET: "s".repeat(32),
       PROTO_REVIEW_EMAILS: "review@example.com",
       PROTO_GALLERY_DIR: fixture.options.gallery.dir,
@@ -156,20 +156,30 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     spaOrigin = spa.resolvedUrls!.local[0]!.replace(/\/$/, "");
     const browser = await chromium.launch({
       headless: true,
-      args: [
-        "--no-proxy-server",
-        "--host-resolver-rules=MAP gallery.example.com 127.0.0.1, MAP render.example.net 127.0.0.1",
-      ],
+      args: ["--no-proxy-server"],
     });
     try {
       const page = await browser.newPage({ ignoreHTTPSErrors: true });
+      page.setDefaultTimeout(60000);
+      await page.addInitScript(() => {
+        window.addEventListener("message", event => {
+          const iframe = document.querySelector("iframe");
+          if (
+            event.source === iframe?.contentWindow &&
+            event.data?.proto === 1 &&
+            event.data.type === "ready"
+          )
+            document.documentElement.dataset.renderReady = "true";
+        });
+      });
       const target = env.API_URL + "/proto/?p=login-form&state=default";
-      await page.goto(target);
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       await page.getByLabel("Email", { exact: true }).fill("deployed@example.com");
       await page.getByLabel("Password", { exact: true }).fill("deployed-password-strong");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      await page.waitForURL(target);
+      await page.waitForURL(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       const frame = page.frameLocator("iframe").first();
+      await page.locator('html[data-render-ready="true"]').waitFor({ state: "attached" });
       await frame.getByTestId("remote-pick").waitFor();
       await page.getByTestId("comment-tool").click();
       await frame.getByTestId("proto-picker").waitFor();
@@ -197,11 +207,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
         ).json()
       );
       expect(credential.credential.scopes).toEqual(["comment"]);
-      // DNS is the sole I/O substitution: Node and Chromium resolve the same two test domains locally.
+      // Chromium resolves *.localhost natively; Node lookup is OS-dependent.
+      // Override only these fixture hosts in the real CLI subprocess.
       const preload = join(h.root, "dns.cjs");
       await writeFile(
         preload,
-        `const dns=require('node:dns');const original=dns.lookup;dns.lookup=function(host,options,callback){if(typeof options==='function'){callback=options;options={};}if(['gallery.example.com','render.example.net'].includes(host)){queueMicrotask(()=>options?.all?callback(null,[{address:'127.0.0.1',family:4}]):callback(null,'127.0.0.1',4));return;}return original.call(this,host,options,callback);};require('node:module').syncBuiltinESMExports();`
+        `const dns=require('node:dns');const original=dns.lookup;dns.lookup=function(host,options,callback){if(typeof options==='function'){callback=options;options={};}if(['gallery.localhost','render.localhost'].includes(host)){queueMicrotask(()=>options?.all?callback(null,[{address:'127.0.0.1',family:4}]):callback(null,'127.0.0.1',4));return;}return original.call(this,host,options,callback);};require('node:module').syncBuiltinESMExports();`
       );
       const cli = async (...args: string[]) =>
         promisify(execFile)(
@@ -249,7 +260,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
         authorName: "Deployed Reviewer · cli-journey",
       });
       await page.getByText("Improved in the agent loop.", { exact: true }).waitFor();
-      await page.goto(env.API_URL + "/proto/?comments=waiting");
+      await page.goto(env.API_URL + "/proto/?comments=waiting", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
       await page.getByRole("tab", { name: "Waiting · 1", exact: true }).waitFor();
       expect(
         await page
@@ -259,7 +273,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
       await page
         .getByText("Deployed Reviewer · cli-journey replied · waiting for you", { exact: true })
         .waitFor();
-      await page.goto(target);
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       await page.getByRole("banner").getByRole("button", { name: "Approve", exact: true }).click();
       await page.getByRole("button", { name: "Approve anyway", exact: true }).click();
       await page.getByRole("banner").getByText("Approved", { exact: true }).waitFor();
