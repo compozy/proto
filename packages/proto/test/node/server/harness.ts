@@ -1,3 +1,4 @@
+import { HttpStore } from "../../../src/store/http-store.ts";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -121,7 +122,7 @@ export async function serverHarness(storage?: ReviewStorage) {
   };
 }
 /** Real HTTP transport adapter used only to run the existing contract; no storage is mocked. */
-export async function httpContract(storage?: ReviewStorage) {
+export async function httpContract(storage?: ReviewStorage, useHttpStore = false) {
   const h = await serverHarness(storage);
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -231,8 +232,30 @@ export async function httpContract(storage?: ReviewStorage) {
       throw new ProtoError("scope_denied");
     },
   };
+  const client = new HttpStore({
+    url: `${h.options.publicOrigin}/proto/`,
+    token: h.credential.token,
+  });
+  const contractStore = useHttpStore
+    ? new Proxy(store, {
+        get(target, property) {
+          const name = property as keyof ReviewStore;
+          if (["list", "get", "review", "readAttachment"].includes(name))
+            return (client[name] as Function).bind(client);
+          return (...args: unknown[]) => {
+            const isAgent = args.some(
+              arg => arg && typeof arg === "object" && "kind" in arg && arg.kind === "agent"
+            );
+            const chosen = isAgent ? client : target;
+            return (chosen[name] as Function).apply(chosen, args);
+          };
+        },
+      })
+    : store;
   return {
-    store,
+    store: contractStore,
+    client,
+    harness: h,
     async dispose() {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close(e => (e ? reject(e) : resolve())));

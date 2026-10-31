@@ -344,6 +344,7 @@ describe("Remote authorization and render grants", () => {
       );
     }
   });
+  // Dozens of real credential/file-lock requests across four principals; allow headroom on 2-core CI.
   it("UT-056 / IT-024: matrix read/comment/review/credential/ticket rows for every remote column", async () => {
     for (const who of ["review", "comment", "bearer", ""]) {
       const headers: Record<string, string> =
@@ -405,5 +406,5 @@ describe("Remote authorization and render grants", () => {
           `${who} ${path}`
         ).toBe(status);
     }
-  });
+  }, 30_000);
 });

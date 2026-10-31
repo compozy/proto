@@ -62,7 +62,13 @@ export const catalog: readonly Capability[] = [
     row(cli, [], false, "Operator action with interactive verification", "write files")
   ),
   ...["auth login", "auth logout", "auth credentials", "auth revoke"].map(cli =>
-    row(cli, [], false, "Credentials require a browser session", "session")
+    row(
+      cli,
+      cli === "auth revoke" ? ["id"] : [],
+      false,
+      "Credentials require a browser session",
+      "session"
+    )
   ),
 ];
 export const exclusions = [
@@ -73,6 +79,8 @@ export const exclusions = [
 ];
 export const argumentSchema = z.object({
   from: z.string().optional(),
+  "from-database": z.string().optional(),
+  "to-database": z.string().optional(),
   "flow-prefix": z.string().optional(),
   "theme-map": z.string().optional(),
   "role-map": z.string().optional(),
@@ -131,7 +139,9 @@ export async function executeCapability(
       command === "comments delete"
     )
       throw new ProtoError("scope_denied");
-    throw new ProtoError("auth_required", "Remote transport is wired in slice 8");
+    if (!capability.store && command !== "url")
+      throw new UsageError("This command does not support --remote");
+    if (command === "review unlock") throw new ProtoError("scope_denied", "Unlock is local only.");
   }
   if (command === "init") return initProject(context.root, args);
   const project = context.project;
@@ -150,7 +160,9 @@ export async function executeCapability(
     return result;
   }
   if (command === "url")
-    return { url: project.url({ ...args, slug: required(args.slug, "slug") }) };
+    return {
+      url: project.url({ ...args, slug: required(args.slug, "slug") }, { remote: args.remote }),
+    };
   if (command.startsWith("flow ") && command !== "flow new") {
     const registry = await project.registry();
     if (command === "flow list") return { flows: registry.flows };
@@ -181,8 +193,15 @@ export async function executeCapability(
   if (command === "screenshot" || command === "evidence")
     return capture(project, { ...args, slug: required(args.slug, "slug") }, command === "evidence");
   if (!capability.store) throw new UsageError(`${command} is provided by its delivery slice`);
-  const store = project.store();
-  const author: Author = { kind: args.author };
+  const store = project.store({ remote: args.remote });
+  const author: Author = args.remote
+    ? {
+        kind: "agent",
+        ...("session" in store
+          ? { id: (await (store as import("../store/http-store.ts").HttpStore).session()).id }
+          : {}),
+      }
+    : { kind: args.author };
   if (command === "comments list")
     return {
       comments: await store.list({
@@ -289,8 +308,11 @@ export async function executeCapability(
   }
   const message = args.message
     ? comment.thread[args.message - 1]
-    : [...comment.thread].reverse().find(m => m.author === author.kind);
-  if (!message || message.author !== author.kind) throw new ProtoError("message_not_owned");
+    : [...comment.thread]
+        .reverse()
+        .find(m => (args.remote ? m.authorId === author.id : m.author === author.kind));
+  if (!message || (args.remote ? message.authorId !== author.id : message.author !== author.kind))
+    throw new ProtoError("message_not_owned");
   if (command === "comments edit")
     return {
       comment: await store.editMessage(

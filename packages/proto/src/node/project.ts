@@ -1,3 +1,5 @@
+import { HttpStore } from "../store/http-store.ts";
+import { remoteToken } from "../auth/credentials.ts";
 import { existsSync, watch as watchFs, globSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { loadConfigFromFile } from "vite";
@@ -174,7 +176,7 @@ export async function loadProject(
     },
     url(target, options) {
       const base = options?.remote
-        ? config.review.remote?.url
+        ? process.env.PROTO_REMOTE_URL || config.review.remote?.url
         : `http://127.0.0.1:${config.dev.port}`;
       if (!base) throw new ProtoError("invalid_config", "review.remote.url is required");
       const url =
@@ -193,7 +195,12 @@ export async function loadProject(
       return url.href;
     },
     store(options) {
-      if (options?.remote) throw new Error("Remote review stores are implemented in slice 8");
+      if (options?.remote) {
+        const url = process.env.PROTO_REMOTE_URL || config.review.remote?.url;
+        if (!url)
+          throw new ProtoError("auth_required", "Configure review.remote.url or PROTO_REMOTE_URL.");
+        return new HttpStore({ url, token: () => remoteToken(url) });
+      }
       return new FileStore({
         root,
         registry: () => project.registry(),

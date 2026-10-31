@@ -46,8 +46,17 @@ export async function capture(project: ProtoProject, target: CaptureTarget, html
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.goto(
       project.url({ slug: target.slug, state, theme, role: target.role, bare: true }),
-      { waitUntil: "networkidle" }
+      { waitUntil: "domcontentloaded", timeout: 60_000 }
     );
+    await page.waitForFunction(
+      ({ slug, state }) =>
+        document.documentElement.dataset.protoReady === `${slug}:${state}` ||
+        document.querySelector('[data-testid="proto-render-error"]') !== null,
+      { slug: target.slug, state },
+      { timeout: 60_000 }
+    );
+    if (await page.locator('[data-testid="proto-render-error"]').count())
+      throw new ProtoError("invalid_config", "Prototype failed to render.");
     await page.evaluate(() => document.fonts.ready);
     const directory = confined(project.root, join(project.config.evidence.dir, target.slug));
     mkdirSync(directory, { recursive: true });

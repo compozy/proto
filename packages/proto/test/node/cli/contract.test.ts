@@ -78,7 +78,11 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       clock: () => new Date(timestamp),
     });
     project.config.dev.port = await freePortPair();
-    project = { ...project, store: () => store };
+    const actualProject = project;
+    project = {
+      ...project,
+      store: options => (options?.remote ? actualProject.store(options) : store),
+    };
   }, 60000);
   afterEach(() => {
     vi.restoreAllMocks();
@@ -258,7 +262,7 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     });
     expect((await cli("comments", "detach", id, attachmentId)).exitCode).toBe(0);
   });
-  it("remote approval is denied and remote transport fails clearly until slice 8", async () => {
+  it("remote approval is denied and an unconfigured remote requires authentication", async () => {
     expect(await cli("review", "approve", "login-form", "--remote")).toMatchObject({
       exitCode: 4,
       data: { error: { code: "scope_denied" } },

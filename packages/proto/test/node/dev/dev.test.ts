@@ -121,7 +121,9 @@ it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and reject
   let server: Awaited<ReturnType<typeof startDev>> | undefined;
   try {
     const project = await loadProject(root);
-    expect(() => project.store({ remote: true })).toThrow("slice 8");
+    expect(() => project.store({ remote: true })).toThrowError(
+      expect.objectContaining({ code: "auth_required" })
+    );
     server = await startDev(project, { port: await port() });
     const response = await fetch(`${server.origin}/__proto/api/events`, { signal: abort.signal });
     const reader = response.body!.getReader();

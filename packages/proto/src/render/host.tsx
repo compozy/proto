@@ -252,7 +252,13 @@ function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & {
     const content = (
       <>
         <Prototype state={state} role={role} />
-        <ReportReady onReady={() => bridge.post({ type: "ready", slug: entry.slug, state })} />
+        <ReportReady
+          onReady={() => {
+            // Standalone capture has no parent bridge; expose the same committed readiness locally.
+            document.documentElement.dataset.protoReady = `${entry.slug}:${state}`;
+            bridge.post({ type: "ready", slug: entry.slug, state });
+          }}
+        />
       </>
     );
     body = (

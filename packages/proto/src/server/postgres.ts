@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import type { Sql, TransactionSql, JSONValue } from "postgres";
@@ -142,33 +143,81 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     return this.locked(key, async sql => {
       const file = await this.readFile(key);
       const result = await action(file);
-      reviewFileSchema.parse(file);
-      await sql`update proto_keys set next_comment=${file.sequence + 1}, review_status=${file.review.status}, review_updated_at=${file.review.updatedAt}, extra=${sql.json(jsonValue(file.extra ?? null))} where key=${key}`;
-      const numbers: number[] = [],
-        messageIds: string[] = [],
-        imageIds: string[] = [];
-      for (const comment of file.comments) {
-        const number = Number(comment.id.slice(key.length + 1));
-        numbers.push(number);
-        await sql`insert into proto_comments (key,number,status,created_at,updated_at,resolved_at,context,target,extra) values (${key},${number},${comment.status},${comment.createdAt},${comment.updatedAt},${comment.resolvedAt},${sql.json(jsonValue(comment.context))},${sql.json(jsonValue(comment.target))},${sql.json(jsonValue(comment.extra ?? null))}) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
-        for (const [position, message] of comment.thread.entries()) {
-          messageIds.push(message.id);
-          await sql`insert into proto_messages (id,key,number,position,author_kind,author_id,author_name,body,at,edited_at,extra) values (${message.id},${key},${number},${position},${message.author},${message.authorId ?? null},${message.authorName ?? null},${message.body},${message.at},${message.editedAt},${sql.json(jsonValue(message.extra ?? null))}) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
-          for (const [imagePosition, attachment] of message.attachments.entries()) {
-            imageIds.push(attachment.id);
-            const updated =
-              await sql`update proto_attachments set message_id=${message.id},expires_at=null,position=${imagePosition} where id=${attachment.id} and key=${key} and (message_id=${message.id} or message_id is null) returning id`;
-            if (updated.length !== 1) throw new ProtoError("attachment_expired");
-          }
-        }
-      }
-      await sql`delete from proto_attachments where key=${key} and message_id is not null and not (id=any(${imageIds}))`;
-      await sql`delete from proto_messages where key=${key} and not (id=any(${messageIds}))`;
-      await sql`delete from proto_comments where key=${key} and not (number=any(${numbers}))`;
-      for (const [eventPosition, e] of file.events.entries())
-        await sql`insert into proto_events (id,key,position,type,at,author_kind,author_id,author_name,commit,open_count,comment_id,extra) values (${e.id},${key},${eventPosition},${e.type},${e.at},${e.author},${e.authorId ?? null},${e.authorName ?? null},${e.commit},${e.openCount},${e.commentId ?? null},${sql.json(jsonValue(e.extra ?? null))}) on conflict do nothing`;
+      await this.save(sql, file);
       return result;
     });
+  }
+  private async save(sql: TransactionSql, file: ReviewFileV3) {
+    const key = file.key;
+    reviewFileSchema.parse(file);
+    await sql`update proto_keys set next_comment=${file.sequence + 1}, review_status=${file.review.status}, review_updated_at=${file.review.updatedAt}, extra=${sql.json(jsonValue(file.extra ?? null))} where key=${key}`;
+    const numbers: number[] = [],
+      messageIds: string[] = [],
+      imageIds: string[] = [];
+    for (const comment of file.comments) {
+      const number = Number(comment.id.slice(key.length + 1));
+      numbers.push(number);
+      await sql`insert into proto_comments (key,number,status,created_at,updated_at,resolved_at,context,target,extra) values (${key},${number},${comment.status},${comment.createdAt},${comment.updatedAt},${comment.resolvedAt},${sql.json(jsonValue(comment.context))},${sql.json(jsonValue(comment.target))},${sql.json(jsonValue(comment.extra ?? null))}) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
+      for (const [position, message] of comment.thread.entries()) {
+        messageIds.push(message.id);
+        await sql`insert into proto_messages (id,key,number,position,author_kind,author_id,author_name,body,at,edited_at,extra) values (${message.id},${key},${number},${position},${message.author},${message.authorId ?? null},${message.authorName ?? null},${message.body},${message.at},${message.editedAt},${sql.json(jsonValue(message.extra ?? null))}) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
+        for (const [imagePosition, attachment] of message.attachments.entries()) {
+          imageIds.push(attachment.id);
+          const updated =
+            await sql`update proto_attachments set message_id=${message.id},expires_at=null,position=${imagePosition} where id=${attachment.id} and key=${key} and (message_id=${message.id} or message_id is null) returning id`;
+          if (updated.length !== 1) throw new ProtoError("attachment_expired");
+        }
+      }
+    }
+    await sql`delete from proto_attachments where key=${key} and message_id is not null and not (id=any(${imageIds}))`;
+    await sql`delete from proto_messages where key=${key} and not (id=any(${messageIds}))`;
+    await sql`delete from proto_comments where key=${key} and not (number=any(${numbers}))`;
+    for (const [eventPosition, e] of file.events.entries())
+      await sql`insert into proto_events (id,key,position,type,at,author_kind,author_id,author_name,commit,open_count,comment_id,extra) values (${e.id},${key},${eventPosition},${e.type},${e.at},${e.author},${e.authorId ?? null},${e.authorName ?? null},${e.commit},${e.openCount},${e.commentId ?? null},${sql.json(jsonValue(e.extra ?? null))}) on conflict do nothing`;
+  }
+  async importKey(
+    file: ReviewFileV3,
+    attachments: ImportedAttachment[],
+    dryRun = false
+  ): Promise<"copied" | "unchanged" | "planned"> {
+    file = reviewFileSchema.parse(file);
+    const outcome = await this.sql
+      .begin(async sql =>
+        this.transaction.run(sql, async () => {
+          const inserted =
+            await sql`insert into proto_keys(key) values (${file.key}) on conflict do nothing returning key`;
+          await sql`select key from proto_keys where key=${file.key} for update`;
+          if (!inserted.length) {
+            if (!isDeepStrictEqual(await this.readFile(file.key), file))
+              throw new ProtoError("migration_conflict");
+            for (const attachment of attachments) {
+              const [row] =
+                await sql`select data from proto_attachments where key=${file.key} and id=${attachment.id}`;
+              if (!row || !Buffer.from(row.data).equals(Buffer.from(attachment.bytes)))
+                throw new ProtoError("migration_conflict");
+            }
+            return "unchanged" as const;
+          }
+          if (dryRun) throw new PlannedImport();
+          for (const c of file.comments)
+            for (const m of c.thread)
+              for (const a of m.attachments) {
+                const payload = attachments.find(value => value.id === a.id);
+                if (!payload || payload.bytes.byteLength !== a.size)
+                  throw new ProtoError("migration_unverified");
+                await sql`insert into proto_attachments(id,key,uploader_id,uploader_kind,name,type,size,width,height,data,created_at,expires_at,extra) values (${a.id},${file.key},${a.uploaderId ?? "legacy:unknown"},${a.uploaderKind ?? m.author},${a.name},${a.type},${a.size},${a.width},${a.height},${Buffer.from(payload.bytes)},${payload.createdAt},null,${sql.json(jsonValue(a.extra ?? null))})`;
+              }
+          await this.save(sql, file);
+          if (!isDeepStrictEqual(await this.readFile(file.key), file))
+            throw new ProtoError("migration_unverified");
+          return "copied" as const;
+        })
+      )
+      .catch(error => {
+        if (error instanceof PlannedImport) return "planned" as const;
+        throw error;
+      });
+    return outcome;
   }
   protected async claim(
     key: string,
@@ -284,10 +333,23 @@ function credential(row: Row): Credential {
     revokedAt: iso(row.revoked_at),
   };
 }
-export function postgresStorage(sql: Sql): ReviewStorage & { migrate(): Promise<void> } {
+export type ImportedAttachment = { id: string; bytes: Uint8Array; createdAt: string };
+class PlannedImport extends Error {}
+export type PostgresReviewStorage = ReviewStorage & {
+  migrate(): Promise<void>;
+  readKey(key: string): Promise<ReviewFileV3>;
+  importKey(
+    file: ReviewFileV3,
+    attachments: ImportedAttachment[],
+    dryRun?: boolean
+  ): Promise<"copied" | "unchanged" | "planned">;
+};
+export function postgresStorage(sql: Sql): PostgresReviewStorage {
   const store = new PostgresStore(sql);
   return {
     store,
+    readKey: key => store.readFile(key),
+    importKey: (file, attachments, dryRun) => store.importKey(file, attachments, dryRun),
     configure(registry, commit) {
       store.registry = registry;
       store.revision = commit;

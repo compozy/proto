@@ -61,9 +61,24 @@ export function projectRoot(cwd: string, app?: string) {
 export type CliResult = { exitCode: number; data: unknown };
 export async function runCli(
   argv: string[],
-  options: { cwd?: string; project?: ProtoProject } = {}
+  options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string> } = {}
 ): Promise<CliResult> {
   try {
+    if (argv[0] === "auth") {
+      const command = `auth ${argv[1] ?? ""}`;
+      if (!catalog.some(c => c.cli === command)) throw new UsageError("Unknown auth command");
+      const index = argv.findIndex(value => value === "--remote" || value.startsWith("--remote="));
+      const url =
+        index < 0
+          ? undefined
+          : argv[index]!.includes("=")
+            ? argv[index]!.slice(9)
+            : argv[index + 1];
+      if (index >= 0 && (!url || url.startsWith("--")))
+        throw new UsageError("--remote needs a URL");
+      const { authCommand } = await import("../auth/cli.ts");
+      return { exitCode: 0, data: await authCommand(command, url, options.readToken) };
+    }
     const words: string[] = [];
     const flags: string[] = [];
     for (let i = 0; i < argv.length; i++) {
@@ -97,9 +112,25 @@ export async function runCli(
     const args = parsed.data;
     let root =
       options.project?.root ??
-      (capability.cli === "init" && !args.app
+      ((capability.cli === "init" && !args.app) || capability.cli === "migrate remote"
         ? resolve(options.cwd ?? process.cwd())
         : projectRoot(options.cwd ?? process.cwd(), args.app));
+    if (capability.cli === "migrate remote") {
+      if (!args["from-database"] || !args["to-database"])
+        throw new UsageError("--from-database and --to-database are required");
+      const { migrateRemote } = await import("../migrate/remote.ts");
+      const { parseMap } = await import("./commands/migrate.ts");
+      const report = await migrateRemote({
+        fromDatabase: args["from-database"],
+        toDatabase: args["to-database"],
+        directory: options.cwd ?? process.cwd(),
+        flowPrefix: args["flow-prefix"],
+        themeMap: parseMap(args["theme-map"]),
+        roleMap: parseMap(args["role-map"]),
+        dryRun: args["dry-run"],
+      });
+      return { exitCode: report.errors.length ? 1 : 0, data: report };
+    }
     if (capability.cli === "migrate") {
       if (!args.from) throw new UsageError("--from is required");
       const source = resolve(options.cwd ?? process.cwd(), args.from);
@@ -170,8 +201,31 @@ export const main = defineCommand({
 if (import.meta.main) {
   const started = Date.now();
   const result = await runCli(process.argv.slice(2));
-  if (result.data !== undefined)
-    console.log(JSON.stringify(result.data, null, process.argv.includes("--json") ? undefined : 2));
+  if (result.data !== undefined) {
+    const data = result.data as {
+      saved?: boolean;
+      removed?: boolean;
+      name?: string;
+      remote?: string;
+      error?: { message?: string };
+    };
+    if (
+      process.argv[2] === "auth" &&
+      !process.argv.includes("--json") &&
+      (data.saved || data.removed || data.error)
+    ) {
+      console.log(
+        data.saved
+          ? `✓ Saved credential "${data.name}" for ${data.remote} (scope: comment)`
+          : data.removed
+            ? `✓ Removed the local credential for ${data.remote}`
+            : `✗ ${data.error?.message}`
+      );
+    } else
+      console.log(
+        JSON.stringify(result.data, null, process.argv.includes("--json") ? undefined : 2)
+      );
+  }
   if (process.argv.includes("--verbose"))
     console.error(`proto completed in ${Date.now() - started}ms (exit ${result.exitCode})`);
   process.exitCode = result.exitCode;

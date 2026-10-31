@@ -203,7 +203,21 @@ export function createReviewServer(
     if (url.pathname.startsWith(api)) {
       await auth.requirePrincipal(request);
       const path = url.pathname.slice(api.length);
-      if (path === "session" && request.method === "GET") return Response.json({ principal });
+      if (path === "session" && request.method === "GET") {
+        const token = request.headers.get("authorization")?.replace(/^Bearer /i, "");
+        const credential =
+          principal.kind === "agent" && token
+            ? await options.storage.credentials.find(credentialHash(token))
+            : null;
+        return Response.json({
+          principal,
+          ...(credential
+            ? {
+                credential: { id: credential.id, name: credential.name, scopes: credential.scopes },
+              }
+            : {}),
+        });
+      }
       if (path === "render-ticket" && request.method === "GET") {
         if (principal.kind !== "reviewer") throw new ProtoError("scope_denied");
         const slug = z
