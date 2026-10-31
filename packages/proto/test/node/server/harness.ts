@@ -301,14 +301,10 @@ export async function browserServer(
     "/CN=gallery.localhost",
   ]);
   const seen: { host: string; cookie: string }[] = [];
-  const started = performance.now();
-  const trace = (event: string) =>
-    console.log("TLS fixture", Math.round(performance.now() - started), event);
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
     async (req, res) => {
       try {
-        trace(`request ${req.method} ${req.url}`);
         seen.push({ host: req.headers.host ?? "", cookie: req.headers.cookie ?? "" });
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -343,13 +339,7 @@ export async function browserServer(
       }
     }
   );
-  server.on("connection", socket =>
-    trace(`connection ${(socket as import("node:net").Socket).remoteAddress}`)
-  );
-  server.on("secureConnection", socket => trace(`secure ${socket.remoteAddress}`));
-  server.on("tlsClientError", error => trace(`tls error ${error.message}`));
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  trace("listening");
   const port = (server.address() as { port: number }).port;
   h.options.publicOrigin = `https://gallery.localhost:${port}`;
   h.options.renderOrigin = `https://render.localhost:${port}`;
@@ -398,4 +388,4 @@ export async function buildRemoteGallery(h: Awaited<ReturnType<typeof serverHarn
 }
 
 export { chromium } from "playwright";
-export { createServer as createViteServer } from "vite";
+export { build as buildViteApp, preview as previewViteApp } from "vite";
