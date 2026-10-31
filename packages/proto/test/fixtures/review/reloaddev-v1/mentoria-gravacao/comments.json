@@ -1,0 +1,188 @@
+{
+    "version": 1,
+    "slug": "mentoria-gravacao",
+    "comments": [
+        {
+            "id": "mentoria-gravacao-1",
+            "slug": "mentoria-gravacao",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:29:14.308Z",
+            "updatedAt": "2026-10-22T23:05:12.390Z",
+            "resolvedAt": "2026-10-22T23:05:12.390Z",
+            "context": {
+                "commit": null,
+                "state": "processando-video",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div > header > div:nth-of-type(1) > p",
+                "testId": null,
+                "tag": "p",
+                "text": "qui., 15 out. \u00b7 V\u00eddeo de 1:32:10",
+                "source": "src/designs/mentoria-gravacao/header.tsx:44:9",
+                "sourceChain": [
+                    "src/designs/mentoria-gravacao/header.tsx:44:9",
+                    "src/designs/mentoria-gravacao/header.tsx:40:7",
+                    "src/designs/mentoria-gravacao/header.tsx:39:5",
+                    "src/designs/mentoria-gravacao/index.tsx:210:13",
+                    "src/designs/mentoria-gravacao/index.tsx:188:11",
+                    "src/designs/mentoria-gravacao/index.tsx:187:9",
+                    "src/designs/mentoria-gravacao/index.tsx:186:7",
+                    "src/designs/mentoria-gravacao/index.tsx:184:5"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 558.0469,
+                    "width": 692,
+                    "height": 21
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.4326,
+                    "width": 0.4806,
+                    "height": 0.0163
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:29:14.308Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:05:12.390Z"
+                }
+            ]
+        },
+        {
+            "id": "mentoria-gravacao-2",
+            "slug": "mentoria-gravacao",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:32:24.700Z",
+            "updatedAt": "2026-10-22T23:05:12.455Z",
+            "resolvedAt": "2026-10-22T23:05:12.455Z",
+            "context": {
+                "commit": null,
+                "state": "pronta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "main > div > div > div",
+                "testId": null,
+                "tag": "div",
+                "text": "PR\u00c9VIA \u00b7 PLAYER DA PANDA Marca d'\u00e1gua: Marina Couto 03 Come\u00e7ar pelos requisitos, n\u00e3o pela arquitetura 23:30 / 1:32:10 C\u2026",
+                "source": "src/designs/mentoria-gravacao/index.tsx:187:9",
+                "sourceChain": [
+                    "src/designs/mentoria-gravacao/index.tsx:187:9",
+                    "src/designs/mentoria-gravacao/index.tsx:186:7",
+                    "src/designs/mentoria-gravacao/index.tsx:184:5",
+                    "src/designs/mentoria-gravacao/index.tsx:97:53",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7",
+                    "src/designs/mentoria-gravacao/index.tsx:89:5"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 100,
+                    "width": 1068,
+                    "height": 1186
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.0775,
+                    "width": 0.7417,
+                    "height": 0.9194
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:32:24.700Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:05:12.455Z"
+                }
+            ]
+        },
+        {
+            "id": "mentoria-gravacao-3",
+            "slug": "mentoria-gravacao",
+            "status": "resolved",
+            "createdAt": "2026-10-22T23:17:22.979Z",
+            "updatedAt": "2026-10-22T23:37:52.275Z",
+            "resolvedAt": "2026-10-22T23:37:52.275Z",
+            "context": {
+                "commit": "c04d6d3457b7571a42460cde4b3bf7ca66fd944a",
+                "state": "pronta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "[data-testid=\"chapters-card\"] > header",
+                "testId": "chapters-card",
+                "tag": "header",
+                "text": "Cap\u00edtulos 8 cap\u00edtulos \u00b7 Gerados da transcri\u00e7\u00e3o",
+                "source": "src/designs/mentoria-gravacao/chapters.tsx:34:7",
+                "sourceChain": [
+                    "src/designs/mentoria-gravacao/chapters.tsx:34:7",
+                    "src/designs/mentoria-gravacao/chapters.tsx:31:15",
+                    "src/designs/mentoria-gravacao/chapters.tsx:29:5",
+                    "src/designs/mentoria-gravacao/index.tsx:226:17",
+                    "src/designs/mentoria-gravacao/index.tsx:218:13",
+                    "src/designs/mentoria-gravacao/index.tsx:211:11",
+                    "src/designs/mentoria-gravacao/index.tsx:188:9",
+                    "src/designs/mentoria-gravacao/index.tsx:187:7"
+                ],
+                "rect": {
+                    "x": 1028,
+                    "y": 284.75,
+                    "width": 355.0313,
+                    "height": 72.5469
+                },
+                "rectNormalized": {
+                    "x": 0.7139,
+                    "y": 0.2207,
+                    "width": 0.2465,
+                    "height": 0.0562
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T23:17:22.979Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:37:52.275Z"
+                }
+            ]
+        }
+    ]
+}

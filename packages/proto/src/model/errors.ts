@@ -13,6 +13,13 @@ export type ErrorSpec = {
 };
 
 export const errors = {
+  invalid_input: { exit: 2, status: 400, message: "Invalid request input." },
+  review_has_open_comments: {
+    exit: 1,
+    status: 409,
+    message: "Open comments remain; confirm before approving.",
+  },
+  internal_error: { exit: 1, status: 500, message: "The review operation failed." },
   invalid_config: { exit: 1, status: null, message: "proto.config.ts is invalid." },
   not_a_vite_app: { exit: 1, status: null, message: "No Vite config found; pass --app <dir>." },
   app_required: { exit: 2, status: null, message: "Several apps found; pass --app <dir>." },

@@ -50,7 +50,7 @@ export function FlowSide(props: FlowSideProps) {
       target,
       context: {
         state: node?.id ?? "",
-        theme: props.theme,
+        theme: props.theme === "light" || props.theme === "dark" ? props.theme : null,
         role: null,
         viewport: { width: window.innerWidth, height: window.innerHeight },
       },

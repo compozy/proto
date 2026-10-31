@@ -33,7 +33,7 @@ const subCommands = Object.fromEntries(
         json: { type: "boolean" },
       },
       run({ args }) {
-        runComments(command, args.id, args);
+        return runComments(command, args.id, args);
       },
     }),
   ])

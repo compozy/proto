@@ -14,7 +14,7 @@ function messageOf(comment: ReviewComment, position?: string) {
 }
 
 /** `attach`, `detach` and `attachments` of `proto comments`: images on local comment messages. */
-export function commentMedia(
+export async function commentMedia(
   command: "attach" | "detach" | "attachments",
   id: string,
   options: {
@@ -25,21 +25,23 @@ export function commentMedia(
     json?: boolean;
   }
 ) {
-  const comment = getComment(id);
+  const comment = await getComment(id);
   if (command === "attachments") {
     if (!options.out) throw new Error("attachments needs --out <directory>");
     const directory = resolve(options.out);
     mkdirSync(directory, { recursive: true });
-    const downloads = comment.thread
-      .flatMap((message, index) =>
-        message.attachments.map(image => ({ image, message: index + 1 }))
-      )
-      .map(({ image, message }) => {
-        const { bytes } = attachmentStore(comment.slug).read(image.id, [comment]);
-        const file = resolve(directory, `${image.id}-${basename(image.name) || "image"}`);
-        writeFileSync(file, bytes, { flag: "wx" });
-        return { id: image.id, message, path: file };
-      });
+    const downloads = await Promise.all(
+      comment.thread
+        .flatMap((message, index) =>
+          message.attachments.map(image => ({ image, message: index + 1 }))
+        )
+        .map(async ({ image, message }) => {
+          const { bytes } = await attachmentStore(comment.slug).read(image.id);
+          const file = resolve(directory, `${image.id}-${basename(image.name) || "image"}`);
+          writeFileSync(file, bytes, { flag: "wx" });
+          return { id: image.id, message, path: file };
+        })
+    );
     if (options.json) console.log(JSON.stringify(downloads));
     else for (const download of downloads) console.log(download.path);
     return;
@@ -58,16 +60,21 @@ export function commentMedia(
       if (message.attachments.length + options.files.length > 6)
         throw new Error("attachment_limit");
       for (const path of options.files)
-        uploaded.push(attachmentStore(comment.slug).upload(basename(path), readFileSync(path)));
+        uploaded.push(
+          await attachmentStore(comment.slug).upload(basename(path), readFileSync(path))
+        );
     }
-    editMessage(id, message.id, {
+    await editMessage(id, message.id, {
       addAttachments: uploaded.map(image => image.id),
       removeAttachments: command === "detach" ? [options.attachment!] : [],
     });
     console.log(`${command}: ${id}`);
   } catch (error) {
     // Discard only the pending uploads of this run; attached images stay with their message.
-    for (const image of uploaded) attachmentStore(comment.slug).discard(image.id);
+    for (const image of uploaded)
+      await attachmentStore(comment.slug)
+        .discard(image.id)
+        .catch(() => {});
     throw error;
   }
 }

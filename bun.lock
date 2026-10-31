@@ -80,6 +80,9 @@
     },
     "packages/proto": {
       "name": "@compozy/proto",
+      "bin": {
+        "proto": "./src/cli/main.ts",
+      },
       "dependencies": {
         "@proto/ui": "workspace:*",
         "@tanstack/react-query": "5.104.3",

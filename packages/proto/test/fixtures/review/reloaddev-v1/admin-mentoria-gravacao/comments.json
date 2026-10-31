@@ -1,0 +1,128 @@
+{
+    "version": 1,
+    "slug": "admin-mentoria-gravacao",
+    "comments": [
+        {
+            "id": "admin-mentoria-gravacao-1",
+            "slug": "admin-mentoria-gravacao",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:50:51.570Z",
+            "updatedAt": "2026-10-22T23:07:22.280Z",
+            "resolvedAt": "2026-10-22T23:07:22.280Z",
+            "context": {
+                "commit": "c04d6d3457b7571a42460cde4b3bf7ca66fd944a",
+                "state": "processando",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div:nth-of-type(2) > div > span",
+                "testId": null,
+                "tag": "span",
+                "text": "Indexando para busca",
+                "source": "src/kit/signals.tsx:95:9",
+                "sourceChain": [
+                    "src/kit/signals.tsx:95:9",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:252:11",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:251:9",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:249:7",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:236:5",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:458:7",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7"
+                ],
+                "rect": {
+                    "x": 1031.4844,
+                    "y": 259.7969,
+                    "width": 160.4219,
+                    "height": 20
+                },
+                "rectNormalized": {
+                    "x": 0.7163,
+                    "y": 0.2014,
+                    "width": 0.1114,
+                    "height": 0.0155
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:50:51.570Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:22.280Z"
+                }
+            ]
+        },
+        {
+            "id": "admin-mentoria-gravacao-2",
+            "slug": "admin-mentoria-gravacao",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:51:34.203Z",
+            "updatedAt": "2026-10-22T23:07:22.394Z",
+            "resolvedAt": "2026-10-22T23:07:22.394Z",
+            "context": {
+                "commit": "c04d6d3457b7571a42460cde4b3bf7ca66fd944a",
+                "state": "oculta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div:nth-of-type(3) > div > div > div:nth-of-type(3)",
+                "testId": null,
+                "tag": "div",
+                "text": "Etapas Tentar de novo roda a etapa e as que dependem dela. Importar grava\u00e7\u00e3o Conclu\u00edda 15/10 21:14 \u2192 21:16 1 tentativa \u2026",
+                "source": "src/kit/layout.tsx:95:5",
+                "sourceChain": [
+                    "src/kit/layout.tsx:95:5",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:341:13",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:272:11",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:271:9",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:270:7",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:236:5",
+                    "src/designs/admin-mentoria-gravacao/index.tsx:458:7",
+                    "src/kit/app-shell.tsx:212:9"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 570.4844,
+                    "width": 692,
+                    "height": 569.0781
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.4422,
+                    "width": 0.4806,
+                    "height": 0.4411
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:51:34.203Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:22.394Z"
+                }
+            ]
+        }
+    ]
+}

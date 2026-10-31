@@ -61,7 +61,7 @@ function specOf(slug: string) {
   return prototypes.find(entry => entry.slug === slug)?.meta?.spec;
 }
 
-export function runComments(command: string, id: string | undefined, values: CommentOptions) {
+export async function runComments(command: string, id: string | undefined, values: CommentOptions) {
   const origin = galleryOrigin;
   function previewUrl(comment: ReviewComment) {
     const params = new URLSearchParams({ chrome: "0", state: comment.context.state });
@@ -145,15 +145,20 @@ export function runComments(command: string, id: string | undefined, values: Com
     return lines.join("\n");
   }
 
-  function list() {
+  async function list() {
     const status = values.status;
     if (status !== "open" && status !== "resolved" && status !== "all") {
       throw new CommentError(`Invalid --status "${status}"`, 400);
     }
-    const slugs = values.slug ? [values.slug] : commentedSlugs();
-    const comments = slugs
-      .filter(slug => !values.spec || specOf(slug) === values.spec)
-      .flatMap(slug => readComments(slug))
+    const slugs = values.slug ? [values.slug] : await commentedSlugs();
+    const comments = (
+      await Promise.all(
+        slugs
+          .filter(slug => !values.spec || specOf(slug) === values.spec)
+          .map(slug => readComments(slug))
+      )
+    )
+      .flat()
       .filter(comment => status === "all" || comment.status === status);
     if (values.json) {
       console.log(JSON.stringify(comments, null, 2));
@@ -172,29 +177,35 @@ export function runComments(command: string, id: string | undefined, values: Com
   }
 
   if (command === "list") {
-    list();
+    await list();
     return;
   }
   if (!id) throw new CommentError(`${command} needs a comment id`, 400);
   const author: CommentAuthor = values.author === "reviewer" ? "reviewer" : "agent";
   let comment: ReviewComment;
-  if (command === "add") comment = addPageComment(id, requireNote("add"), values.state);
-  else if (command === "show") comment = getComment(id);
+  if (command === "add")
+    comment = await addPageComment(id, requireNote("add"), values.state, author);
+  else if (command === "show") comment = await getComment(id);
   else if (command === "edit") {
-    const current = getComment(id);
+    const current = await getComment(id);
     const index =
       values.message === undefined
         ? current.thread.findLastIndex(message => message.author === author)
         : Number(values.message) - 1;
     if (!Number.isInteger(index) || index < 0 || !current.thread[index])
       throw new CommentError("No matching message; specify --message <number>", 400);
-    comment = editMessage(id, current.thread[index].id, { body: requireNote("edit") });
-  } else if (command === "reply") comment = replyTo(id, author, requireNote("reply"));
+    comment = await editMessage(
+      id,
+      current.thread[index].id,
+      { body: requireNote("edit") },
+      author
+    );
+  } else if (command === "reply") comment = await replyTo(id, author, requireNote("reply"));
   else if (command === "resolve") {
-    comment = setStatus(id, "resolved", { author, body: requireNote("resolve") });
+    comment = await setStatus(id, "resolved", { author, body: requireNote("resolve") });
   } else if (command === "reopen") {
-    comment = setStatus(id, "open", { author, body: values.note ?? "" });
-  } else if (command === "delete") comment = removeComment(id);
+    comment = await setStatus(id, "open", { author, body: values.note ?? "" });
+  } else if (command === "delete") comment = await removeComment(id);
   else throw new CommentError(`Unknown command "${command}"`, 400);
 
   if (values.json) console.log(JSON.stringify(comment, null, 2));
@@ -208,34 +219,43 @@ export function runComments(command: string, id: string | undefined, values: Com
  * A reviewer note on a whole prototype state (the full canvas as its region), for scripts and
  * agents relaying feedback; element comments are created by clicking in the gallery.
  */
-function addPageComment(slug: string, body: string, state?: string) {
+async function addPageComment(
+  slug: string,
+  body: string,
+  state: string | undefined,
+  author: CommentAuthor
+) {
   assertSlug(slug);
   const { appRoot, config } = currentApp();
   const entry = findPrototypes(appRoot, repoRoot, config).entries.find(item => item.slug === slug);
   const states = entry?.meta?.states.map(option => option.id) ?? [];
   if (state && !states.includes(state)) throw new CommentError(`Unknown state "${state}"`, 400);
-  const comment = addComment(slug, {
-    context: {
-      commit: headCommit(),
-      state: state ?? states[0] ?? "",
-      theme: null,
-      role: null,
-      viewport: { width: 1440, height: 960 },
+  const comment = addComment(
+    slug,
+    {
+      context: {
+        commit: headCommit(),
+        state: state ?? states[0] ?? "",
+        theme: null,
+        role: null,
+        viewport: { width: 1440, height: 960 },
+      },
+      target: {
+        kind: "region",
+        selector: "body",
+        testId: null,
+        tag: "body",
+        text: "",
+        source: null,
+        sourceChain: [],
+        rect: { x: 0, y: 0, width: 1440, height: 960 },
+        rectNormalized: { x: 0, y: 0, width: 1, height: 1 },
+        offset: null,
+      },
+      body,
     },
-    target: {
-      kind: "region",
-      selector: "body",
-      testId: null,
-      tag: "body",
-      text: "",
-      source: null,
-      sourceChain: [],
-      rect: { x: 0, y: 0, width: 1440, height: 960 },
-      rectNormalized: { x: 0, y: 0, width: 1, height: 1 },
-      offset: null,
-    },
-    body,
-  });
+    { kind: author }
+  );
   return comment;
 }
 
