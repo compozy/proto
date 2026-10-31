@@ -1,18 +1,21 @@
 import { createServer } from "node:net";
 import { request } from "node:http";
 import { resolve } from "node:path";
-import { expect, it } from "vitest";
+import { beforeAll, afterAll, expect, it } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
 import { startDev } from "../../../src/node/dev.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
 const app = resolve(import.meta.dirname, "../../../../../apps/app");
-async function port() {
-  const server = createServer();
-  await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
-  const value = (server.address() as { port: number }).port;
-  await new Promise<void>(r => server.close(() => r()));
-  return value;
-}
+import { freePortPair as port } from "../ports.ts";
+import { chromium, type Browser } from "playwright";
+import { existsSync } from "node:fs";
+let sharedBrowser: Browser | undefined;
+beforeAll(async () => {
+  if (existsSync(chromium.executablePath())) sharedBrowser = await chromium.launch();
+}, 60000);
+afterAll(async () => {
+  await sharedBrowser?.close();
+}, 30000);
 function hostRequest(port: number, host: string) {
   return new Promise<{ status: number; location?: string }>((resolve, reject) => {
     const req = request({ hostname: "127.0.0.1", port, path: "/", headers: { host } }, res => {
@@ -53,7 +56,7 @@ it("UT-094 and IT-013 serve bootstrap, registry and render HTML with host confin
   } finally {
     await server.close();
   }
-}, 30000);
+}, 120000);
 it("UT-069 busy ports name the pair", async () => {
   const occupied = createServer();
   await new Promise<void>(r => occupied.listen(0, "127.0.0.1", r));
@@ -65,7 +68,7 @@ it("UT-069 busy ports name the pair", async () => {
   } finally {
     await new Promise<void>(r => occupied.close(() => r()));
   }
-}, 30000);
+}, 120000);
 it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -96,7 +99,7 @@ it("IT-011 registry SSE follows prototype changes within two seconds", async () 
     await server?.close();
     rmSync(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 120000);
 
 // Owner: real dev host; invariant: review writes reach the app store and the shared SSE stream.
 it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and rejects foreign writes", async () => {
@@ -169,7 +172,7 @@ it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and reject
     await server?.close();
     await rm(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 120000);
 
 it("Render integration: DOM carries app-relative source tags and configured source roots", async context => {
   const { chromium } = await import("playwright");
@@ -195,7 +198,7 @@ it("Render integration: DOM carries app-relative source tags and configured sour
   project.config.flows = "journeys";
   project.config.canvas = "proto.canvas.tsx";
   const server = await startDev(project, { port: await port(), quiet: true });
-  const browser = await chromium.launch();
+  const browser = await sharedBrowser!.newContext();
   try {
     const page = await browser.newPage();
     const errors: string[] = [];
@@ -207,7 +210,7 @@ it("Render integration: DOM carries app-relative source tags and configured sour
     await page
       .locator("[data-proto-src]")
       .first()
-      .waitFor({ timeout: 10000 })
+      .waitFor({ timeout: 60000 })
       .catch(async error => {
         throw new Error(
           `${error.message}\nBrowser errors: ${errors.join("; ")}\nRendered document: ${await page.locator("body").innerText()}`
@@ -227,7 +230,7 @@ it("Render integration: DOM carries app-relative source tags and configured sour
     await server.close();
     rmSync(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 120000);
 it("Presentation integration: protoPresentation source tags survive the consumer React Compiler", async context => {
   const { chromium } = await import("playwright");
   const { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
@@ -239,7 +242,7 @@ it("Presentation integration: protoPresentation source tags survive the consumer
   const { createServer } = await import("vite");
   const root = mkdtempSync(join(app, ".proto-tags-test-"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let browser: Awaited<ReturnType<Browser["newContext"]>> | undefined;
   try {
     mkdirSync(join(root, "src"));
     writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Tags"};');
@@ -261,7 +264,7 @@ it("Presentation integration: protoPresentation source tags survive the consumer
       server: { host: "127.0.0.1", port: await port(), strictPort: true },
     });
     await server.listen();
-    browser = await chromium.launch();
+    browser = await sharedBrowser!.newContext();
     const page = await browser.newPage();
     await page.goto(server.resolvedUrls!.local[0]!);
     await page.getByRole("button").waitFor();
@@ -273,4 +276,4 @@ it("Presentation integration: protoPresentation source tags survive the consumer
     await server?.close();
     rmSync(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 120000);

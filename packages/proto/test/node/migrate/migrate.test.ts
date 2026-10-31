@@ -164,7 +164,9 @@ it.each(["stack-v2", "compozy-v2-sequence"])(
     expect(report.verified).toBe(true);
     expect(report.keys.every((key: { verified: boolean }) => key.verified)).toBe(true);
     const checked = await exec("bun", [cli, "check", "--app", root, "--json"], { cwd: root });
-    expect(JSON.parse(checked.stdout).ok).toBe(true);
+    // execFile rejects nonzero exits; the public check JSON reports problems/warnings.
+    expect(JSON.parse(checked.stdout)).toMatchObject({ problems: [], warnings: expect.any(Array) });
+    expect(JSON.parse(checked.stdout)).not.toHaveProperty("error");
     const project = await loadProject(root);
     expect((await project.migrate({ from: source })).keys[0]?.status).toBe("unchanged");
   },
