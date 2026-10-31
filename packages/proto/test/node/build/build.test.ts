@@ -111,14 +111,10 @@ it("IT-012: registry problems exit 1; guard failures remove even stale dist-prot
   await mkdir(join(root, "dist-proto"));
   await writeFile(join(root, "dist-proto/old.txt"), "stale");
   await writeFile(join(root, "src/example.proto.tsx"), "export const meta = invalid();");
-  const command = join(pkg, "src/cli/commands/build.ts");
-  const result = spawnSync(
-    "bun",
-    ["-e", `import command from ${JSON.stringify(command)}; await command.run({});`],
-    { cwd: root, encoding: "utf8" }
-  );
+  const command = join(pkg, "src/cli/main.ts");
+  const result = spawnSync("bun", [command, "build", "--json"], { cwd: root, encoding: "utf8" });
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain("invalid_meta");
+  expect(result.stdout).toContain("invalid_meta");
   expect(existsSync(join(root, "dist-proto"))).toBe(false);
   await writeFile(
     join(root, "src/example.proto.tsx"),
@@ -196,28 +192,45 @@ it("E2E-010: static data, image and query-form render work under /gallery/ witho
     await server.close();
   }
 }, 30000);
-it.skipIf(!existsSync(join(shell, "index.html")))(
-  "E2E-010 shell UI: read-only hides mutations and default build explains absent review",
-  async () => {
-    const { root, project, options } = await fixture(true);
-    await seed(project);
+it("E2E-010 shell UI: read-only hides mutations and default build explains absent review", async () => {
+  const { root, project, options } = await fixture(true);
+  await seed(project);
+  await buildProject(project, options);
+  const server = await serve(join(root, "dist-proto"));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(server.url + "?p=example");
+    await page
+      .frameLocator("iframe")
+      .first()
+      .getByRole("button", { name: "Static prototype" })
+      .waitFor();
+    expect(
+      await page.getByRole("button", { name: /add comment|approve|credentials/i }).count()
+    ).toBe(0);
+    const commentsTab = page.getByRole("tab", { name: /comments/i });
+    expect(
+      await commentsTab.count(),
+      "The integrated shell must provide the read-only Comments inspector"
+    ).toBe(1);
+    await commentsTab.click();
+    await page.getByText("Existing thread", { exact: true }).waitFor();
+    await page.locator('img[src*="attachments/"]').first().waitFor();
+    expect(
+      await page
+        .locator('img[src*="attachments/"]')
+        .first()
+        .evaluate((img: HTMLImageElement) => img.naturalWidth)
+    ).toBe(1);
+    expect(await page.locator("iframe").first().getAttribute("src")).toContain("?slug=");
+    project.config.build.includeReview = false;
     await buildProject(project, options);
-    const server = await serve(join(root, "dist-proto"));
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage();
-      await page.goto(server.url + "?p=example");
-      await page.getByText("Existing thread", { exact: true }).waitFor();
-      expect(await page.getByRole("button", { name: /add comment|credentials/i }).count()).toBe(0);
-      expect(await page.locator("iframe").first().getAttribute("src")).toContain("?slug=");
-      project.config.build.includeReview = false;
-      await buildProject(project, options);
-      await page.reload();
-      await page.getByText(/not included/i).waitFor();
-    } finally {
-      await browser.close();
-      await server.close();
-    }
-  },
-  30000
-);
+    await page.reload();
+    await page.getByRole("tab", { name: /comments/i }).click();
+    await page.getByText(/not included/i).waitFor();
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}, 30000);

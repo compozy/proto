@@ -22,11 +22,10 @@ npm pack ./packages/proto/dist/package --ignore-scripts
 package fails with an instruction to use the staging directory, preventing an accidental TS-only
 release. The package build checks aggregate per-file gzip size of shell JS, CSS and HTML against
 400 KiB. When `build:shell` is present, it must emit `dist/shell/index.html`; errors are fatal.
-During slice integration, missing shell and `/server` or `/mcp` sources emit explicit skip messages.
-Absent optional entrypoints are omitted from the staged exports rather than pointing to missing files.
-No fake modules are generated. Shell absence blocks publication. The tarball test always runs export,
-Node/Bun CLI help, bootstrap and render compilation checks. Only shell and new CLI-dependent steps
-are skipped while those slices are absent.
+The integrated package emits every public entry, SQL migrations under `src/server/migrations/`,
+and the skills used by `proto init --skills`. The tarball adoption test has no slice skips: it
+imports every entry, resolves migration SQL, runs the installed Node/Bun bin, scaffolds a fresh
+Vite React app, and serves the prebuilt shell, bootstrap and render origin through `proto dev`.
 
 ## Automated release
 
@@ -98,37 +97,10 @@ bootstrap after the integration PR and validation have completed:
 No automated bootstrap credential is stored. These are operator steps, not actions performed by
 the worker implementing the release system.
 
-## Remaining workspace UI imports at the W8 base
+## Runtime boundary
 
-These files are excluded from the emitted Node package. The shell build must vendor their UI
-before publication; `@proto/ui` is a development dependency only. The tarball adoption installs
-without `@proto/ui`. The shell worker owns removing these source imports.
-
-- `packages/proto/src/main.tsx`
-- `packages/proto/src/shell/overview.tsx`
-- `packages/proto/src/shell/side-panel.tsx`
-- `packages/proto/src/shell/shortcuts.tsx`
-- `packages/proto/src/shell/sidebar-levels.tsx`
-- `packages/proto/src/shell/sidebar.tsx`
-- `packages/proto/src/shell/toolbar.tsx`
-- `packages/proto/src/shell/sidebar-flows.tsx`
-- `packages/proto/src/shell/topbar.tsx`
-- `packages/proto/src/shell/flow-toolbar.tsx`
-- `packages/proto/src/shell/comments/overlay.tsx`
-- `packages/proto/src/shell/flows/side.tsx`
-- `packages/proto/src/shell/canvas.tsx`
-- `packages/proto/src/shell/sidebar-rows.tsx`
-- `packages/proto/src/shell/comments/message.tsx`
-- `packages/proto/src/shell/viewport-control.tsx`
-- `packages/proto/src/shell/flows/flow-edge.tsx`
-- `packages/proto/src/shell/flows/membership.tsx`
-- `packages/proto/src/shell/flows/nodes.tsx`
-- `packages/proto/src/shell/flows/inspector.tsx`
-- `packages/proto/src/shell/flows/flow-view.tsx`
-- `packages/proto/src/shell/flows/chrome.tsx`
-- `packages/proto/src/shell/comments/flow-composer.tsx`
-- `packages/proto/src/shell/comments/composer.tsx`
-- `packages/proto/src/shell/comments/pins.tsx`
-- `packages/proto/src/shell/comments/panel.tsx`
-- `packages/proto/src/shell/gallery.tsx`
-- `packages/proto/src/shell/comments/attachments.tsx`
+The in-consumer gallery has been removed. The catalog's CLI-only `build` lifecycle verb calls
+`buildProject(project)`; it never builds the shell in the consumer. Shell-only `@xyflow/react`
+is a development dependency and its code is bundled into `dist/shell`. There are no remaining
+runtime imports of `@proto/ui`, `@tanstack/react-query` or `elkjs` in this package. The installed
+consumer does not need those packages. Vendored UI attribution comments remain intact.

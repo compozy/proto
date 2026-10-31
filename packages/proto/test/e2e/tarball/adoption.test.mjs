@@ -34,6 +34,7 @@ test(
             react: manifest.peerDependencies.react,
             "react-dom": manifest.peerDependencies["react-dom"],
             vite: manifest.dependencies.vite,
+            "@vitejs/plugin-react": manifest.devDependencies["@vitejs/plugin-react"],
           },
         })
       );
@@ -46,9 +47,7 @@ test(
       await t.test(
         "public exports and Node/Bun bin resolve without workspace packages",
         async () => {
-          const available = [".", "./flow", "./config", "./vite", "./node"];
-          for (const name of ["server", "mcp"])
-            if (existsSync(join(stage, `src/${name}/index.js`))) available.push(`./${name}`);
+          const available = [".", "./flow", "./config", "./vite", "./node", "./server", "./mcp"];
           run(
             "node",
             [
@@ -62,27 +61,41 @@ test(
           const packedManifest = JSON.parse(
             await readFile(join(installed, "package.json"), "utf8")
           );
-          for (const entry of Object.values(packedManifest.exports)) {
+          for (const [key, entry] of Object.entries(packedManifest.exports)) {
+            if (key.endsWith("/*")) continue;
             assert.ok(existsSync(join(installed, entry.types)));
             assert.ok(existsSync(join(installed, entry.default)));
           }
-          assert.ok(run("node", [bin, "--help"], app).includes(manifest.version));
-          assert.match(run("bun", [bin, "--help"], app), /proto/i);
+          assert.ok(JSON.parse(run("node", [bin, "--help"], app)).commands.includes("build"));
+          assert.ok(JSON.parse(run("bun", [bin, "--help"], app)).commands.includes("init"));
+          assert.ok(
+            packed.files.some(file => file.path === "src/server/migrations/0001_review.sql")
+          );
+          run(
+            "node",
+            [
+              "--input-type=module",
+              "-e",
+              `import {readFileSync} from "node:fs"; const sql=readFileSync(new URL(import.meta.resolve("@compozy/proto/server/migrations/0001_review.sql")),"utf8"); if (!sql.includes("CREATE TABLE")) throw Error("Missing SQL migration");`,
+            ],
+            app
+          );
           run("node", [bin, "dev", "--help"], app);
           run("node", [bin, "check", "--help"], app);
           assert.ok(existsSync(join(installed, "src/render/main.tsx")));
           assert.ok(!existsSync(join(app, "node_modules/@proto/ui")));
         }
       );
-      const help = run("node", [join(installed, "src/cli/main.js"), "--help"], app);
-      await t.test(
-        "proto init scaffolds the consumer",
-        { skip: !/\binit\b/.test(help) && "CLI init slice absent" },
-        () => {
-          run("node", [join(installed, "src/cli/main.js"), "init"], app);
-          assert.ok(existsSync(join(app, "proto.config.ts")));
-        }
+      await writeFile(
+        join(app, "vite.config.ts"),
+        `import react from "@vitejs/plugin-react"; export default {plugins:[react()]};`
       );
+      await t.test("proto init scaffolds the consumer", () => {
+        run("node", [join(installed, "src/cli/main.js"), "init", "--skills"], app);
+        assert.ok(existsSync(join(app, "proto.config.ts")));
+        assert.ok(existsSync(join(app, ".agents/skills/author-prototype/SKILL.md")));
+        run("node", [join(installed, "src/cli/main.js"), "check", "--json"], app);
+      });
       await writeFile(
         join(app, "proto.config.ts"),
         `export default { title: 'Tarball consumer' };`
@@ -93,9 +106,12 @@ test(
       );
       await writeFile(
         join(app, "src/example.proto.tsx"),
-        `export const meta = { title: 'Example', states: [{id:'default',label:'Default'}] }; export default function Example() { return <button>Tarball</button>; }`
+        `import {definePrototype} from "@compozy/proto"; import {View} from "./view"; export const meta = definePrototype({ title: "Example", states: [{id:"default",label:"Default"}] }); export default View;`
       );
-      await writeFile(join(app, "vite.config.ts"), `export default {};`);
+      await writeFile(
+        join(app, "src/view.tsx"),
+        `export function View(){return <button>Tarball</button>}`
+      );
       await writeFile(join(app, "index.html"), '<div id="root"></div>');
       await t.test(
         "dev Node entry serves bootstrap and compiles render from consumer graph",
@@ -126,46 +142,44 @@ try {
           run("node", ["smoke.mjs"], app);
         }
       );
-      await t.test(
-        "prebuilt shell is shipped",
-        { skip: !existsSync(join(stage, "dist/shell/index.html")) && "Shell build slice absent" },
-        async () => {
-          assert.match(await readFile(join(installed, "dist/shell/index.html"), "utf8"), /<script/);
-        }
-      );
-      await t.test(
-        "CLI dev serves the consumer",
-        {
-          skip:
-            !/\binit\b/.test(help) &&
-            "Legacy CLI still selects repository apps; new CLI slice absent",
-        },
-        async () => {
-          // Exercise the CLI using an independent child and a real HTTP endpoint.
-          const { spawn } = await import("node:child_process");
-          const child = spawn(
-            "node",
-            [join(installed, "src/cli/main.js"), "dev", "--port", "24320"],
-            { cwd: app, stdio: "ignore" }
-          );
-          const exited = new Promise(resolve => child.once("exit", resolve));
-          try {
-            let response;
-            for (let attempt = 0; attempt < 100; attempt++) {
-              try {
-                response = await fetch("http://127.0.0.1:24320/__proto/bootstrap.json");
-                if (response.ok) break;
-              } catch {}
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            assert.equal(response?.status, 200);
-            assert.equal((await response.json()).title, "Tarball consumer");
-          } finally {
-            child.kill("SIGTERM");
-            await exited;
+      await t.test("catalog build emits the static read-only distribution", async () => {
+        run("node", [join(installed, "src/cli/main.js"), "build", "--json"], app);
+        const bootstrap = JSON.parse(
+          await readFile(join(app, "dist-proto/__proto/bootstrap.json"), "utf8")
+        );
+        assert.equal(bootstrap.mode, "read-only");
+        assert.equal(bootstrap.reviewSnapshotBase, null);
+        assert.ok(existsSync(join(app, "dist-proto/__proto/render/index.html")));
+        assert.ok(!existsSync(join(app, "dist-gallery")));
+      });
+      await t.test("prebuilt shell is shipped", async () => {
+        assert.match(await readFile(join(installed, "dist/shell/index.html"), "utf8"), /<script/);
+      });
+      await t.test("CLI dev serves the consumer", async () => {
+        // Exercise the CLI using an independent child and a real HTTP endpoint.
+        const { spawn } = await import("node:child_process");
+        const child = spawn(
+          "node",
+          [join(installed, "src/cli/main.js"), "dev", "--port", "24320"],
+          { cwd: app, stdio: "ignore" }
+        );
+        const exited = new Promise(resolve => child.once("exit", resolve));
+        try {
+          let response;
+          for (let attempt = 0; attempt < 100; attempt++) {
+            try {
+              response = await fetch("http://127.0.0.1:24320/__proto/bootstrap.json");
+              if (response.ok) break;
+            } catch {}
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
+          assert.equal(response?.status, 200);
+          assert.equal((await response.json()).title, "Tarball consumer");
+        } finally {
+          child.kill("SIGTERM");
+          await exited;
         }
-      );
+      });
     } finally {
       await rm(temp, { recursive: true, force: true });
     }

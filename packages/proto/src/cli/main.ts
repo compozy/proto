@@ -119,6 +119,10 @@ export async function runCli(
       });
       return { exitCode: report.errors.length ? 1 : 0, data: report };
     }
+    if (capability.cli === "build") {
+      const { rm } = await import("node:fs/promises");
+      await rm(join(root, "dist-proto"), { recursive: true, force: true });
+    }
     const project =
       options.project ?? (capability.cli === "init" ? undefined : await loadProject(root));
     if (capability.cli === "dev") {
@@ -135,18 +139,9 @@ export async function runCli(
       return { exitCode: 0, data: undefined };
     }
     if (capability.cli === "build") {
-      const { loadApp } = await import("../node/paths.ts");
-      const { build } = await import("vite");
-      const { galleryViteConfig } = await import("../node/vite-config.ts");
-      const { checkProject } = await import("../node/check.ts");
-      const check = await checkProject(project!);
-      if (!check.ok) return { exitCode: 1, data: check };
-      await loadApp(root.split("/").at(-1));
-      await build({
-        ...(await galleryViteConfig("build")),
-        logLevel: args.json ? "silent" : "info",
-      });
-      return { exitCode: 0, data: { path: "dist-gallery" } };
+      const { buildProject } = await import("../node/build.ts");
+      const result = await buildProject(project!);
+      return { exitCode: 0, data: { path: result.output, warnings: result.warnings } };
     }
     const data = await executeCapability(capability, args, { root, project, transport: "cli" });
     const failure =

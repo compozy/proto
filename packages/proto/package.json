@@ -36,7 +36,8 @@
         "./vite": "./src/vite.ts",
         "./node": "./src/node/index.ts",
         "./server": "./src/server/index.ts",
-        "./mcp": "./src/mcp.ts"
+        "./mcp": "./src/mcp.ts",
+        "./server/migrations/*": "./src/server/migrations/*"
     },
     "publishConfig": {
         "access": "public",
@@ -53,10 +54,7 @@
         "dev:shell": "vite -c test/harness/vite.config.ts"
     },
     "dependencies": {
-        "@tanstack/react-query": "5.104.3",
-        "@xyflow/react": "12.12.0",
         "citty": "0.2.2",
-        "elkjs": "0.12.0",
         "tldts": "7.4.19",
         "typescript": "6.0.3",
         "vite": "8.3.4",
@@ -67,13 +65,13 @@
         "@fontsource-variable/geist-mono": "5.3.0",
         "@fontsource-variable/inter": "5.3.0",
         "@modelcontextprotocol/sdk": "1.32.2",
-        "@proto/ui": "workspace:*",
         "@tailwindcss/vite": "4.3.3",
         "@types/node": "24.19.2",
         "@types/react": "19.2.0",
         "@types/react-dom": "19.2.0",
         "@vitejs/plugin-react": "6.1.2",
         "@vitest/browser-playwright": "5.0.5",
+        "@xyflow/react": "12.12.0",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
         "oxc-transform-react": "0.154.0",
