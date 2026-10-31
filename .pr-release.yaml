@@ -1,0 +1,26 @@
+# pr-release (github.com/compozy/releasepr) configuration; see docs/releasing.md.
+# Owner/repo and the token come from the GitHub Actions environment.
+release_artifacts:
+  - name: package-version
+    command: node
+    args: ["scripts/release/sync-version.mjs"]
+    add: ["package.json", "packages/proto/package.json"]
+    timeout_seconds: 60
+  - name: lockfile
+    command: bun
+    args: ["install", "--lockfile-only", "--ignore-scripts"]
+    add: ["bun.lock"]
+    timeout_seconds: 300
+  - name: format-release-files
+    command: bun
+    args:
+      [
+        "x",
+        "oxfmt",
+        "CHANGELOG.md",
+        "RELEASE_BODY.md",
+        "RELEASE_NOTES.md",
+        "packages/proto/package.json",
+      ]
+    add: ["CHANGELOG.md", "RELEASE_BODY.md", "RELEASE_NOTES.md", "packages/proto/package.json"]
+    timeout_seconds: 120

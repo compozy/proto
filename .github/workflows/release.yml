@@ -1,4 +1,7 @@
 name: Release
+# pr-release (github.com/compozy/releasepr) owns versioning: a push to main opens or updates the
+# `build: release vX.Y.Z` pull request, and merging it publishes npm, then the tag and GitHub
+# Release. See docs/releasing.md.
 on:
   push:
     branches: [main]
@@ -16,6 +19,9 @@ on:
         options: [stable, beta]
 permissions:
   contents: read
+env:
+  PR_RELEASE_MODULE: github.com/compozy/releasepr@v0.0.35
+  GIT_CLIFF_VERSION: 2.7.0
 concurrency:
   group: >-
     release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build: release v')) && '-publish' || '' }}
@@ -24,6 +30,7 @@ jobs:
   release-pr:
     if: >-
       github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'build: release v')
+      && github.event.head_commit.author.name != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -33,18 +40,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
+          # A personal token makes the release pull request trigger CI; GITHUB_TOKEN events do not.
           token: ${{ secrets.RELEASE_TOKEN }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
       - run: bun install --frozen-lockfile
-      - run: bun install --global git-cliff@2.7.0
-      - run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          node scripts/release/prepare.mjs
+      - run: bun install --global "git-cliff@${GIT_CLIFF_VERSION}"
+      - name: Open or update the release pull request
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: go run "$PR_RELEASE_MODULE" pr-release --force --enable-rollback --ci-output
   package:
     if: >-
       github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build: release v')))
@@ -67,15 +78,49 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: npm install --global npm@11.9.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
       - run: bun install --frozen-lockfile
-      - run: bun install --global git-cliff@2.7.0
+      - run: bun install --global "git-cliff@${GIT_CLIFF_VERSION}"
       - run: bun run --cwd packages/proto test --project node test/node/package/package.test.ts
+      # Release pull requests prove the identity they will publish; other pull requests only package.
       - name: Resolve release identity
         id: plan
-        run: node scripts/release/plan.mjs
+        if: >-
+          github.event_name != 'pull_request' || startsWith(github.event.pull_request.title, 'build: release v')
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_CHANNEL: ${{ inputs.channel }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          version=$(node -p 'require("./packages/proto/package.json").version')
+          if [[ -n "$RELEASE_VERSION" && "$RELEASE_VERSION" != "$version" ]]; then
+            echo "Dispatch version $RELEASE_VERSION does not match committed package $version" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "${HEAD_SUBJECT%%$'\n'*}" != "build: release v$version"* ]]; then
+            echo "Release merge subject does not match package version $version" >&2
+            exit 1
+          fi
+          channel=${RELEASE_CHANNEL:-$([[ "$version" == *-beta.* ]] && echo beta || echo stable)}
+          args=(plan --ref HEAD --version "$version" --channel "$channel" --format github)
+          # A retry resumes only when the existing annotated tag points to this commit.
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then args+=(--allow-existing-tag); fi
+          go run "$PR_RELEASE_MODULE" "${args[@]}" >> "$GITHUB_OUTPUT"
+      - name: Render the release body
+        if: steps.plan.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.plan.outputs.release_tag }}
+          RELEASE_GIT_RANGE: ${{ steps.plan.outputs.release_git_range }}
+          RELEASE_INITIAL: ${{ steps.plan.outputs.release_initial }}
+        run: |
+          if [[ "$RELEASE_INITIAL" == "true" ]]; then selector=(--initial); else selector=(--range "$RELEASE_GIT_RANGE"); fi
+          go run "$PR_RELEASE_MODULE" release-body --tag "$RELEASE_TAG" "${selector[@]}" > "$RUNNER_TEMP/release-body.md"
+          grep -Fq "## ${RELEASE_TAG}" "$RUNNER_TEMP/release-body.md"
       - run: bun run --cwd packages/proto build
       - run: npm pack ./dist/package --dry-run --ignore-scripts
         working-directory: packages/proto
@@ -92,13 +137,15 @@ jobs:
         run: node packages/proto/scripts/publish.mjs
         env:
           BOOTSTRAP_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          REQUESTED_VERSION: ${{ steps.plan.outputs.version }}
-          CHANNEL: ${{ steps.plan.outputs.channel }}
+          REQUESTED_VERSION: ${{ steps.plan.outputs.release_version }}
+          CHANNEL: ${{ steps.plan.outputs.release_channel }}
       - name: Tag and publish GitHub Release after npm succeeds
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
-          RELEASE_COMMIT: ${{ steps.plan.outputs.commit }}
-          PRERELEASE: ${{ steps.plan.outputs.prerelease }}
+          RELEASE_TAG: ${{ steps.plan.outputs.release_tag }}
+          RELEASE_COMMIT: ${{ steps.plan.outputs.release_commit }}
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-body.md
+          PRERELEASE: ${{ steps.plan.outputs.github_prerelease }}
+          MAKE_LATEST: ${{ steps.plan.outputs.github_make_latest }}
         run: bash scripts/release/finalize.sh

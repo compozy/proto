@@ -55,6 +55,12 @@
       "skillPath": "skills/mine/refactoring-analysis/SKILL.md",
       "computedHash": "ef4079fef46121a0cc57ce5c293df989dc62cd399eb511c1f82ab910ec3444e7"
     },
+    "releasepr": {
+      "source": "compozy/releasepr",
+      "sourceType": "github",
+      "skillPath": "skills/releasepr/SKILL.md",
+      "computedHash": "f5c9db4ba5677b014296b4cd2f9d9f089edcef538c1d87eb4556343f7eff798d"
+    },
     "shadcn": {
       "source": "pedronauck/skills",
       "sourceType": "github",
