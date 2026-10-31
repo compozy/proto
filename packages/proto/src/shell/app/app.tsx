@@ -118,6 +118,8 @@ function App() {
   useEffect(() => {
     document.title = bootstrap.title;
   }, [bootstrap.title]);
+  // A remote gallery without a session has nothing it may read yet: sign in first (S18).
+  if (bootstrap.mode === "remote" && !bootstrap.principal) return <SignInPage />;
   if (registry.status === "loading") {
     return (
       <Shell view={view}>
@@ -135,7 +137,6 @@ function App() {
   if (registry.status === "error") {
     return <Fatal title={t("app.registryFailed")} message={registry.message} onRetry={reload} />;
   }
-  if (bootstrap.mode === "remote" && !bootstrap.principal) return <SignInPage />;
   return (
     <ReviewProvider keys={reviewKeys(registry.registry)}>
       <Slots>

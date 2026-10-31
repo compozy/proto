@@ -51,7 +51,7 @@ export const specs = [
     open: 3,
     approved: false,
     updated: "4 min ago",
-    preview: "/login-form?state=sign-in&chrome=0",
+    preview: previewUrl("login-form", "sign-in"),
   },
   {
     id: "onboarding",
@@ -62,7 +62,7 @@ export const specs = [
     open: 1,
     approved: false,
     updated: "2 h ago",
-    preview: "/welcome?state=default&chrome=0",
+    preview: previewUrl("welcome", "default"),
   },
   {
     id: "billing",
@@ -73,7 +73,7 @@ export const specs = [
     open: 0,
     approved: true,
     updated: "yesterday",
-    preview: "/welcome?state=done&chrome=0",
+    preview: previewUrl("welcome", "done"),
   },
 ] as const;
 
@@ -261,8 +261,15 @@ export const kindLabel: Record<NodeKind, string> = {
   end: "End",
 };
 
+/**
+ * A state of a real prototype on this render host: the path form (`/__proto/render/<slug>`) under
+ * `proto dev` and remote, the query form (`index.html?slug=`) in a static build.
+ */
 export function previewUrl(slug: string, state: string, theme?: "light" | "dark") {
-  return `/${slug}?state=${state}${theme ? `&theme=${theme}` : ""}&chrome=0`;
+  const query = `state=${state}${theme ? `&theme=${theme}` : ""}&chrome=0`;
+  return typeof window !== "undefined" && window.location.pathname.endsWith("/index.html")
+    ? `index.html?slug=${slug}&${query}`
+    : `/__proto/render/${slug}?${query}`;
 }
 
 export const drafts = [
