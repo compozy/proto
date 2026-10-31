@@ -59,7 +59,12 @@ export default defineConfig({
           browser: {
             enabled: true,
             headless: true,
-            provider: playwright(),
+            // `localhost` must reach this server's 127.0.0.1 socket: a concurrent Vite server
+            // (another package's browser tests on the default port) can hold `[::1]:<port>`, and
+            // Chromium would load the render host from it and get a 404.
+            provider: playwright({
+              launchOptions: { args: ["--host-resolver-rules=MAP localhost 127.0.0.1"] },
+            }),
             commands: renderCommands,
             instances: [{ browser: "chromium" }],
           },
