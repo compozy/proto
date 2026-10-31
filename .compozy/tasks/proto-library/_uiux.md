@@ -24,7 +24,8 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
   read-only build has no comment/approve controls at all; an unknown state in the URL renders the default
   state and marks the chip "unknown".
 - **Prototype isolation**: previews keep the consumer's theme; they follow the shell theme only through
-  `?theme=`.
+  `?theme=`. Previews load from the render origin (ADR-008); the shell never reads an iframe's DOM — picking,
+  hover outlines and pin positions come from the render host over the protocol.
 - **Keyboard**: every action has a shortcut or is reachable by Tab; `?` lists them; focus-visible ring is
   the primary color.
 - **Responsive**: ≥ 1536 full (meta in sub-header, legend in canvas); 1280 compact labels; 1024 inspector
@@ -40,7 +41,7 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 | S3  | Spec page                              | new  | Flows and screens of one spec, state counts, review status            | US-011                   | `spec`                             |
 | S4  | Flow canvas                            | new  | Step cards, edges by kind, path highlight, zoom/minimap/stats         | US-012, US-008           | `flow`                             |
 | S5  | Step inspector                         | new  | Preview, screen facts, arrives-from/leads-to, Open screen / Comment   | US-012                   | `flow`                             |
-| S6  | Screen view                            | new  | State toolbar, viewport/theme/role controls, fitted frame             | US-013, US-006           | `screen`                           |
+| S6  | Screen view                            | new  | State toolbar, viewport/theme/role controls, fitted frame             | US-013, US-006           | `screen`, `state-picker`           |
 | S7  | Compare                                | new  | Light and dark side by side                                           | US-014                   | `compare`                          |
 | S8  | Comment mode                           | new  | Crosshair picker, element/region highlight, composer with attachments | US-016, US-018           | `comment-compose`                  |
 | S9  | Thread panel                           | new  | Open/Resolved tabs, threads with source chip, replies, Resolve/Reply  | US-019, US-017           | `screen`, `flow-comments`          |
@@ -95,6 +96,10 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 
 ### S8. Comment mode · S9. Thread panel
 
+- **Change**: comment mode sends `pick:start` to the render host; the render host draws the hover outline
+  and element label inside the iframe and returns `pick:result`; pins are positioned from `anchors` rects
+  (null → "moved" marker). Keyboard mode: arrows move a crosshair inside the render host, Enter picks.
+  Edit/detach controls appear only on messages and uploads the current principal owns (remote).
 - **States**: picking (crosshair, hover outline, hint "Click an element or drag a region"); region
   drawn; composer open (with 0..6 attachment thumbnails, size error); sent (pin numbered); thread focused;
   reply composer; resolved tab; empty (no comments: "Press C…"); pin "moved" marker; deleted elsewhere.
@@ -136,21 +141,27 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 ### S17. Settings
 
 - **Sections**: Project (title, paths, specs, roles from config — read-only with "edit proto.config.ts");
-  Review (mode local/remote, remote URL, signed-in reviewer); Credentials (list, create with scopes, token
-  shown once, revoke); About (version, Vite, commit).
+  Review (mode dev/read-only/remote from bootstrap, remote URL, signed-in principal); Credentials (remote
+  session only: list own, create with scopes limited to the principal's, token shown once with the
+  `proto auth login` hint, revoke); Health (problems and warnings); About (package version, Vite, commit).
+  In dev and read-only modes the Credentials section is absent.
 
 ### S18. Remote sign-in
 
-- **States**: sign-in card (app mark, "Sign in to review Acme prototypes", provider button / token
-  field); session expired banner.
+- **Change**: a holding page served by the review server only when `signIn` is a URL handoff that needs an
+  intermediate step; normally the server redirects document requests straight to the project's sign-in with
+  `returnTo`. There is **no token field**: bearer credentials are for CLI/MCP only.
+- **States**: sign-in card (app mark, "Sign in to review Acme prototypes", one button to the project's
+  sign-in); session expired banner over the shell (unsent composer draft kept locally, "Sign in again"
+  returns to the same URL).
 
 ### S19. Shortcuts — sheet listing J/K, [ ], T, C, /, ⌘K, ?, Esc, F (fit), 1/2/3 (views).
 
 ### S20. Narrow layout — inspector hidden, a panel toggle in the sub-header opens it as a right drawer.
 
-### S21. Read-only build — "Read-only" pill instead of open count; no Approve, no comment tool; threads
+### S21. Read-only build — "Read-only" pill instead of open count; no Approve, no comment tool, no
 
-visible.
+Credentials; threads and images visible from the build's review snapshots (`review/<key>.json`).
 
 ## Component plan (design → production mapping)
 

@@ -15,42 +15,43 @@ Canonical behavior catalog for `@compozy/proto`. Companion to `_spec.md`; consum
 
 ## Story Index
 
-| ID     | Feature Area | Persona  | Story                                                       |
-| ------ | ------------ | -------- | ----------------------------------------------------------- |
-| US-001 | Adoption     | Builder  | Install and initialize a project with `proto init`          |
-| US-002 | Adoption     | Builder  | Run the gallery with `proto dev`                            |
-| US-003 | Adoption     | Builder  | Build a static gallery with `proto build`                   |
-| US-004 | Adoption     | Builder  | Provide app providers and chrome through `proto.canvas.tsx` |
-| US-005 | Authoring    | Builder  | Declare a component prototype with states                   |
-| US-006 | Authoring    | Builder  | Preview a prototype as a role                               |
-| US-007 | Authoring    | Builder  | Explore a draft with free markup                            |
-| US-008 | Authoring    | Builder  | Declare a flow between prototype states                     |
-| US-009 | Authoring    | Builder  | Scaffold prototypes and flows from the CLI                  |
-| US-010 | Browsing     | Reviewer | See what exists and what needs review on the overview       |
-| US-011 | Browsing     | Reviewer | Open a spec and see its flows and screens                   |
-| US-012 | Browsing     | Reviewer | Walk a flow on the canvas with live previews                |
-| US-013 | Browsing     | Reviewer | Inspect a screen state at a viewport, theme and role        |
-| US-014 | Browsing     | Reviewer | Compare a state in light and dark                           |
-| US-015 | Browsing     | Reviewer | Find anything with ⌘K and keyboard shortcuts                |
-| US-016 | Review       | Reviewer | Pin a comment to an element or region                       |
-| US-017 | Review       | Reviewer | Comment on a flow or a flow step                            |
-| US-018 | Review       | Reviewer | Attach images to a message                                  |
-| US-019 | Review       | Reviewer | Reply, edit, resolve and reopen threads                     |
-| US-020 | Review       | Reviewer | Approve a prototype or flow                                 |
-| US-021 | Review       | Reviewer | Work through every open comment in an inbox                 |
-| US-022 | Agents       | Agent    | Read the registry and checks as JSON                        |
-| US-023 | Agents       | Agent    | Answer comments from the CLI                                |
-| US-024 | Agents       | Agent    | Operate the gallery through MCP                             |
-| US-025 | Agents       | Agent    | Produce screenshot and DOM evidence of a state              |
-| US-026 | Agents       | Agent    | Follow shipped skills and the open-design record            |
-| US-027 | Remote       | Operator | Deploy a gallery with remote review                         |
-| US-028 | Remote       | Reviewer | Sign in to a deployed gallery                               |
-| US-029 | Remote       | Operator | Issue and revoke credentials                                |
-| US-030 | Remote       | Agent    | Answer remote comments with `--remote`                      |
-| US-031 | Safety       | Builder  | Keep prototypes off the data layer and out of production    |
-| US-032 | Safety       | Builder  | See discovery and flow problems                             |
-| US-033 | Safety       | Reviewer | Understand a prototype that fails to render                 |
-| US-034 | Migration    | Builder  | Move an existing gallery copy to the package                |
+| ID     | Feature Area | Persona  | Story                                                             |
+| ------ | ------------ | -------- | ----------------------------------------------------------------- |
+| US-001 | Adoption     | Builder  | Install and initialize a project with `proto init`                |
+| US-002 | Adoption     | Builder  | Run the gallery with `proto dev`                                  |
+| US-003 | Adoption     | Builder  | Build a static gallery with `proto build`                         |
+| US-004 | Adoption     | Builder  | Provide app providers and chrome through `proto.canvas.tsx`       |
+| US-005 | Authoring    | Builder  | Declare a component prototype with states                         |
+| US-006 | Authoring    | Builder  | Preview a prototype as a role                                     |
+| US-007 | Authoring    | Builder  | Explore a draft with free markup                                  |
+| US-008 | Authoring    | Builder  | Declare a flow between prototype states                           |
+| US-009 | Authoring    | Builder  | Scaffold prototypes and flows from the CLI                        |
+| US-010 | Browsing     | Reviewer | See what exists and what needs review on the overview             |
+| US-011 | Browsing     | Reviewer | Open a spec and see its flows and screens                         |
+| US-012 | Browsing     | Reviewer | Walk a flow on the canvas with live previews                      |
+| US-013 | Browsing     | Reviewer | Inspect a screen state at a viewport, theme and role              |
+| US-014 | Browsing     | Reviewer | Compare a state in light and dark                                 |
+| US-015 | Browsing     | Reviewer | Find anything with ⌘K and keyboard shortcuts                      |
+| US-016 | Review       | Reviewer | Pin a comment to an element or region                             |
+| US-017 | Review       | Reviewer | Comment on a flow or a flow step                                  |
+| US-018 | Review       | Reviewer | Attach images to a message                                        |
+| US-019 | Review       | Reviewer | Reply, edit, resolve and reopen threads                           |
+| US-020 | Review       | Reviewer | Approve a prototype or flow                                       |
+| US-021 | Review       | Reviewer | Work through every open comment in an inbox                       |
+| US-022 | Agents       | Agent    | Read the registry and checks as JSON                              |
+| US-023 | Agents       | Agent    | Answer comments from the CLI                                      |
+| US-024 | Agents       | Agent    | Operate the gallery through MCP                                   |
+| US-025 | Agents       | Agent    | Produce screenshot and DOM evidence of a state                    |
+| US-026 | Agents       | Agent    | Follow shipped skills and the open-design record                  |
+| US-027 | Remote       | Operator | Deploy a gallery with remote review                               |
+| US-028 | Remote       | Reviewer | Sign in to a deployed gallery                                     |
+| US-029 | Remote       | Operator | Issue and revoke credentials                                      |
+| US-030 | Remote       | Agent    | Answer remote comments with `--remote`                            |
+| US-031 | Safety       | Builder  | Keep prototypes off the data layer and out of production          |
+| US-032 | Safety       | Builder  | See discovery and flow problems                                   |
+| US-033 | Safety       | Reviewer | Understand a prototype that fails to render                       |
+| US-034 | Migration    | Builder  | Move an existing gallery copy and its review files to the package |
+| US-035 | Migration    | Operator | Move reloaddev's remote review data to the review server          |
 
 ## Adoption
 
@@ -82,6 +83,7 @@ copying code.
 - EC-1: Port 4400 busy → exit 1 `port_in_use` suggesting `--port`.
 - EC-2: Zero prototypes → overview shows the empty state with `proto new` (S14).
 - EC-3: Invalid `proto.config.ts` → exit 1 `invalid_config` with the key path.
+- EC-4: Render port (`port + 1`) busy → exit 1 `port_in_use` naming both ports.
 
 ### US-003: Build a static gallery
 
@@ -89,8 +91,8 @@ copying code.
 
 - AC-1: Given a valid project, when I run `proto build`, then `dist-proto/` holds the shell and render host
   and works from any static host.
-- AC-2: Given no remote configured, when I open the built gallery, then comments are read-only and comment
-  and approve affordances are absent.
+- AC-2: Given no remote configured, when I open the built gallery, then existing threads and their images are
+  visible read-only from the build's snapshots, and comment, approve and credential affordances are absent.
 - EC-1: Any discovery, flow, guard or boundary problem → build fails with the problem list, exit 1.
 
 ### US-004: Canvas providers and chrome
@@ -210,6 +212,10 @@ knows exactly what I mean.
 - EC-1: Anchor no longer found → pin shown at last known position with "moved" marker.
 - EC-2: Empty body → send disabled.
 - EC-3: Keyboard-only: Tab to the canvas, arrows move a crosshair, Enter pins.
+- EC-4: A prototype that calls the review API from its own code → rejected (`cross_origin_write` in dev; the
+  render origin holds no review cookies remotely); nothing is written.
+- EC-5: The prototype changes its state with `setParam` while picking → the comment records the new state from
+  the render host's `context` message.
 
 ### US-017: Flow comments
 
@@ -227,12 +233,18 @@ knows exactly what I mean.
 - AC-2: Resolved threads move to the Resolved tab; counts update everywhere.
 - EC-1: Two people resolve the same thread → second sees it already resolved (idempotent).
 - EC-2: Comment deleted while open in another tab → that tab shows "deleted".
+- EC-3: A remote reviewer edits another reviewer's message (even with the same display name) → 403
+  `message_not_owned`; the edit control is absent in the UI.
+- EC-4: Two writers add comments to one key at the same time → distinct ids; nothing lost.
 
 ### US-020: Approval
 
 - AC-1: Reviewer approves a prototype or flow; status shows Approved with author and commit.
 - AC-2: Approving with open comments asks for confirmation and records the open count.
-- AC-3: A new comment on an approved item moves it back to In review and posts a system line.
+- AC-3: A new comment on an approved item moves it back to In review in the same write and records an
+  `auto_reopened` event shown in the thread.
+- AC-4: Locally, approval is trust-based: the CLI approves with `--confirm-open` when comments are open; the
+  skills tell agents never to approve.
 - EC-1: Agent credential tries to approve → 403 `scope_denied`.
 
 ### US-021: Comments inbox
@@ -251,13 +263,16 @@ knows exactly what I mean.
 ### US-023: Answer comments from the CLI
 
 - AC-1: `proto comments list --status open --json` lists threads with `sourceChain` and context.
-- AC-2: `proto comments reply <key> <id> --body …` posts as `agent`; `resolve --note …` resolves with a note.
-- AC-3: `proto comments attachments <key> <id> --out dir` downloads images.
+- AC-2: `proto comments reply <id> --note …` posts as `agent`; `resolve <id> --note …` resolves with a note.
+- AC-3: `proto comments attachments <id> --out dir` downloads images.
 - EC-1: Unknown key/id → exit 1 `comment_not_found`.
 
 ### US-024: MCP
 
-- AC-1: `proto mcp` exposes tools mirroring the CLI with the same JSON and error codes.
+- AC-1: `proto mcp` exposes one tool per catalog capability except approval, credentials, migration and process
+  lifecycle; each returns the CLI `--json` output and error codes.
+- AC-2: Store-backed tools accept `remote: true` and use the stored credential.
+- AC-3: `proto_comments_attachments` writes images under `.tmp/proto/<id>/` and returns their paths.
 
 ### US-025: Evidence
 
@@ -281,20 +296,29 @@ knows exactly what I mean.
 
 ### US-028: Sign in
 
-- AC-1: Unauthenticated visitors see the sign-in page; after sign-in they return to the requested URL.
-- EC-1: Session expired mid-comment → draft kept locally and the sign-in prompt appears; sending resumes.
+- AC-1: An unauthenticated visitor opening any gallery URL is redirected to the project's sign-in with
+  `returnTo`; after sign-in they land on the URL they asked for.
+- AC-2: There is no token field in the browser; credentials are for CLI/MCP.
+- EC-1: Session expired mid-comment → the composer draft is kept locally, a banner offers "Sign in again", and
+  sending works after returning.
+- EC-2: `returnTo` pointing to another origin → replaced by `/`.
 
 ### US-029: Credentials
 
-- AC-1: Settings → Credentials creates a named token with scopes, shown once; list shows last use; revoke
-  is immediate.
-- EC-1: Revoked token → 401 `credential_revoked`.
+- AC-1: In a browser session, Settings → Credentials creates a named credential with scopes limited to the
+  principal's own, shows the token once, lists own credentials with last use, and revokes immediately.
+- AC-2: A credential stops working when its owner loses access (re-validated on every use).
+- EC-1: Revoked credential → 401 `credential_revoked`.
+- EC-2: A bearer calling `POST /api/credentials`, or a `comment` session minting a `review` credential → 403
+  `scope_denied`.
 
 ### US-030: Remote CLI
 
 - AC-1: `proto auth login --remote https://proto.example.com` stores a credential (0600); `--remote` on
   `comments`/`review` uses it.
 - EC-1: No credential → exit 4 `auth_required` naming `proto auth login`.
+- EC-2: `http://` remote (not loopback) → exit 4 `insecure_remote`; a redirect on a credential-bearing request →
+  exit 4 `redirect_refused`.
 
 ## Safety
 
@@ -303,6 +327,9 @@ knows exactly what I mean.
 - AC-1: A prototype whose runtime imports reach a `guards.forbidRuntimeImports` module fails dev overlay
   and build with the import chain; type-only imports pass.
 - AC-2: A production build that includes a `.proto.tsx`, fixture or gallery module fails with the module.
+- AC-3: Storybook and Vitest with `protoPresentation()` fail when a story's runtime imports reach a forbidden
+  module; application routes importing it build normally.
+- AC-4: Matchers accept globs and RegExp (`src/lib/gateway-*.ts`).
 
 ### US-032: Problems
 
@@ -318,6 +345,23 @@ knows exactly what I mean.
 
 ### US-034: Migrate an existing copy
 
-- AC-1: `proto migrate` in an app with `gallery.config.ts` writes `proto.config.ts`/`proto.canvas.tsx`,
-  moves `gallery/comments` to `proto/comments` with git-tracked moves, and lists files to delete.
-- EC-1: Comment file version 1 → upgraded to v2 losslessly.
+- AC-1: `proto migrate --from <comments dir>` rewrites every v1/v2 file to v3 under `proto/review/`, keeping every
+  comment, message, attachment (bytes), timestamp, anchor and `sequence`, and prints a per-key report.
+- AC-2: With `gallery.config.ts` present it also writes `proto.config.ts`; without it, it still migrates files.
+- AC-3: `--flow-prefix fluxo-`, `--theme-map` and `--role-map` rename legacy keys and values; the report lists them.
+- AC-4: The source is never deleted; the report lists what to delete, and `vite.presentation.ts` only after
+  Storybook and Vitest use `protoPresentation()`.
+- EC-1: A target key exists with different content → `migration_conflict`; nothing written for that key.
+- EC-2: Running it again → no-op ("already verified").
+- EC-3: Interrupted mid-run → the next run resumes; verified keys are skipped.
+
+### US-035: Migrate reloaddev's remote review data
+
+**As an** Operator, **I want** to move reloaddev's `prototype_*` rows to the review server's tables, **so that** no
+remote comment, approval or image is lost when its copy is deleted.
+
+- AC-1: `proto migrate remote --dry-run` reports per-table source/target counts without writing.
+- AC-2: The real run copies one transaction per key, keeping authors (id and name), approvals (as events),
+  attachment names, sizes, dimensions and bytes, and `next_comment`.
+- EC-1: Any count mismatch → `migration_unverified`; the key's transaction rolls back.
+- EC-2: Credential hashes in another scheme → listed for re-issue, not copied.

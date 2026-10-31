@@ -1,0 +1,2 @@
+?? .compozy/tasks/proto-library/qa/
+?? .compozy/workspace.toml
