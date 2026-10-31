@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join, resolve, extname } from "node:path";
 import { createServer } from "node:http";
 import { spawnSync } from "node:child_process";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
 import { loadProject } from "../../../src/node/project.ts";
 import { buildProject } from "../../../src/node/build.ts";
@@ -14,6 +14,7 @@ const pkg = resolve(import.meta.dirname, "../../..");
 const roots: string[] = [];
 const shell = join(pkg, "dist/shell");
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
 });
 async function fixture(includeReview = false) {
@@ -237,3 +238,31 @@ it("E2E-010 shell UI: read-only hides mutations and default build explains absen
     await server.close();
   }
 }, 120_000);
+
+// Owner: build/CLI orchestration; a configured remote target must never change plain build mode.
+it("UT-044: remote builds require an explicit boolean CLI flag or Node option", async () => {
+  const { runCli } = await import("../../../src/cli/main.ts");
+  const { root, project, options } = await fixture();
+  project.config.review.remote = { url: "https://gallery.example.com/proto/" };
+  vi.stubEnv("PROTO_REMOTE_URL", "");
+  const mode = async () =>
+    JSON.parse(await readFile(join(root, "dist-proto/__proto/bootstrap.json"), "utf8")).mode;
+  expect((await runCli(["build"], { project, cwd: root })).exitCode).toBe(0);
+  expect(await mode()).toBe("read-only");
+  expect((await runCli(["build", "--remote"], { project, cwd: root })).exitCode).toBe(0);
+  expect(await mode()).toBe("remote");
+  delete project.config.review.remote;
+  expect((await runCli(["build", "--remote"], { project, cwd: root })).data).toMatchObject({
+    error: {
+      code: "invalid_config",
+      message: expect.stringContaining("review.remote.url or PROTO_REMOTE_URL"),
+    },
+  });
+  vi.stubEnv("PROTO_REMOTE_URL", "https://environment.example.com/proto/");
+  expect((await runCli(["build", "--remote"], { project, cwd: root })).exitCode).toBe(0);
+  expect(await mode()).toBe("remote");
+  await buildProject(project, { ...options, remote: "https://node.example.com" });
+  expect(await mode()).toBe("remote");
+  await buildProject(project, options);
+  expect(await mode()).toBe("read-only");
+}, 120000);

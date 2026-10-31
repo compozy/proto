@@ -61,7 +61,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   protected commit() {
     return this.revision();
   }
-  private async assertKey(key: string) {
+  async assertKey(key: string) {
     keySchema.parse(key);
     if (!this.registry) return;
     const registry = await this.registry();
@@ -74,12 +74,11 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   private connection() {
     return this.transaction.getStore() ?? this.sql;
   }
-  async readFile(key: string, history = false): Promise<ReviewFileV3> {
-    if (history) keySchema.parse(key);
-    else await this.assertKey(key);
+  async readFile(key: string): Promise<ReviewFileV3> {
+    keySchema.parse(key);
     if (!this.transaction.getStore())
       return (await this.sql.begin("isolation level repeatable read read only", sql =>
-        this.transaction.run(sql, () => this.readFile(key, history))
+        this.transaction.run(sql, () => this.readFile(key))
       )) as ReviewFileV3;
     const sql = this.connection();
     const [row] = await sql`select * from proto_keys where key=${key}`;
@@ -132,7 +131,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     });
   }
   private async locked<T>(key: string, action: (sql: TransactionSql) => Promise<T>): Promise<T> {
-    await this.assertKey(key);
+    keySchema.parse(key);
     return (await this.sql.begin(async sql => {
       await sql`insert into proto_keys (key) values (${key}) on conflict do nothing`;
       await sql`select key from proto_keys where key=${key} for update`;
@@ -260,9 +259,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       ...(registry?.flows.filter(p => p.spec === filter.spec).map(p => `flow-${p.id}`) ?? []),
     ]);
     const files = await Promise.all(
-      keys
-        .filter(k => !filter.spec || specKeys.has(k.key))
-        .map(k => this.readFile(k.key, !filter.key))
+      keys.filter(k => !filter.spec || specKeys.has(k.key)).map(k => this.readFile(k.key))
     );
     return files
       .flatMap(f => f.comments)
@@ -275,6 +272,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       );
   }
   async upload(key: string, file: AttachmentInput, author: Author): Promise<PendingAttachment> {
+    await this.assertKey(key);
     authorSchema.parse(author);
     if (file.bytes.length > 5 * 1024 * 1024) throw new ProtoError("attachment_too_large");
     let info: ReturnType<typeof inspectImage>;

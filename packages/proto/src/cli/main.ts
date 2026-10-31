@@ -179,7 +179,15 @@ export async function runCli(
     }
     if (capability.cli === "build") {
       const { buildProject } = await import("../node/build.ts");
-      const result = await buildProject(project!);
+      const remote = args.remote
+        ? process.env.PROTO_REMOTE_URL || project!.config.review.remote?.url
+        : undefined;
+      if (args.remote && !remote)
+        throw new ProtoError(
+          "invalid_config",
+          "Remote build requires review.remote.url or PROTO_REMOTE_URL."
+        );
+      const result = await buildProject(project!, { remote });
       return { exitCode: 0, data: { path: result.output, warnings: result.warnings } };
     }
     const data = await executeCapability(capability, args, { root, project, transport: "cli" });

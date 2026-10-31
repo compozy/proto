@@ -70,6 +70,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     throw new ProtoError("invalid_config", "dev.port must leave room for the render port");
   const origin = `http://127.0.0.1:${port}`;
   const clients = new Set<ServerResponse>();
+  let registryWatcherReady = false;
   const publish = (event: "registry" | "comments" | "review", data: unknown) => {
     for (const client of clients)
       client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -120,6 +121,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
           Connection: "keep-alive",
         });
         res.write(": connected\n\n");
+        if (registryWatcherReady) res.write(": registry-watcher-ready\n\n");
         clients.add(res);
         req.once("close", () => clients.delete(res));
         return;
@@ -254,6 +256,8 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     });
   }
   const stop = project.watch(registry => publish("registry", registry));
+  registryWatcherReady = true;
+  for (const client of clients) client.write(": registry-watcher-ready\n\n");
   return {
     origin,
     renderOrigin: `http://127.0.0.1:${port + 1}`,

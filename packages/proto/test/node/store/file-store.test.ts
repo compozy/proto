@@ -1,10 +1,11 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
+import * as fs from "node:fs/promises";
 import { readFile, writeFile, mkdir, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileStore } from "../../../src/store/file-store.ts";
 import {
   KeyLocks,
@@ -14,6 +15,10 @@ import {
 } from "../../../src/store/lock.ts";
 import { makeFileStore } from "./harness.ts";
 import { runStoreContract, input, reviewer, png } from "./contract.ts";
+vi.mock("node:fs/promises", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, readFile: vi.fn(actual.readFile) };
+});
 runStoreContract(makeFileStore);
 const exec = promisify(execFile);
 const worker = fileURLToPath(new URL("./process.ts", import.meta.url));
@@ -266,6 +271,76 @@ describe("FileStore filesystem invariants", () => {
       await release();
     }
   });
+  // Owner: FileStore filesystem publication; pending claims and detach can race unlocked reads.
+  it.each(["metadata", "pending", "detach"] as const)(
+    "UT-035: attachment read tolerates concurrent %s publication",
+    async phase => {
+      const { store } = await harness();
+      const image = await store.upload("login-form", { name: "pixel.png", bytes: png }, reviewer);
+      const comment = await store.add(
+        "login-form",
+        phase === "detach" ? { ...input, attachments: [image.id] } : input,
+        reviewer
+      );
+      let paused!: () => void, resume!: () => void;
+      const reached = new Promise<void>(resolve => {
+        paused = resolve;
+      });
+      const gate = new Promise<void>(resolve => {
+        resume = resolve;
+      });
+      const original = (
+        await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      ).readFile;
+      let intercepted = false;
+      const target =
+        phase === "metadata"
+          ? join(store.directory, "login-form.json")
+          : phase === "pending"
+            ? join(store.directory, ".pending/login-form", `${image.id}.json`)
+            : join(store.directory, "login-form/attachments", `${image.id}.png`);
+      const spy = vi.spyOn(fs, "readFile").mockImplementation((async (
+        ...args: Parameters<typeof fs.readFile>
+      ) => {
+        if (!intercepted && String(args[0]) === target) {
+          intercepted = true;
+          if (phase === "detach") {
+            paused();
+            await gate;
+            return original(...args);
+          }
+          const value = await original(...args);
+          paused();
+          await gate;
+          return value;
+        }
+        return original(...args);
+      }) as typeof fs.readFile);
+      const reading = store.readAttachment("login-form", image.id);
+      const outcome = reading.then(
+        value => ({ value }),
+        error => ({ error })
+      );
+      try {
+        await reached;
+        if (phase === "detach")
+          await store.editMessage(
+            comment.id,
+            comment.thread[0]!.id,
+            { detach: [image.id] },
+            reviewer
+          );
+        else await store.reply(comment.id, { body: "Claim", attachments: [image.id] }, reviewer);
+        resume();
+        if (phase === "detach")
+          expect(await outcome).toMatchObject({ error: { code: "attachment_expired" } });
+        else expect(await outcome).toMatchObject({ value: { bytes: png, type: "image/png" } });
+      } finally {
+        resume();
+        spy.mockRestore();
+      }
+    }
+  );
   it("UT-036: opening purges expired pending uploads", async () => {
     const { root, store } = await harness();
     const image = await store.upload("login-form", { name: "shot.png", bytes: png }, reviewer);

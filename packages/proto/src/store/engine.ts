@@ -19,6 +19,7 @@ import { confineSource, type SourceRoots } from "../model/source.ts";
 import type { NewComment, NewMessage, MessageChange } from "./types.ts";
 /** Shared mutations; adapters supply one atomic per-key transaction and attachment claims. */
 export abstract class ReviewEngine {
+  abstract assertKey(key: string): Promise<void>;
   abstract readFile(key: string): Promise<ReviewFileV3>;
   protected abstract mutate<T>(key: string, action: (file: ReviewFileV3) => Promise<T>): Promise<T>;
   protected abstract claim(
@@ -67,6 +68,7 @@ export abstract class ReviewEngine {
     };
   }
   async add(key: string, input: NewComment, author: Author) {
+    await this.assertKey(key);
     input = newCommentSchema.parse(input);
     if (input.target.kind !== "node") {
       const roots = await this.roots();

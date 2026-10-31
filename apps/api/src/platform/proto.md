@@ -24,7 +24,7 @@ exception is the explicit `@compozy/proto/server` adapter import; preview UI rem
 
 Build the gallery for this deployment by setting `review.remote.url` to
 `https://gallery.example.com/proto/` in `apps/app/proto.config.ts`, then run
-`bun run proto build --app app`. Set `PROTO_GALLERY_DIR` to the absolute resulting
+`bun run proto build --remote --app app`. Set `PROTO_GALLERY_DIR` to the absolute resulting
 `apps/app/dist-proto` directory. The build embeds the public origin in the render
 protocol; rebuild when that origin changes. A local read-only build is not a remote build.
 

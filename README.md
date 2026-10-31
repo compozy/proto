@@ -60,7 +60,7 @@ through the CLI or MCP. Agents never approve; people do.
   Vite config. They talk to the shell only through a typed, validated `postMessage` protocol.
 - **Evidence.** `proto screenshot` (PNG via Playwright Chromium) and `proto evidence` (static HTML
   without scripts) under `docs/design/<slug>/`.
-- **Static build.** Without `review.remote.url`, `proto build` writes a read-only gallery to `dist-proto/` that works on any
+- **Static build.** `proto build` writes a read-only gallery to `dist-proto/` that works on any
   static host, at `/` or under a subpath.
 - **Remote review server.** `@compozy/proto/server` is a self-hosted fetch handler for comments and
   approvals behind your own sign-in, with Postgres or file storage.
@@ -225,11 +225,12 @@ export default defineProtoConfig({
 });
 ```
 
-Run `proto build` from that app (in this repository, `bun run proto build --app app`).
-With `review.remote.url` configured, the build emits a remote render host that trusts the public
-origin. Rebuild when that origin changes. Without this setting, the build is an offline,
-read-only gallery for static hosting. Node callers can instead use
-`buildProject(project, { remote: "https://acme.com" })` from `@compozy/proto/node`.
+Run `proto build --remote` from that app (in this repository,
+`bun run proto build --remote --app app`). The boolean `--remote` flag uses `PROTO_REMOTE_URL`
+or the configured `review.remote.url` and emits a render host that trusts the public origin.
+Rebuild when that origin changes. Plain `proto build` always produces an offline, read-only
+gallery for static hosting, even when a remote URL is configured. Node callers select remote
+mode with `buildProject(project, { remote: "https://acme.com" })` from `@compozy/proto/node`.
 
 Mount the self-hosted review server in your backend, pointing `gallery.dir` at that build:
 
@@ -320,27 +321,27 @@ Every command accepts `--app <dir>` (default: cwd), `--json` and `--verbose`. St
 accept `--remote`. Exit codes: `0` ok · `1` problems or user error · `2` usage · `3` missing
 dependency · `4` remote or auth.
 
-| Command                                                    | What it does                                                |
-| ---------------------------------------------------------- | ----------------------------------------------------------- |
-| `proto init [--skills]`                                    | Write the config, canvas, a first draft and the Vite plugin |
-| `proto dev [--port 4400] [--open]`                         | Gallery on `port`, render origin on `port + 1`              |
-| `proto build`                                              | Offline or configured remote gallery in `dist-proto/`       |
-| `proto list`                                               | Prototypes and flows                                        |
-| `proto check`                                              | Problems and warnings, network guard, no-write render build |
-| `proto new <slug> [--draft] [--in <view>] [--spec <id>]`   | Scaffold a prototype or draft                               |
-| `proto flow new\|show\|list\|coverage`                     | Scaffold and inspect flows                                  |
-| `proto url <slug> [--state <id>] [--bare]`                 | Gallery URL, or the bare render URL                         |
-| `proto comments list\|show\|add\|reply\|resolve\|reopen`   | Read and answer threads (`--status`, `--waiting`, …)        |
-| `proto comments attach\|detach\|edit\|attachments\|delete` | Images, edits, downloads; `delete` is reviewer-only         |
-| `proto review status\|approve\|reopen`                     | Review status; approval is for people                       |
-| `proto review unlock <key> --force`                        | Recover a review lock left by another machine               |
-| `proto screenshot <slug> [--state] [--theme] [--width]`    | PNG under `docs/design/<slug>/` (Playwright Chromium)       |
-| `proto evidence <slug> [--state]`                          | Static HTML evidence, no scripts                            |
-| `proto migrate --from <dir> [--dry-run]`                   | Rewrite v1/v2 review files to v3 with a verification report |
-| `proto mcp`                                                | MCP server over stdio                                       |
-| `proto auth login\|logout --remote <url>`                  | Store or remove a local remote credential                   |
-| `proto auth credentials --json`                            | List local credentials without tokens or network access     |
-| `proto auth revoke <id> --remote <url>`                    | Print the browser-only credential management URL            |
+| Command                                                    | What it does                                                     |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| `proto init [--skills]`                                    | Write the config, canvas, a first draft and the Vite plugin      |
+| `proto dev [--port 4400] [--open]`                         | Gallery on `port`, render origin on `port + 1`                   |
+| `proto build`                                              | Read-only `dist-proto/`; `--remote` builds for the review server |
+| `proto list`                                               | Prototypes and flows                                             |
+| `proto check`                                              | Problems and warnings, network guard, no-write render build      |
+| `proto new <slug> [--draft] [--in <view>] [--spec <id>]`   | Scaffold a prototype or draft                                    |
+| `proto flow new\|show\|list\|coverage`                     | Scaffold and inspect flows                                       |
+| `proto url <slug> [--state <id>] [--bare]`                 | Gallery URL, or the bare render URL                              |
+| `proto comments list\|show\|add\|reply\|resolve\|reopen`   | Read and answer threads (`--status`, `--waiting`, …)             |
+| `proto comments attach\|detach\|edit\|attachments\|delete` | Images, edits, downloads; `delete` is reviewer-only              |
+| `proto review status\|approve\|reopen`                     | Review status; approval is for people                            |
+| `proto review unlock <key> --force`                        | Recover a review lock left by another machine                    |
+| `proto screenshot <slug> [--state] [--theme] [--width]`    | PNG under `docs/design/<slug>/` (Playwright Chromium)            |
+| `proto evidence <slug> [--state]`                          | Static HTML evidence, no scripts                                 |
+| `proto migrate --from <dir> [--dry-run]`                   | Rewrite v1/v2 review files to v3 with a verification report      |
+| `proto mcp`                                                | MCP server over stdio                                            |
+| `proto auth login\|logout --remote <url>`                  | Store or remove a local remote credential                        |
+| `proto auth credentials --json`                            | List local credentials without tokens or network access          |
+| `proto auth revoke <id> --remote <url>`                    | Print the browser-only credential management URL                 |
 
 ## Configuration
 
@@ -371,7 +372,7 @@ export default defineProtoConfig({
 | `locale`                      | `"en"`                 | Shell language: `"en"` or `"pt-BR"`                                          |
 | `guards.forbidRuntimeImports` | `[]`                   | Module ids, globs or RegExp that prototypes, drafts and stories can't import |
 | `guards.productionBoundary`   | `true`                 | Fail the app build when prototype or gallery code reaches it                 |
-| `review.remote.url`           | —                      | Remote build URL and default `--remote` target for CLI/MCP                   |
+| `review.remote.url`           | —                      | Default `--remote` target for CLI/MCP (including `build --remote`)           |
 | `evidence.dir`                | `"docs/design"`        | Where screenshots and evidence are written                                   |
 | `build.includeReview`         | `false`                | Ship review history in static builds                                         |
 | `dev.port`                    | `4400`                 | Gallery port; the render origin is `port + 1`                                |

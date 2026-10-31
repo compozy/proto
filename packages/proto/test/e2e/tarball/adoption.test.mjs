@@ -1,3 +1,4 @@
+import { onFreePorts } from "../../node/ports.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, realpath, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
@@ -75,8 +76,13 @@ test(
             assert.ok(existsSync(join(installed, entry.types)));
             assert.ok(existsSync(join(installed, entry.default)));
           }
-          assert.ok(JSON.parse(run("node", [bin, "--help"], app)).commands.includes("build"));
-          assert.ok(JSON.parse(run("bun", [bin, "--help"], app)).commands.includes("init"));
+          assert.match(run("node", [bin, "--help"], app), /^Commands:/);
+          assert.ok(
+            JSON.parse(run("node", [bin, "--help", "--json"], app)).commands.includes("build")
+          );
+          assert.ok(
+            JSON.parse(run("bun", [bin, "--help", "--json"], app)).commands.includes("init")
+          );
           assert.ok(
             packed.files.some(file => file.path === "src/server/migrations/0001_review.sql")
           );
@@ -170,17 +176,50 @@ try {
       await t.test("CLI dev serves the consumer", async () => {
         // Exercise the CLI using an independent child and a real HTTP endpoint.
         const { spawn } = await import("node:child_process");
-        const child = spawn(
-          "node",
-          [join(installed, "src/cli/main.js"), "dev", "--port", "24320"],
-          { cwd: app, stdio: "ignore" }
-        );
-        const exited = new Promise(resolve => child.once("exit", resolve));
+        const { child, exited, port } = await onFreePorts(async port => {
+          const child = spawn(
+            "node",
+            [join(installed, "src/cli/main.js"), "dev", "--port", String(port), "--json"],
+            { cwd: app, stdio: ["ignore", "pipe", "ignore"] }
+          );
+          const exited = new Promise(resolve => child.once("exit", resolve));
+          let output = "";
+          const ready = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("CLI startup deadline")), 30000);
+            child.stdout.on("data", data => {
+              output += data;
+              if (output.includes('"origin"')) {
+                clearTimeout(timer);
+                resolve();
+              }
+            });
+            child.once("error", error => {
+              clearTimeout(timer);
+              reject(error);
+            });
+            child.once("exit", () => {
+              clearTimeout(timer);
+              reject(
+                Object.assign(new Error(output), {
+                  code: output.includes("port_in_use") ? "port_in_use" : "startup_failed",
+                })
+              );
+            });
+          });
+          try {
+            await ready;
+            return { child, exited, port };
+          } catch (error) {
+            child.kill("SIGTERM");
+            await exited;
+            throw error;
+          }
+        });
         try {
           let response;
           for (let attempt = 0; attempt < 100; attempt++) {
             try {
-              response = await fetch("http://127.0.0.1:24320/__proto/bootstrap.json");
+              response = await fetch(`http://127.0.0.1:${port}/__proto/bootstrap.json`);
               if (response.ok) break;
             } catch {}
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -191,7 +230,7 @@ try {
           try {
             const page = await browser.newPage();
             page.on("pageerror", error => console.error("Gallery page error:", error.message));
-            await page.goto("http://127.0.0.1:24320/?p=welcome");
+            await page.goto(`http://127.0.0.1:${port}/?p=welcome`);
             await page
               .frameLocator("iframe")
               .first()
@@ -207,7 +246,7 @@ try {
               .frames()
               .find(frame => frame.url().includes("/__proto/render/welcome"));
             assert.ok(render, "Welcome must render in the installed gallery iframe");
-            assert.equal(new URL(render.url()).origin, "http://127.0.0.1:24321");
+            assert.equal(new URL(render.url()).origin, `http://127.0.0.1:${port + 1}`);
           } finally {
             await browser.close();
           }

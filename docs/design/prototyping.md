@@ -129,12 +129,12 @@ start and stop temporary dev servers when needed. PNGs are saved under the app-r
 as static DOM without scripts.
 
 `proto build` validates and writes `apps/app/dist-proto/`, using the prebuilt shell. Failures remove
-stale output. Without `review.remote.url`, this is an offline build. Deploy it at `/` or a subpath
+stale output. Plain `proto build` always produces an offline build. Deploy it at `/` or a subpath
 such as `/gallery/` with a plain static server, without rewrites. Bootstrap has mode `read-only`, null API/events/auth endpoints and relative URLs. Static
 render URLs use `__proto/render/index.html?slug=<slug>&state=<state>`.
 
-With `review.remote.url` configured, `proto build` instead emits a remote gallery with path-form
-render URLs and the public shell origin. Serve it through `createReviewServer` on separate public
+`proto build --remote` instead emits a remote gallery with path-form render URLs and the public
+shell origin, using `PROTO_REMOTE_URL` or `review.remote.url` as the target. Serve it through `createReviewServer` on separate public
 and render domains; see [remote deployment](../proto/deployment.md).
 
 Offline review history is excluded by default. Set `build: { includeReview: true }` to publish

@@ -133,10 +133,9 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   private path(key: string) {
     return join(this.directory, `${key}.json`);
   }
-  async readFile(key: string, history = false): Promise<ReviewFileV3> {
+  async readFile(key: string): Promise<ReviewFileV3> {
     await this.ready();
-    if (history) keySchema.parse(key);
-    else await this.assertKey(key);
+    keySchema.parse(key);
     try {
       const result = upgradeReviewFile(JSON.parse(await readFile(this.path(key), "utf8")));
       if (!result.ok || result.file.key !== key)
@@ -149,7 +148,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   }
   protected async mutate<T>(key: string, action: (file: ReviewFileV3) => Promise<T>): Promise<T> {
     await this.ready();
-    await this.assertKey(key);
+    keySchema.parse(key);
     return this.locks.run(key, async () => {
       const file = await this.readFile(key);
       const before = JSON.stringify(file);
@@ -199,7 +198,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     const comments: ReviewComment[] = [];
     for (const key of keys) {
       if (specs && !specs.has(key)) continue;
-      comments.push(...(await this.readFile(key, !filter.key)).comments);
+      comments.push(...(await this.readFile(key)).comments);
     }
     return comments.filter(
       comment =>
@@ -271,9 +270,10 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     return images.map(({ expiresAt: _expiresAt, ...image }) => image);
   }
   async upload(key: string, file: AttachmentInput, author: Author) {
+    await this.assertKey(key);
     authorSchema.parse(author);
     await this.ready();
-    await this.assertKey(key);
+    keySchema.parse(key);
     if (file.bytes.length > 5 * 1024 * 1024) throw new ProtoError("attachment_too_large");
     let info: ReturnType<typeof inspectImage>;
     try {
@@ -300,7 +300,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   async discard(key: string, attachmentId: string, author: Author) {
     authorSchema.parse(author);
     await this.ready();
-    await this.assertKey(key);
+    keySchema.parse(key);
     await this.locks.run(key, async () => {
       const file = await this.readFile(key);
       if (
@@ -320,27 +320,36 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   }
   async readAttachment(key: string, attachmentId: string) {
     await this.ready();
-    await this.assertKey(key);
-    const file = await this.readFile(key);
-    const image = file.comments
-      .flatMap(comment => comment.thread.flatMap(message => message.attachments))
-      .find(image => image.id === attachmentId);
-    const pending = image ? null : await this.pending(key, attachmentId);
-    if (!image && (!pending || Date.parse(pending.expiresAt) <= Date.parse(this.now())))
-      throw new ProtoError("attachment_expired");
-    const found = image ?? pending!;
-    return {
-      bytes: new Uint8Array(await readFile(this.imagePath(key, found, !image))),
-      type: found.type,
-      name: found.name,
-    };
+    keySchema.parse(key);
+    // A claim publishes JSON before removing pending files; detach publishes before unlinking.
+    // Retry with fresh metadata once if either publication races this lock-free read.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const file = await this.readFile(key);
+      const image = file.comments
+        .flatMap(comment => comment.thread.flatMap(message => message.attachments))
+        .find(image => image.id === attachmentId);
+      const pending = image ? null : await this.pending(key, attachmentId);
+      if (!image && (!pending || Date.parse(pending.expiresAt) <= Date.parse(this.now()))) continue;
+      const found = image ?? pending!;
+      try {
+        return {
+          bytes: new Uint8Array(await readFile(this.imagePath(key, found, !image))),
+          type: found.type,
+          name: found.name,
+        };
+      } catch (error) {
+        if (!absent(error)) throw error;
+      }
+    }
+    throw new ProtoError("attachment_expired");
   }
+
   async unlock(key: string, options: { force: true }) {
     if (options.force !== true)
       throw new ProtoError("invalid_input", "Unlock requires force: true.");
     // Recovery must not wait for pending-upload expiry to acquire this same stuck key.
     await mkdir(this.directory, { recursive: true });
-    await this.assertKey(key);
+    keySchema.parse(key);
     return this.locks.unlock(key);
   }
   /** Watches only published key files; catches writes by CLI/other OS processes. */

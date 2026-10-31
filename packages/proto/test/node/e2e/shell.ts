@@ -11,7 +11,8 @@ import { dirname, join, resolve } from "node:path";
 import type { Frame, Page } from "playwright";
 import { build } from "vite";
 
-import { isProtoError } from "../../../src/model/errors.ts";
+import { onFreePorts } from "../ports.ts";
+export { onFreePorts } from "../ports.ts";
 import { startDev } from "../../../src/node/dev.ts";
 import { loadProject, type ProtoProject } from "../../../src/node/project.ts";
 import { sourceRoots } from "../../../src/model/source.ts";
@@ -48,24 +49,6 @@ export async function buildShell(outDir: string) {
     build: { outDir, emptyOutDir: true },
   });
   return outDir;
-}
-
-/**
- * Runs `start(port)` on a random even port (its render pair is port + 1) until both bind:
- * the bind itself is the check, so a port taken by a parallel suite is retried, not raced.
- */
-export async function onFreePorts<T>(start: (port: number) => Promise<T>) {
-  for (let attempt = 0; ; attempt += 1) {
-    const port = 20_000 + 2 * Math.floor(Math.random() * 20_000);
-    try {
-      return await start(port);
-    } catch (error) {
-      const busy =
-        (isProtoError(error) && error.code === "port_in_use") ||
-        (error as NodeJS.ErrnoException).code === "EADDRINUSE";
-      if (!busy || attempt >= 20) throw error;
-    }
-  }
 }
 
 /**

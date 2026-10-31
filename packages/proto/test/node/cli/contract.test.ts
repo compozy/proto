@@ -39,7 +39,8 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   }, 30000);
   beforeEach(async () => {
     uuid = 0;
-    root = mkdtempSync(join(app, ".proto-cli-test-"));
+    mkdirSync(join(app, ".tmp"), { recursive: true });
+    root = mkdtempSync(join(app, ".tmp", ".proto-cli-test-"));
     for (const path of [
       "proto.config.ts",
       "proto.canvas.tsx",
@@ -382,7 +383,8 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     }
   }, 120000);
   it("UT-042 init outside a Vite app fails clearly", async () => {
-    const empty = mkdtempSync(join(app, ".proto-empty-test-"));
+    mkdirSync(join(app, ".tmp"), { recursive: true });
+    const empty = mkdtempSync(join(app, ".tmp", ".proto-empty-test-"));
     try {
       expect(
         await runCli(["init", "--json"], { cwd: empty, project: { ...project, root: empty } })
@@ -550,7 +552,8 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   }, 120000);
 
   it("IT-014 migrate dispatches through the catalog without requiring proto.config", async () => {
-    const target = mkdtempSync(join(app, ".proto-migrate-cli-"));
+    mkdirSync(join(app, ".tmp"), { recursive: true });
+    const target = mkdtempSync(join(app, ".tmp", ".proto-migrate-cli-"));
     try {
       const source = join(target, "gallery/comments/proto-shell");
       mkdirSync(source, { recursive: true });

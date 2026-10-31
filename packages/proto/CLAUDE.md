@@ -20,10 +20,10 @@ The CLI is `bun run proto <command> --app app`.
   host is compiled by the consumer pipeline at `/__proto/render/<slug>`. `renderPlugins` injects
   `virtual:proto/render-config`, `virtual:proto/prototypes`, and `virtual:proto/canvas`.
 - `proto check` checks registry problems and compiles all prototypes without writing build output.
-  `proto build` / `buildProject(project)` writes `dist-proto`: offline builds have read-only bootstrap
-  and query-form render assets; configuring `review.remote.url` emits a remote build with path-form
-  render URLs and the public shell origin. `buildProject(project, { remote: publicOrigin })` also
-  selects remote mode. Offline review snapshots are opt-in with `build.includeReview`.
+  `proto build` / `buildProject(project)` always writes read-only `dist-proto` with query-form render
+  assets. `proto build --remote` explicitly selects a remote build using `PROTO_REMOTE_URL` or
+  `review.remote.url`, with path-form render URLs and the public shell origin. The Node API selects
+  this mode with `buildProject(project, { remote: publicOrigin })`. Offline review snapshots are opt-in with `build.includeReview`.
   Invalid registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
   `store()` returns FileStore; `store({ remote: true })` returns HttpStore using the configured URL
   and credential. `migrate` delegates to local file migration; the Node entry also exports

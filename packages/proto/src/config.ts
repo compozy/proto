@@ -89,7 +89,13 @@ const protoConfigSchema = z.object({
     .object({
       port: z.number().int().min(1).max(65534).default(4400),
       poll: z.boolean().default(false),
-      allowedHosts: z.array(z.string()).default([]),
+      allowedHosts: z
+        .array(
+          z
+            .string()
+            .regex(/^[a-zA-Z0-9.-]+$/, "dev.allowedHosts entries must be hostnames without ports")
+        )
+        .default([]),
     })
     .prefault({}),
 });

@@ -167,7 +167,7 @@ afterAll(async () => {
   await browser?.close();
   await server?.close();
   rmSync(work, { recursive: true, force: true });
-});
+}, 60000);
 
 async function open(path: string) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

@@ -13,7 +13,7 @@ import { commitAt } from "./dev.ts";
 export type BuildOptions = { shellDir?: string; remote?: string };
 /** Build offline data and the consumer render graph before exposing any output. */
 export async function buildProject(project: ProtoProject, options: BuildOptions = {}) {
-  const remote = options.remote ?? project.config.review.remote?.url;
+  const remote = options.remote;
   const shellOrigin = remote ? remoteUrl(remote).origin : "";
   const output = resolve(project.root, "dist-proto");
   await rm(output, { recursive: true, force: true });

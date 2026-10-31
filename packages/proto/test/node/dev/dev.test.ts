@@ -54,6 +54,17 @@ function hostRequest(port: number, host: string) {
     req.end();
   });
 }
+it("UT-094: configured host:port entries fail clearly instead of silently missing", async () => {
+  const { resolveProtoConfig } = await import("../../../src/config.ts");
+  expect(() =>
+    resolveProtoConfig({ title: "Hosts", dev: { allowedHosts: ["preview.test:4400"] } }, app)
+  ).toThrowError(
+    expect.objectContaining({
+      code: "invalid_config",
+      message: expect.stringContaining("dev.allowedHosts entries must be hostnames without ports"),
+    })
+  );
+});
 it("UT-094: allowlisted hostnames are bound to each server's own port", () => {
   expect(hostAllowed("preview.test:4400", 4400, ["preview.test"])).toBe(true);
   expect(hostAllowed("preview.test:4401", 4401, ["preview.test"])).toBe(true);
@@ -112,7 +123,7 @@ it("UT-069 busy ports name the pair", async () => {
     await new Promise<void>(r => occupied.close(() => r()));
   }
 }, 120000);
-it("IT-011 registry SSE follows prototype changes", async () => {
+it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -126,12 +137,14 @@ it("IT-011 registry SSE follows prototype changes", async () => {
     server = await startDev(await loadProject(root), { port: await port() });
     const response = await fetch(`${server.origin}/__proto/api/events`, { signal: abort.signal });
     const reader = response.body!.getReader();
-    await reader.read();
+    await readEvent(reader, ": registry-watcher-ready");
+    const changedAt = performance.now();
     writeFileSync(
       join(root, "src/new.proto.tsx"),
       'export const meta=definePrototype({title:"New",states:[{id:"idle",label:"Idle"}]});'
     );
     expect(await readEvent(reader, "event: registry")).toContain("event: registry");
+    expect(performance.now() - changedAt).toBeLessThanOrEqual(2000);
     abort.abort();
   } finally {
     abort.abort();
@@ -218,7 +231,8 @@ it("Render integration: DOM carries app-relative source tags and configured sour
   }
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const root = mkdtempSync(join(app, ".proto-render-tags-"));
+  mkdirSync(join(app, ".tmp"), { recursive: true });
+  const root = mkdtempSync(join(app, ".tmp", ".proto-render-tags-"));
   mkdirSync(join(root, "src/drafts/tagged"), { recursive: true });
   writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Tags"};');
   writeFileSync(
@@ -275,7 +289,8 @@ it("Presentation integration: protoPresentation source tags survive the consumer
   }
   const { join } = await import("node:path");
   const { createServer } = await import("vite");
-  const root = mkdtempSync(join(app, ".proto-tags-test-"));
+  mkdirSync(join(app, ".tmp"), { recursive: true });
+  const root = mkdtempSync(join(app, ".tmp", ".proto-tags-test-"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Awaited<ReturnType<Browser["newContext"]>> | undefined;
   try {

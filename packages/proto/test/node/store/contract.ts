@@ -29,16 +29,26 @@ export function runStoreContract(makeStore: () => Promise<StoreHarness>) {
     afterEach(async () => {
       await dispose?.();
     });
-    it("UT-027: unfiltered history survives registry retirement, explicit keys reject it", async () => {
+    it("UT-027: retired-key history remains actionable but rejects new comments and uploads", async () => {
       const comment = await store.add("login-form", input, reviewer);
       await retireKey();
       expect(await store.list({ status: "all" })).toEqual([comment]);
-      await expect(store.list({ key: "login-form" })).rejects.toMatchObject({
+      expect(await store.list({ key: "login-form" })).toEqual([comment]);
+      expect(await store.get(comment.id)).toEqual(comment);
+      expect(
+        (await store.reply(comment.id, { body: "Close retired history" }, agent)).thread.at(-1)
+          ?.body
+      ).toBe("Close retired history");
+      expect((await store.setStatus(comment.id, "resolved", agent)).status).toBe("resolved");
+      expect((await store.setStatus(comment.id, "open", agent)).status).toBe("open");
+      await expect(store.add("login-form", input, reviewer)).rejects.toMatchObject({
         code: "comment_not_found",
       });
       await expect(
-        store.reply(comment.id, { body: "Must not mutate retired history" }, agent)
+        store.upload("login-form", { name: "shot.png", bytes: png }, reviewer)
       ).rejects.toMatchObject({ code: "comment_not_found" });
+      await store.remove(comment.id, reviewer);
+      expect(await store.list({ key: "login-form", status: "all" })).toEqual([]);
     });
     it("UT-027: retired ids survive deletion, including the last comment", async () => {
       const a = await store.add("login-form", input, reviewer),

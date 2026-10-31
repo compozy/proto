@@ -370,7 +370,7 @@ export async function buildRemoteGallery(h: Awaited<ReturnType<typeof serverHarn
       export const meta=definePrototype({title:'Login form',states:[{id:'default',label:'Default'}]});
       export default function View(){ return <main><button data-testid="remote-pick">Review target</button><output data-testid="hostile-cookie">{document.cookie || 'empty'}</output></main> }`
     );
-    const result = await buildProject(await loadProject(root));
+    const result = await buildProject(await loadProject(root), { remote: h.options.publicOrigin });
     await cp(result.output, h.options.gallery.dir, { recursive: true });
   } finally {
     await rm(root, { recursive: true, force: true });
