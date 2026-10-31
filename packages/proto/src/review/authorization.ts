@@ -12,7 +12,9 @@ export function createDevAuthorizer(options: DevAuthorizerOptions): ReviewAuthor
   const hosts = new Set([
     canonical.host,
     `localhost${canonical.port ? `:${canonical.port}` : ""}`,
-    ...(options.allowedHosts ?? []),
+    ...(options.allowedHosts ?? []).map(
+      host => `${host}${canonical.port ? `:${canonical.port}` : ""}`
+    ),
   ]);
   return async request => {
     const host = request.headers.get("host") ?? new URL(request.url).host;

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Plugin } from "vite";
+import { searchForWorkspaceRoot, type Plugin } from "vite";
 import { loadProject, type ProtoProject } from "../node/project.ts";
 import { productionBoundary } from "../node/production-boundary.ts";
 import { presentationGuard } from "../node/presentation-guard.ts";
@@ -11,7 +11,7 @@ import type { RenderConfig } from "../model/render-host.ts";
 
 export function proto(options: { config?: string } = {}): Plugin[] {
   let enabled = true;
-  const boundary = productionBoundary();
+  let boundary = productionBoundary();
   return [
     {
       ...boundary,
@@ -22,6 +22,7 @@ export function proto(options: { config?: string } = {}): Plugin[] {
         }
         const project = await loadProject(config.root, options.config);
         enabled = project.config.guards.productionBoundary;
+        boundary = productionBoundary(project);
       },
       generateBundle(options, bundle) {
         if (!enabled) return;
@@ -90,6 +91,27 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
     ...protoPresentation(),
     {
       name: "proto:render",
+      config() {
+        return {
+          optimizeDeps: {
+            include: [
+              "react",
+              "react-dom/client",
+              "react/jsx-runtime",
+              "react/jsx-dev-runtime",
+              "zod",
+            ],
+          },
+          server: {
+            fs: {
+              allow: [
+                searchForWorkspaceRoot(project.root),
+                fileURLToPath(new URL("../../", import.meta.url)),
+              ],
+            },
+          },
+        };
+      },
       resolveId(id) {
         if (ids.includes(id)) return `\0${id}`;
       },

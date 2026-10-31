@@ -330,7 +330,7 @@ export default defineProtoConfig({
 | `build.includeReview`         | `false`                | Ship review history in static builds                                         |
 | `dev.port`                    | `4400`                 | Gallery port; the render origin is `port + 1`                                |
 | `dev.poll`                    | `false`                | Polling file watcher                                                         |
-| `dev.allowedHosts`            | `[]`                   | Extra `Host` values accepted by the dev servers                              |
+| `dev.allowedHosts`            | `[]`                   | Extra hostnames (without ports); each server adds its own port               |
 
 Environment: `PROTO_PORT`, `PROTO_POLL=1`, `PROTO_REMOTE_URL`, `PROTO_REMOTE_TOKEN`.
 
@@ -367,3 +367,19 @@ conventions, and follow the [Code of Conduct](https://github.com/compozy/proto/b
 ## License
 
 [MIT](https://github.com/compozy/proto/blob/main/LICENSE) © 2026 Pedro Nauck and Compozy contributors
+
+### Building for the review server
+
+Set `review.remote.url` to the deployed gallery URL (for example
+`https://gallery.example.com/proto/`) before `proto build`. This emits a remote
+render host with path URLs and the canonical public origin. The Node API also accepts
+`buildProject(project, { remote: "https://gallery.example.com" })`. Point the server's
+`gallery.dir` (this template's `PROTO_GALLERY_DIR`) at the resulting `dist-proto`.
+The server supplies the session bootstrap and isolated render URL at request time.
+Rebuild if the public origin changes; the ordinary build remains an offline read-only gallery.
+See [deployment details](../../docs/proto/deployment.md).
+
+`dev.allowedHosts` contains hostnames, not `host:port` pairs. A hostname is admitted
+on the shell port and render port separately; writes and render messages still use the
+canonical `127.0.0.1` shell origin. `proto dev --open` opens that shell URL; a missing
+platform browser opener leaves the server running.

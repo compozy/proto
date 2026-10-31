@@ -18,6 +18,10 @@ type Row = Record<string, any>;
 export type RemoteSource = Record<(typeof tables)[number], Row[]> & { users: Row[] };
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const at = (value: Date | string | null) => (value == null ? null : new Date(value).toISOString());
+function unmapped(row: Row, mapped: readonly string[]) {
+  const rest = Object.fromEntries(Object.entries(row).filter(([key]) => !mapped.includes(key)));
+  return Object.keys(rest).length ? { legacyRow: rest } : {};
+}
 function stableId(value: string) {
   const h = hash(value);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
@@ -34,6 +38,16 @@ export function upgradeRemoteKey(source: RemoteSource, review: Row, options: Upg
         Number(a.id.slice(review.slug.length + 1)) - Number(b.id.slice(review.slug.length + 1))
     )
     .map(c => ({
+      extra: unmapped(c, [
+        "id",
+        "slug",
+        "status",
+        "created_at",
+        "updated_at",
+        "resolved_at",
+        "context",
+        "target",
+      ]),
       id: c.id,
       slug: c.slug,
       status: c.status,
@@ -48,6 +62,15 @@ export function upgradeRemoteKey(source: RemoteSource, review: Row, options: Upg
           (a, b) => String(at(a.at)).localeCompare(String(at(b.at))) || a.id.localeCompare(b.id)
         )
         .map(m => ({
+          extra: unmapped(m, [
+            "id",
+            "comment_id",
+            "at",
+            "edited_at",
+            "body",
+            "author",
+            "author_id",
+          ]),
           id: m.id,
           at: at(m.at),
           editedAt: at(m.edited_at),
@@ -67,6 +90,18 @@ export function upgradeRemoteKey(source: RemoteSource, review: Row, options: Upg
               const bytes = new Uint8Array(a.bytes);
               attachments.push({ id: a.id, bytes, createdAt: at(a.created_at)! });
               return {
+                extra: unmapped(a, [
+                  "id",
+                  "message_id",
+                  "name",
+                  "type",
+                  "size",
+                  "width",
+                  "height",
+                  "uploader_id",
+                  "bytes",
+                  "created_at",
+                ]),
                 id: a.id,
                 name: a.name,
                 type: a.type,
@@ -80,7 +115,13 @@ export function upgradeRemoteKey(source: RemoteSource, review: Row, options: Upg
         })),
     }));
   const upgraded = upgradeReviewFile(
-    { version: 2, slug: review.slug, sequence: review.next_comment - 1, comments },
+    {
+      version: 2,
+      slug: review.slug,
+      sequence: review.next_comment - 1,
+      comments,
+      extra: unmapped(review, ["slug", "next_comment", "approved_at", "approved_by"]),
+    },
     options
   );
   if (!upgraded.ok)
@@ -273,6 +314,80 @@ export async function migrateRemote(
               hash(image.bytes)
             )
               throw new ProtoError("migration_unverified");
+          // Compare preserved columns directly with the source rows, not just the upgraded projection.
+          const metadata = (row: Row, mapped: readonly string[], extra: unknown) => {
+            const expected = unmapped(row, mapped);
+            for (const [key, value] of Object.entries(expected))
+              if (
+                !isDeepStrictEqual(
+                  JSON.parse(JSON.stringify(value)),
+                  (extra as Row | undefined)?.[key]
+                )
+              )
+                throw new ProtoError("migration_unverified", "Source metadata did not round-trip.");
+          };
+          metadata(review, ["slug", "next_comment", "approved_at", "approved_by"], actual.extra);
+          for (const sourceComment of snapshot.prototype_comments.filter(
+            c => c.slug === review.slug
+          )) {
+            const comment = actual.comments.find(
+              c => c.id === file.key + sourceComment.id.slice(review.slug.length)
+            );
+            if (!comment) throw new ProtoError("migration_unverified");
+            metadata(
+              sourceComment,
+              [
+                "id",
+                "slug",
+                "status",
+                "created_at",
+                "updated_at",
+                "resolved_at",
+                "context",
+                "target",
+              ],
+              comment.extra
+            );
+            for (const sourceMessage of snapshot.prototype_messages.filter(
+              m => m.comment_id === sourceComment.id
+            )) {
+              const message = comment.thread.find(m => m.id === sourceMessage.id);
+              if (!message || message.body !== sourceMessage.body)
+                throw new ProtoError("migration_unverified");
+              metadata(
+                sourceMessage,
+                ["id", "comment_id", "at", "edited_at", "body", "author", "author_id"],
+                message.extra
+              );
+              for (const sourceImage of snapshot.prototype_attachments.filter(
+                a => a.message_id === sourceMessage.id
+              )) {
+                const image = message.attachments.find(a => a.id === sourceImage.id);
+                if (!image) throw new ProtoError("migration_unverified");
+                metadata(
+                  sourceImage,
+                  [
+                    "id",
+                    "message_id",
+                    "name",
+                    "type",
+                    "size",
+                    "width",
+                    "height",
+                    "uploader_id",
+                    "bytes",
+                    "created_at",
+                  ],
+                  image.extra
+                );
+                if (
+                  hash((await storage.store.readAttachment(file.key, image.id)).bytes) !==
+                  hash(new Uint8Array(sourceImage.bytes))
+                )
+                  throw new ProtoError("migration_unverified");
+              }
+            }
+          }
           for (const comment of record.verifiedComments) comment.verified = true;
         }
       } catch (error) {

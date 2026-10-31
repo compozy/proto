@@ -6,7 +6,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createServer, type InlineConfig } from "vite";
 import { ProtoError } from "../model/errors.ts";
 import type { ProtoProject } from "./project.ts";
@@ -18,6 +18,7 @@ import { renderPlugins } from "../vite/index.ts";
 export type ReviewHandler = (request: Request) => Promise<Response>;
 export type DevOptions = {
   quiet?: boolean;
+  open?: boolean;
   port?: number;
   review?: ReviewHandler;
   shellDir?: string;
@@ -38,7 +39,12 @@ export function hostAllowed(
   port: number,
   allowed: readonly string[]
 ): boolean {
-  return !!host && [`127.0.0.1:${port}`, `localhost:${port}`, ...allowed].includes(host);
+  return (
+    !!host &&
+    [`127.0.0.1:${port}`, `localhost:${port}`, ...allowed.map(name => `${name}:${port}`)].includes(
+      host
+    )
+  );
 }
 export function renderViteConfig(project: ProtoProject, port: number): InlineConfig {
   return {
@@ -53,7 +59,7 @@ export function renderViteConfig(project: ProtoProject, port: number): InlineCon
       host: "127.0.0.1",
       port: port + 1,
       strictPort: true,
-      allowedHosts: project.config.dev.allowedHosts.map(host => host.split(":")[0]!),
+      allowedHosts: [...project.config.dev.allowedHosts],
       watch: { usePolling: project.config.dev.poll },
     },
   };
@@ -188,6 +194,8 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
               { headers: { "Content-Type": "text/html" }, status: 503 }
             );
       }
+      if (response.headers.get("Content-Type")?.includes("text/html"))
+        response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch (error) {
@@ -213,6 +221,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
         res.end();
         return;
       }
+      res.setHeader("Content-Security-Policy", `frame-ancestors ${origin}`);
       next();
     },
   });
@@ -232,6 +241,17 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
       throw new ProtoError("port_in_use", `Ports ${port} and ${port + 1} must both be available`);
     throw error;
+  }
+  if (options.open) {
+    const command =
+      process.platform === "darwin"
+        ? "open"
+        : process.platform === "win32"
+          ? "explorer.exe"
+          : "xdg-open";
+    execFile(command, [origin], error => {
+      if (error && !options.quiet) console.warn("Could not open the browser; visit " + origin);
+    });
   }
   const stop = project.watch(registry => publish("registry", registry));
   return {

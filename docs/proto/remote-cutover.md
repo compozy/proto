@@ -85,3 +85,5 @@ or dropping its tables. This command does neither.
 Node callers use `migrateRemote(options)` from `@compozy/proto/node`. PostgreSQL storage exposes
 `readKey(key)` and `importKey(file, attachments, dryRun?)` for this migration path. These methods
 are privileged backend operations, not HTTP endpoints; the browser/bearer API does not expose them.
+
+Unknown source columns, including an existing `extra` column, are retained under each v3 record's `extra.legacyRow` without key collisions. Verification compares that metadata and attachment hashes directly with the source rows before marking a key verified.

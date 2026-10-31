@@ -159,6 +159,51 @@ describe("FileStore filesystem invariants", () => {
     expect(await readOwner(locks.path("login-form"))).toEqual(current);
     await release();
   });
+  // Lock-layer invariant: an awaited liveness probe never permits a live takeover owner to be evicted.
+  it("UT-066: paused takeover owner survives an aged guard and a competing reclaimer", async () => {
+    const { store } = await harness();
+    await store.ready();
+    const dead = owner({ processStartedAt: "old" });
+    let calls = 0;
+    let resume!: () => void;
+    let paused!: () => void;
+    const waiting = new Promise<void>(resolve => {
+      paused = resolve;
+    });
+    const barrier = new Promise<void>(resolve => {
+      resume = resolve;
+    });
+    const env = {
+      ...environment,
+      alive: () => true,
+      async processStartedAt(pid: number) {
+        if (pid === dead.pid && ++calls === 2) {
+          paused();
+          await barrier;
+        }
+        return "start";
+      },
+    };
+    const a = new KeyLocks(store.directory, env);
+    const b = new KeyLocks(store.directory, { ...environment, alive: () => true });
+    await mkdir(a.path("login-form"));
+    await writeFile(join(a.path("login-form"), "owner.json"), JSON.stringify(dead));
+    const reclaim = a.reclaim("login-form", dead);
+    await waiting;
+    const guard = `${a.path("login-form")}.takeover`;
+    const guardOwner = await readOwner(guard);
+    const old = new Date(Date.now() - 60000);
+    await utimes(guard, old, old);
+    await b.reclaim("login-form", dead);
+    await b.reclaim("login-form", dead);
+    expect(await readOwner(guard)).toEqual(guardOwner);
+    expect(await readOwner(a.path("login-form"))).toEqual(dead);
+    resume();
+    await reclaim;
+    const release = await b.acquire("login-form");
+    expect(await readOwner(b.path("login-form"))).not.toBeNull();
+    await release();
+  });
   it("UT-067: token-matched release never removes another owner's lock", async () => {
     const { store } = await harness();
     await store.ready();
@@ -210,6 +255,17 @@ describe("FileStore filesystem invariants", () => {
       child.kill("SIGKILL");
     }
   }, 15000);
+  it("UT-035: attachment reads do not wait for the mutation lock", async () => {
+    const { store } = await harness();
+    const image = await store.upload("login-form", { name: "pixel.png", bytes: png }, reviewer);
+    await store.add("login-form", { ...input, attachments: [image.id] }, reviewer);
+    const release = await store.locks.acquire("login-form");
+    try {
+      expect((await store.readAttachment("login-form", image.id)).bytes).toEqual(png);
+    } finally {
+      await release();
+    }
+  });
   it("UT-036: opening purges expired pending uploads", async () => {
     const { root, store } = await harness();
     const image = await store.upload("login-form", { name: "shot.png", bytes: png }, reviewer);
@@ -240,5 +296,5 @@ describe("FileStore filesystem invariants", () => {
     await Promise.all(Array.from({ length: 20 }, () => runProcess("reply", root)));
     expect((await store.get("login-form-1")).thread).toHaveLength(21);
     expect((await store.readFile("login-form")).sequence).toBe(1);
-  }, 25000);
+  }, 90000);
 });

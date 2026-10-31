@@ -61,6 +61,7 @@ export async function loadProject(
         flows: config.flows,
         roles: config.roles,
         siteUrl: config.siteUrl,
+        sourceRoots: sourceRoots(config),
       };
       const found = findPrototypes(root, root, legacy);
       const flow = findFlows(root, root, found.entries, legacy);
@@ -73,6 +74,7 @@ export async function loadProject(
         specs: config.specs,
         roles: config.roles,
         siteUrl: config.siteUrl,
+        sourceRoots: sourceRoots(config),
         prototypes: found.entries.flatMap(p =>
           p.meta
             ? [

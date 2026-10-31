@@ -111,7 +111,7 @@ export function createReviewRouter(
           )
             throw new ProtoError("comment_not_found");
           if (input.target.kind !== "node") {
-            const roots = options.roots ?? sourceRoots();
+            const roots = options.roots ?? (await options.registry()).sourceRoots ?? sourceRoots();
             if (input.target.source !== null) confineSource(input.target.source, roots);
             for (const source of input.target.sourceChain) confineSource(source, roots);
           }

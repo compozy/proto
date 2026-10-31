@@ -64,6 +64,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("UT-084 / IT-031: reloaddev remo
     roleMap: { membro: "member" },
   });
   it("UT-084 / IT-031: maps authors, sequence, approvals, bytes and verifies round trips", async () => {
+    for (const table of [
+      "prototype_reviews",
+      "prototype_comments",
+      "prototype_messages",
+      "prototype_attachments",
+    ])
+      await source.unsafe(
+        `alter table ${table} add column sentinel jsonb default '{"retained":"${table}"}'; alter table ${table} add column extra jsonb default '{"original":true}'`
+      );
     const dry = await migrateRemote({ ...options(), dryRun: true });
     expect(dry.errors).toEqual([]);
     expect(dry.keys.every(k => k.status === "planned")).toBe(true);
@@ -98,6 +107,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("UT-084 / IT-031: reloaddev remo
     });
     expect(report.credentials).toMatchObject({ source: 1, copied: 0 });
     const file = await postgresStorage(target).readKey("flow-cadastro");
+    expect(file.extra).toMatchObject({
+      legacyRow: { extra: { original: true }, sentinel: { retained: "prototype_reviews" } },
+    });
+    expect(file.comments[0]!.extra).toMatchObject({
+      legacyRow: { extra: { original: true }, sentinel: { retained: "prototype_comments" } },
+    });
+    expect(file.comments[0]!.thread[0]!.extra).toMatchObject({
+      legacyRow: { extra: { original: true }, sentinel: { retained: "prototype_messages" } },
+    });
+    expect(file.comments[0]!.thread[0]!.attachments[0]!.extra).toMatchObject({
+      legacyRow: { extra: { original: true }, sentinel: { retained: "prototype_attachments" } },
+    });
     expect(file.sequence).toBe(7);
     expect(file.review.status).toBe("approved");
     expect(file.events[0]).toMatchObject({

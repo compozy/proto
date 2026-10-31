@@ -1,3 +1,4 @@
+import { parseArgs } from "citty";
 import { expect, it } from "vitest";
 import { resolve } from "node:path";
 import { catalog, exclusions } from "../../../src/capabilities/catalog.ts";
@@ -73,3 +74,8 @@ it("IT-015 proto mcp serves the catalog over real stdio", async () => {
     await transport.close();
   }
 }, 15000);
+
+it("UT-050: dev --open is a boolean CLI option", () => {
+  const command = commandDefinition(catalog.find(c => c.cli === "dev")!);
+  expect(parseArgs(["--open"], command.args)).toMatchObject({ open: true });
+});

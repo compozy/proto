@@ -112,6 +112,7 @@ export const argumentSchema = z.object({
   force: z.boolean().optional(),
   skills: z.boolean().optional(),
   remote: z.boolean().optional(),
+  open: z.boolean().optional(),
   port: z.coerce.number().int().min(1).max(65534).optional(),
   json: z.boolean().optional(),
   verbose: z.boolean().optional(),

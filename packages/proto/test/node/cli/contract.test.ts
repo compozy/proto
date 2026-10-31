@@ -99,6 +99,95 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     rmSync(root, { recursive: true, force: true });
   });
   const cli = (...args: string[]) => runCli([...args, "--json"], { cwd: root, project });
+  // CLI/MCP owns one public result per capability, exercised through the SDK and real adapters.
+  it("IT-015: every MCP capability returns the CLI JSON result", async () => {
+    const { catalog } = await import("../../../src/capabilities/catalog.ts");
+    const { createMcpServer } = await import("../../../src/mcp.ts");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { input, agent, png } = await import("../store/contract.ts");
+    const image = await store.upload("login-form", { name: "shot.png", bytes: png }, agent);
+    const comment = await store.add("login-form", { ...input, attachments: [image.id] }, agent);
+    writeFileSync(join(root, "shot.png"), png);
+    const baseline = join(root, "baseline-review");
+    cpSync(join(root, "proto/review"), baseline, { recursive: true });
+    const baseUuid = uuid;
+    const flow = (await project.registry()).flows[0]!.id;
+    const cases: Record<string, Record<string, string | boolean>> = {
+      list: {},
+      check: {},
+      url: { slug: "login-form" },
+      "flow list": {},
+      "flow show": { id: flow },
+      "flow coverage": {},
+      new: { slug: "parity-draft", draft: true },
+      "flow new": { slug: "parity-flow", spec: "auth" },
+      "comments list": {},
+      "comments show": { id: comment.id },
+      "comments add": { slug: "login-form", selector: "#error", note: "Parity" },
+      "comments reply": { id: comment.id, note: "Parity" },
+      "comments resolve": { id: comment.id, note: "Parity" },
+      "comments reopen": { id: comment.id, note: "Parity" },
+      "comments edit": { id: comment.id, note: "Parity" },
+      "comments attach": { id: comment.id, file: "shot.png" },
+      "comments detach": { id: comment.id, attachment: image.id },
+      "comments attachments": { id: comment.id },
+      "comments delete": { id: comment.id },
+      "review status": { key: "login-form" },
+      screenshot: { slug: "login-form", state: "error" },
+      evidence: { slug: "login-form", state: "error" },
+    };
+    const server = await createMcpServer(project);
+    const client = new Client({ name: "all-capabilities", version: "1" });
+    const [left, right] = InMemoryTransport.createLinkedPair();
+    const launcher = vi
+      .spyOn(chromium, "launch")
+      .mockImplementation(() => chromium.connect(browserServer!.wsEndpoint()));
+    const reset = () => {
+      rmSync(join(root, "proto/review"), { recursive: true, force: true });
+      cpSync(baseline, join(root, "proto/review"), { recursive: true });
+      uuid = baseUuid;
+    };
+    try {
+      await Promise.all([server.connect(left), client.connect(right)]);
+      expect(Object.keys(cases).sort()).toEqual(
+        catalog
+          .filter(c => c.mcp)
+          .map(c => c.cli)
+          .sort()
+      );
+      for (const capability of catalog.filter(c => c.mcp)) {
+        reset();
+        const args = cases[capability.cli]!;
+        const argv = [
+          ...capability.cli.split(" "),
+          ...capability.positionals.flatMap(name =>
+            args[name] === undefined ? [] : [String(args[name])]
+          ),
+          ...Object.entries(args)
+            .filter(([key]) => !capability.positionals.includes(key))
+            .flatMap(([key, value]) =>
+              typeof value === "boolean" ? ["--" + key] : ["--" + key, String(value)]
+            ),
+        ];
+        const cliResult = await cli(...argv);
+        expect(cliResult.exitCode, capability.cli).toBe(0);
+        const created = (cliResult.data as { file?: string }).file;
+        if (created) rmSync(join(root, created));
+        reset();
+        const result = await client.callTool({ name: capability.mcp!, arguments: args });
+        expect(result.isError, capability.cli).not.toBe(true);
+        expect(JSON.parse((result.content as { text: string }[])[0]!.text), capability.cli).toEqual(
+          cliResult.data
+        );
+        if (created) rmSync(join(root, created));
+      }
+    } finally {
+      launcher.mockRestore();
+      await client.close();
+      await server.close();
+    }
+  }, 180000);
   it("UT-048 list JSON has the documented projection", async () => {
     const result = await cli("list");
     expect(result.exitCode).toBe(0);
@@ -129,7 +218,16 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       "--note",
       "Initial"
     );
-    expect(add.exitCode).toBe(0);
+    expect(add).toMatchObject({
+      exitCode: 0,
+      data: {
+        comment: {
+          id: "login-form-1",
+          status: "open",
+          thread: [expect.objectContaining({ body: "Initial", author: "agent" })],
+        },
+      },
+    });
     const id = "login-form-1";
     for (const args of [
       ["show", id],
@@ -139,14 +237,30 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       ["reopen", id, "--note", "Again"],
       ["list", "--waiting"],
       ["attachments", id],
-    ])
-      expect((await cli("comments", ...args)).exitCode).toBe(0);
+    ]) {
+      const result = await cli("comments", ...args);
+      expect(result.exitCode).toBe(0);
+      if (args[0] === "list") expect(result.data).toMatchObject({ comments: expect.any(Array) });
+      else if (args[0] === "attachments") expect(result.data).toEqual({ files: [] });
+      else {
+        const expected = {
+          id,
+          status: args[0] === "resolve" ? "resolved" : "open",
+          thread: expect.any(Array),
+        };
+        expect(result.data).toMatchObject(args[0] === "show" ? expected : { comment: expected });
+      }
+    }
     expect((await cli("review", "status", "login-form")).data).toMatchObject({
       key: "login-form",
       open: 1,
     });
-    expect((await cli("review", "approve", "login-form", "--confirm-open")).exitCode).toBe(0);
-    expect((await cli("review", "reopen", "login-form")).exitCode).toBe(0);
+    expect((await cli("review", "approve", "login-form", "--confirm-open")).data).toMatchObject({
+      review: { key: "login-form", status: "approved", open: 1, events: expect.any(Array) },
+    });
+    expect((await cli("review", "reopen", "login-form")).data).toMatchObject({
+      review: { key: "login-form", status: "in_review", open: 1, events: expect.any(Array) },
+    });
     expect((await cli("comments", "delete", id)).data).toEqual({ deleted: id });
   });
   it("UT-098 unlock requires force and reports the removed owner", async () => {
@@ -168,7 +282,14 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     });
   });
   it("UT-045 draft scaffold and UT-047 duplicate slug", async () => {
-    expect((await cli("new", "review-digest", "--draft")).exitCode).toBe(0);
+    expect(await cli("new", "review-digest", "--draft")).toMatchObject({
+      exitCode: 0,
+      data: {
+        file: "src/drafts/review-digest/index.proto.tsx",
+        slug: "review-digest",
+        url: expect.stringContaining("p=review-digest"),
+      },
+    });
     expect(await cli("new", "review-digest", "--draft")).toMatchObject({
       exitCode: 1,
       data: { error: { code: "slug_taken" } },
@@ -196,9 +317,28 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     }
   }, 120000);
   it("IT-014 flow and URL JSON operations", async () => {
-    expect((await cli("flow", "new", "created", "--spec", "auth")).exitCode).toBe(0);
-    for (const args of [["list"], ["show", "created"], ["coverage"]])
-      expect((await cli("flow", ...args)).exitCode).toBe(0);
+    expect(await cli("flow", "new", "created", "--spec", "auth")).toMatchObject({
+      exitCode: 0,
+      data: { file: "flows/created.flow.ts", slug: "created", url: expect.any(String) },
+    });
+    expect((await cli("flow", "list")).data).toMatchObject({
+      flows: expect.arrayContaining([
+        expect.objectContaining({
+          id: "created",
+          nodes: expect.any(Array),
+          edges: expect.any(Array),
+        }),
+      ]),
+    });
+    expect((await cli("flow", "show", "created")).data).toMatchObject({
+      id: "created",
+      title: "created",
+      steps: expect.any(Array),
+      edges: expect.any(Array),
+      problems: [],
+      warnings: expect.any(Array),
+    });
+    expect((await cli("flow", "coverage")).data).toMatchObject({ uncovered: expect.any(Array) });
     expect((await cli("url", "login-form", "--bare", "--state", "error")).data).toMatchObject({
       url: expect.stringContaining("/__proto/render/login-form"),
     });
@@ -225,6 +365,10 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       expect(readFileSync(join(fresh, "docs/design/prototyping.md"), "utf8")).toContain(
         "target: library"
       );
+      const guide = readFileSync(join(fresh, "docs/design/prototyping.md"), "utf8");
+      expect(guide).toContain('preview: "http://127.0.0.1:4401/__proto/render/{slug}?chrome=0"');
+      expect(guide).toContain('evidence: "proto evidence {slug} --state <id>"');
+      expect(guide).toContain('output: "docs/design/{slug}/"');
       expect(readFileSync(join(fresh, "vite.config.ts"), "utf8")).toContain("proto()");
       expect((await runCli(["init", "--json"], { cwd: fresh })).data).toMatchObject({
         skipped: true,
@@ -296,6 +440,81 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       spy.mockRestore();
     }
   });
+  it("E2E-011: a real CLI agent loop records evidence, replies and resolves", async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const config = join(root, "proto.config.ts");
+    writeFileSync(
+      config,
+      readFileSync(config, "utf8").replace(
+        "defineProtoConfig({",
+        `defineProtoConfig({dev:{port:${project.config.dev.port}},`
+      )
+    );
+    const run = async (...args: string[]) =>
+      JSON.parse(
+        (
+          await promisify(execFile)(
+            "bun",
+            [
+              resolve(import.meta.dirname, "../../../src/cli/main.ts"),
+              ...args,
+              "--app",
+              root,
+              "--json",
+            ],
+            { timeout: 90000 }
+          )
+        ).stdout
+      );
+    const added = await run(
+      "comments",
+      "add",
+      "login-form",
+      "--state",
+      "error",
+      "--selector",
+      "#error",
+      "--note",
+      "Improve the sign-in wording",
+      "--author",
+      "reviewer"
+    );
+    expect(
+      (await run("list")).prototypes.some((p: { slug: string }) => p.slug === "login-form")
+    ).toBe(true);
+    expect((await run("comments", "list")).comments.map((c: { id: string }) => c.id)).toContain(
+      added.comment.id
+    );
+    const source = join(root, "src/components/login-form.tsx");
+    writeFileSync(
+      source,
+      readFileSync(source, "utf8").replaceAll('"Sign in"', '"Sign in securely"')
+    );
+    const shot = await run("screenshot", "login-form", "--state", "error");
+    expect(shot).toMatchObject({
+      path: "docs/design/login-form/error--light--1440.png",
+      width: 1440,
+    });
+    const evidence = await run("evidence", "login-form", "--state", "error");
+    expect(readFileSync(join(root, evidence.path), "utf8")).toContain("Sign in securely");
+    const record = join(root, "docs/design/login-form/review.md");
+    writeFileSync(record, `# Review\n\nUpdated sign-in wording. [Evidence](./index.html)\n`);
+    expect(readFileSync(record, "utf8")).toContain("[Evidence](./index.html)");
+    const reply = await run(
+      "comments",
+      "reply",
+      added.comment.id,
+      "--note",
+      `Updated wording. Evidence: ${evidence.path}`
+    );
+    expect(reply.comment.thread.at(-1)).toMatchObject({
+      author: "agent",
+      body: expect.stringContaining(evidence.path),
+    });
+    expect((await run("comments", "resolve", added.comment.id)).comment.status).toBe("resolved");
+    expect((await run("comments", "list")).comments).toEqual([]);
+  }, 180000);
   it("UT-053 IT-016 Chromium writes a 1440-wide PNG and inert evidence HTML", async context => {
     if (!browserServer) {
       context.skip();

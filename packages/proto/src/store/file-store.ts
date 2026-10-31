@@ -39,6 +39,7 @@ export type FileStoreOptions = {
   commit?: () => Promise<string | null>;
   directory?: string;
   registry?: () => Promise<{
+    sourceRoots?: SourceRoots;
     prototypes: { slug: string; spec: string | null }[];
     flows: { id: string; spec: string | null }[];
   }>;
@@ -79,8 +80,8 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   protected override now() {
     return (this.options.clock?.() ?? new Date()).toISOString();
   }
-  protected roots() {
-    return this.options.roots ?? sourceRoots();
+  protected async roots() {
+    return this.options.roots ?? (await this.options.registry?.())?.sourceRoots ?? sourceRoots();
   }
   protected commit() {
     return this.options.commit ? this.options.commit() : currentCommit(this.options.root);
@@ -132,9 +133,10 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   private path(key: string) {
     return join(this.directory, `${key}.json`);
   }
-  async readFile(key: string): Promise<ReviewFileV3> {
+  async readFile(key: string, history = false): Promise<ReviewFileV3> {
     await this.ready();
-    await this.assertKey(key);
+    if (history) keySchema.parse(key);
+    else await this.assertKey(key);
     try {
       const result = upgradeReviewFile(JSON.parse(await readFile(this.path(key), "utf8")));
       if (!result.ok || result.file.key !== key)
@@ -197,7 +199,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     const comments: ReviewComment[] = [];
     for (const key of keys) {
       if (specs && !specs.has(key)) continue;
-      comments.push(...(await this.readFile(key)).comments);
+      comments.push(...(await this.readFile(key, !filter.key)).comments);
     }
     return comments.filter(
       comment =>
@@ -319,21 +321,19 @@ export class FileStore extends ReviewEngine implements ReviewStore {
   async readAttachment(key: string, attachmentId: string) {
     await this.ready();
     await this.assertKey(key);
-    return this.locks.run(key, async () => {
-      const file = await this.readFile(key);
-      const image = file.comments
-        .flatMap(comment => comment.thread.flatMap(message => message.attachments))
-        .find(image => image.id === attachmentId);
-      const pending = image ? null : await this.pending(key, attachmentId);
-      if (!image && (!pending || Date.parse(pending.expiresAt) <= Date.parse(this.now())))
-        throw new ProtoError("attachment_expired");
-      const found = image ?? pending!;
-      return {
-        bytes: new Uint8Array(await readFile(this.imagePath(key, found, !image))),
-        type: found.type,
-        name: found.name,
-      };
-    });
+    const file = await this.readFile(key);
+    const image = file.comments
+      .flatMap(comment => comment.thread.flatMap(message => message.attachments))
+      .find(image => image.id === attachmentId);
+    const pending = image ? null : await this.pending(key, attachmentId);
+    if (!image && (!pending || Date.parse(pending.expiresAt) <= Date.parse(this.now())))
+      throw new ProtoError("attachment_expired");
+    const found = image ?? pending!;
+    return {
+      bytes: new Uint8Array(await readFile(this.imagePath(key, found, !image))),
+      type: found.type,
+      name: found.name,
+    };
   }
   async unlock(key: string, options: { force: true }) {
     if (options.force !== true)

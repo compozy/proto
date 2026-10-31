@@ -1,8 +1,8 @@
 import { HttpStore } from "../../../src/store/http-store.ts";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   createReviewServer,
   fileStorage,
@@ -107,11 +107,18 @@ export async function serverHarness(storage?: ReviewStorage) {
       })
     );
   const result = await request("api/credentials", "POST", { name: "codex-ci" }, "agent");
-  const credential = (await result.json()) as { token: string; credential: { id: string } };
+  const credential = (await result.json()) as {
+    token: string;
+    credential: { id: string; scopes: string[] };
+  };
   return {
     root,
     options,
     identities,
+    async retireKey() {
+      registry.prototypes = [];
+      await writeFile(join(root, "gallery/__proto/registry.json"), JSON.stringify(registry));
+    },
     request,
     credential,
     handler: (request: Request) => handler(request),
@@ -254,6 +261,7 @@ export async function httpContract(storage?: ReviewStorage, useHttpStore = false
     : store;
   return {
     store: contractStore,
+    retireKey: h.retireKey,
     client,
     harness: h,
     async dispose() {
@@ -265,7 +273,10 @@ export async function httpContract(storage?: ReviewStorage, useHttpStore = false
 }
 
 /** Serve the fetch handler over real TLS for browser cookie-isolation tests. */
-export async function browserServer(h: Awaited<ReturnType<typeof serverHarness>>) {
+export async function browserServer(
+  h: Awaited<ReturnType<typeof serverHarness>>,
+  dispatch?: (request: Request) => Promise<Response>
+) {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const { readFile } = await import("node:fs/promises");
@@ -295,7 +306,7 @@ export async function browserServer(h: Awaited<ReturnType<typeof serverHarness>>
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const body = Buffer.concat(chunks);
-      const response = await h.handler(
+      const response = await (dispatch ?? h.handler)(
         new Request(`https://${req.headers.host}${req.url}`, {
           method: req.method,
           headers: req.headers as Record<string, string>,
@@ -303,7 +314,19 @@ export async function browserServer(h: Awaited<ReturnType<typeof serverHarness>>
         })
       );
       res.writeHead(response.status, Object.fromEntries(response.headers));
-      res.end(Buffer.from(await response.arrayBuffer()));
+      if (response.headers.get("content-type")?.includes("text/event-stream")) {
+        res.flushHeaders();
+        const reader = response.body!.getReader();
+        res.once("close", () => {
+          void reader.cancel();
+        });
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          res.write(Buffer.from(chunk.value));
+        }
+        res.end();
+      } else res.end(Buffer.from(await response.arrayBuffer()));
     }
   );
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -319,3 +342,40 @@ export async function browserServer(h: Awaited<ReturnType<typeof serverHarness>>
     },
   };
 }
+
+/** Real package build output used by deployed-browser tests, including a hostile draft. */
+export async function buildRemoteGallery(h: Awaited<ReturnType<typeof serverHarness>>) {
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const { buildProject } = await import("../../../src/node/build.ts");
+  const base = resolve(import.meta.dirname, "../../../.tmp");
+  await mkdir(base, { recursive: true });
+  const root = await mkdtemp(join(base, "remote-gallery-"));
+  try {
+    await mkdir(join(root, "src/drafts/login-form"), { recursive: true });
+    await writeFile(
+      join(root, "proto.config.ts"),
+      `export default {title:"Remote fixture",review:{remote:{url:${JSON.stringify(h.options.publicOrigin + "/proto/")}}}};`
+    );
+    await writeFile(
+      join(root, "vite.config.ts"),
+      `import react from '@vitejs/plugin-react'; export default {cacheDir:'.vite',plugins:[react()]};`
+    );
+    await writeFile(
+      join(root, "proto.canvas.tsx"),
+      `export function Canvas({children}){return children}`
+    );
+    await writeFile(
+      join(root, "src/drafts/login-form/index.proto.tsx"),
+      `import {definePrototype} from '@compozy/proto';
+      export const meta=definePrototype({title:'Login form',states:[{id:'default',label:'Default'}]});
+      export default function View(){ return <main><button data-testid="remote-pick">Review target</button><output data-testid="hostile-cookie">{document.cookie || 'empty'}</output></main> }`
+    );
+    const result = await buildProject(await loadProject(root));
+    await cp(result.output, h.options.gallery.dir, { recursive: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+export { chromium } from "playwright";
+export { createServer as createViteServer } from "vite";

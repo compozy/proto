@@ -13,9 +13,9 @@ export function createProtoReview(db: Database, env: ApiEnv, auth: Auth) {
       .filter(Boolean)
   );
   function identity(
-    user: { id: string; name: string; email: string } | null | undefined
+    user: { id: string; name: string; email: string; emailVerified: boolean } | null | undefined
   ): Identity | null {
-    return user && allowed.has(user.email.toLowerCase())
+    return user?.emailVerified === true && allowed.has(user.email.toLowerCase())
       ? { id: user.id, name: user.name, scopes: ["review", "comment"] }
       : null;
   }

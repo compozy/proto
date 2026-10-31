@@ -29,7 +29,7 @@ export abstract class ReviewEngine {
     messageId: string
   ): Promise<CommentAttachment[]>;
   protected abstract commit(): Promise<string | null>;
-  protected abstract roots(): SourceRoots;
+  protected abstract roots(): SourceRoots | Promise<SourceRoots>;
   protected now() {
     return new Date().toISOString();
   }
@@ -69,7 +69,7 @@ export abstract class ReviewEngine {
   async add(key: string, input: NewComment, author: Author) {
     input = newCommentSchema.parse(input);
     if (input.target.kind !== "node") {
-      const roots = this.roots();
+      const roots = await this.roots();
       if (input.target.source !== null) confineSource(input.target.source, roots);
       for (const source of input.target.sourceChain) confineSource(source, roots);
     }

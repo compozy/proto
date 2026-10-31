@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ProtoError } from "../model/errors.ts";
@@ -11,7 +11,7 @@ export type LockEnvironment = {
   processStartedAt(pid: number): Promise<string | null>;
   alive(pid: number): boolean;
 };
-export const systemLockEnvironment: LockEnvironment = {
+const uncachedEnvironment: LockEnvironment = {
   async hostId() {
     if (process.platform === "linux") return (await readFile("/etc/machine-id", "utf8")).trim();
     if (process.platform === "darwin") {
@@ -67,6 +67,16 @@ export const systemLockEnvironment: LockEnvironment = {
     }
   },
 };
+let machineIdentity: Promise<string> | undefined;
+let ownStart: Promise<string | null> | undefined;
+export const systemLockEnvironment: LockEnvironment = {
+  ...uncachedEnvironment,
+  hostId: () => (machineIdentity ??= uncachedEnvironment.hostId()),
+  processStartedAt: pid =>
+    pid === process.pid
+      ? (ownStart ??= uncachedEnvironment.processStartedAt(pid))
+      : uncachedEnvironment.processStartedAt(pid),
+};
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 export async function readOwner(path: string): Promise<LockOwner | null> {
   try {
@@ -111,28 +121,58 @@ export class KeyLocks {
   async reclaim(key: string, observed: LockOwner) {
     if (!(await this.dead(observed))) return;
     const guard = `${this.path(key)}.takeover`;
+    const owner = {
+      token: crypto.randomUUID(),
+      pid: process.pid,
+      hostId: await this.environment.hostId(),
+      processStartedAt: await this.environment.processStartedAt(process.pid),
+    };
+    if (!owner.processStartedAt) return;
     try {
       await mkdir(guard);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - (await stat(guard)).mtimeMs > 5000)
-          await rm(guard, { recursive: true, force: true });
-      } catch (cause) {
-        if (!missing(cause)) throw cause;
+      const previous = await readOwner(guard);
+      if (previous && (await this.dead(previous))) {
+        // Keep this nonempty tombstone: another observer of the old token must never
+        // rename a newly acquired guard over it after its awaited liveness check.
+        const tombstone = `${guard}.${previous.token}.dead`;
+        if ((await readOwner(guard))?.token === previous.token) {
+          try {
+            await rename(guard, tombstone);
+          } catch (cause) {
+            if (
+              !["ENOENT", "EEXIST", "ENOTEMPTY"].includes(
+                (cause as NodeJS.ErrnoException).code ?? ""
+              )
+            )
+              throw cause;
+          }
+        }
       }
       return;
     }
+    await writeFile(join(guard, "owner.json"), JSON.stringify(owner), { flag: "wx" });
     try {
       const current = await readOwner(this.path(key));
       if (current?.token !== observed.token || !(await this.dead(current))) return;
+      if (
+        (await readOwner(guard))?.token !== owner.token ||
+        (await readOwner(this.path(key)))?.token !== observed.token
+      )
+        return;
       const tombstone = `${this.path(key)}.${crypto.randomUUID()}.tmp`;
       await rename(this.path(key), tombstone);
       await rm(tombstone, { recursive: true, force: true });
     } finally {
-      await rm(guard, { recursive: true, force: true });
+      if ((await readOwner(guard))?.token === owner.token) {
+        const tombstone = `${guard}.${owner.token}.tmp`;
+        await rename(guard, tombstone);
+        await rm(tombstone, { recursive: true, force: true });
+      }
     }
   }
+
   async acquire(key: string): Promise<() => Promise<void>> {
     await mkdir(this.directory, { recursive: true });
     const started = performance.now();

@@ -39,11 +39,18 @@ it("UT-002 draft identity and UT-011 component index identity", () => {
   ).toMatchObject({ slug: "review-digest", kind: "draft" });
   expect(discover({ "src/login/index.proto.tsx": source() }).entries[0]?.kind).toBe("component");
 });
-it("UT-003 duplicate identity names both files", () =>
-  expect(
-    discover({ "src/login.proto.tsx": source(), "src/other/login.proto.tsx": source() }).problems[0]
-      ?.message
-  ).toMatch(/src\/login.*src\/other\/login/));
+it("UT-003 duplicate identity names both files", () => {
+  const result = discover({
+    "src/login.proto.tsx": source(),
+    "src/other/login.proto.tsx": source(),
+  });
+  expect(result.problems).toEqual([
+    expect.objectContaining({
+      code: "duplicate_slug",
+      message: expect.stringMatching(/src\/login.*src\/other\/login/),
+    }),
+  ]);
+});
 it("UT-004 reserved and invalid slugs", () =>
   expect(
     discover({

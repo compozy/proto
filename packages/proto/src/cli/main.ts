@@ -21,6 +21,7 @@ const booleans = new Set([
   "force",
   "skills",
   "remote",
+  "open",
   "json",
   "verbose",
   "help",
@@ -161,7 +162,11 @@ export async function runCli(
       options.project ?? (capability.cli === "init" ? undefined : await loadProject(root));
     if (capability.cli === "dev") {
       const { startDev } = await import("../node/dev.ts");
-      const server = await startDev(project!, { port: args.port, quiet: args.json });
+      const server = await startDev(project!, {
+        open: args.open,
+        port: args.port,
+        quiet: args.json,
+      });
       const stop = () => void server.close();
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);

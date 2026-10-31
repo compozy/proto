@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
-import type { Sql, TransactionSql, JSONValue } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import { z } from "zod";
 import { ReviewEngine } from "../store/engine.ts";
 import { ProtoError } from "../model/errors.ts";
@@ -23,7 +23,7 @@ import type { AttachmentInput, CommentFilter, ReviewStore } from "../store/types
 import type { Registry } from "../model/registry.ts";
 import type { Credential, ReviewStorage } from "./storage.ts";
 const version = 1;
-const jsonValue = (value: unknown): JSONValue => JSON.parse(JSON.stringify(value));
+// Cast through text so a shared Drizzle client cannot bypass JSON serialization.
 type Row = Record<string, any>; // SQL rows are validated at the model boundary below.
 const iso = (value: Date | string | null) =>
   value === null ? null : new Date(value).toISOString();
@@ -55,8 +55,8 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     super();
     this.sql = sql;
   }
-  protected roots() {
-    return sourceRoots();
+  protected async roots() {
+    return (await this.registry?.())?.sourceRoots ?? sourceRoots();
   }
   protected commit() {
     return this.revision();
@@ -74,11 +74,12 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   private connection() {
     return this.transaction.getStore() ?? this.sql;
   }
-  async readFile(key: string): Promise<ReviewFileV3> {
-    await this.assertKey(key);
+  async readFile(key: string, history = false): Promise<ReviewFileV3> {
+    if (history) keySchema.parse(key);
+    else await this.assertKey(key);
     if (!this.transaction.getStore())
       return (await this.sql.begin("isolation level repeatable read read only", sql =>
-        this.transaction.run(sql, () => this.readFile(key))
+        this.transaction.run(sql, () => this.readFile(key, history))
       )) as ReviewFileV3;
     const sql = this.connection();
     const [row] = await sql`select * from proto_keys where key=${key}`;
@@ -150,17 +151,17 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   private async save(sql: TransactionSql, file: ReviewFileV3) {
     const key = file.key;
     reviewFileSchema.parse(file);
-    await sql`update proto_keys set next_comment=${file.sequence + 1}, review_status=${file.review.status}, review_updated_at=${file.review.updatedAt}, extra=${sql.json(jsonValue(file.extra ?? null))} where key=${key}`;
+    await sql`update proto_keys set next_comment=${file.sequence + 1}, review_status=${file.review.status}, review_updated_at=${file.review.updatedAt}, extra=${JSON.stringify(file.extra ?? null)}::text::jsonb where key=${key}`;
     const numbers: number[] = [],
       messageIds: string[] = [],
       imageIds: string[] = [];
     for (const comment of file.comments) {
       const number = Number(comment.id.slice(key.length + 1));
       numbers.push(number);
-      await sql`insert into proto_comments (key,number,status,created_at,updated_at,resolved_at,context,target,extra) values (${key},${number},${comment.status},${comment.createdAt},${comment.updatedAt},${comment.resolvedAt},${sql.json(jsonValue(comment.context))},${sql.json(jsonValue(comment.target))},${sql.json(jsonValue(comment.extra ?? null))}) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
+      await sql`insert into proto_comments (key,number,status,created_at,updated_at,resolved_at,context,target,extra) values (${key},${number},${comment.status},${comment.createdAt},${comment.updatedAt},${comment.resolvedAt},${JSON.stringify(comment.context)}::text::jsonb,${JSON.stringify(comment.target)}::text::jsonb,${JSON.stringify(comment.extra ?? null)}::text::jsonb) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
       for (const [position, message] of comment.thread.entries()) {
         messageIds.push(message.id);
-        await sql`insert into proto_messages (id,key,number,position,author_kind,author_id,author_name,body,at,edited_at,extra) values (${message.id},${key},${number},${position},${message.author},${message.authorId ?? null},${message.authorName ?? null},${message.body},${message.at},${message.editedAt},${sql.json(jsonValue(message.extra ?? null))}) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
+        await sql`insert into proto_messages (id,key,number,position,author_kind,author_id,author_name,body,at,edited_at,extra) values (${message.id},${key},${number},${position},${message.author},${message.authorId ?? null},${message.authorName ?? null},${message.body},${message.at},${message.editedAt},${JSON.stringify(message.extra ?? null)}::text::jsonb) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
         for (const [imagePosition, attachment] of message.attachments.entries()) {
           imageIds.push(attachment.id);
           const updated =
@@ -173,7 +174,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     await sql`delete from proto_messages where key=${key} and not (id=any(${messageIds}))`;
     await sql`delete from proto_comments where key=${key} and not (number=any(${numbers}))`;
     for (const [eventPosition, e] of file.events.entries())
-      await sql`insert into proto_events (id,key,position,type,at,author_kind,author_id,author_name,commit,open_count,comment_id,extra) values (${e.id},${key},${eventPosition},${e.type},${e.at},${e.author},${e.authorId ?? null},${e.authorName ?? null},${e.commit},${e.openCount},${e.commentId ?? null},${sql.json(jsonValue(e.extra ?? null))}) on conflict do nothing`;
+      await sql`insert into proto_events (id,key,position,type,at,author_kind,author_id,author_name,commit,open_count,comment_id,extra) values (${e.id},${key},${eventPosition},${e.type},${e.at},${e.author},${e.authorId ?? null},${e.authorName ?? null},${e.commit},${e.openCount},${e.commentId ?? null},${JSON.stringify(e.extra ?? null)}::text::jsonb) on conflict do nothing`;
   }
   async importKey(
     file: ReviewFileV3,
@@ -205,7 +206,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
                 const payload = attachments.find(value => value.id === a.id);
                 if (!payload || payload.bytes.byteLength !== a.size)
                   throw new ProtoError("migration_unverified");
-                await sql`insert into proto_attachments(id,key,uploader_id,uploader_kind,name,type,size,width,height,data,created_at,expires_at,extra) values (${a.id},${file.key},${a.uploaderId ?? "legacy:unknown"},${a.uploaderKind ?? m.author},${a.name},${a.type},${a.size},${a.width},${a.height},${Buffer.from(payload.bytes)},${payload.createdAt},null,${sql.json(jsonValue(a.extra ?? null))})`;
+                await sql`insert into proto_attachments(id,key,uploader_id,uploader_kind,name,type,size,width,height,data,created_at,expires_at,extra) values (${a.id},${file.key},${a.uploaderId ?? "legacy:unknown"},${a.uploaderKind ?? m.author},${a.name},${a.type},${a.size},${a.width},${a.height},${Buffer.from(payload.bytes)},${payload.createdAt},null,${JSON.stringify(a.extra ?? null)}::text::jsonb)`;
               }
           await this.save(sql, file);
           if (!isDeepStrictEqual(await this.readFile(file.key), file))
@@ -259,7 +260,9 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       ...(registry?.flows.filter(p => p.spec === filter.spec).map(p => `flow-${p.id}`) ?? []),
     ]);
     const files = await Promise.all(
-      keys.filter(k => !filter.spec || specKeys.has(k.key)).map(k => this.readFile(k.key))
+      keys
+        .filter(k => !filter.spec || specKeys.has(k.key))
+        .map(k => this.readFile(k.key, !filter.key))
     );
     return files
       .flatMap(f => f.comments)

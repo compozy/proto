@@ -47,14 +47,14 @@ it.each([
   ["unknown_role", valid.replace('state:"idle"', 'state:"idle",role:"owner"')],
   ["duplicate_node", valid.replace("nodes:{", 'nodes:{site:{external:"site"},')],
   ["invalid_node", valid.replace('external:"site"', 'external:"site",proto:"welcome"')],
-  ["unknown_node", valid.replace('start:["site"]', 'start:["missing"]')],
+  ["unknown_node", valid.replace('start:["site"]', 'start:["site","missing"]')],
   ["duplicate_edge", valid.replace("edges:[", 'edges:[["site","login",{on:"Sign in"}],')],
   ["unreachable", valid.replace("nodes:{", 'nodes:{unused:{external:"email",end:true},')],
   ["dead_end", valid.replace("end:true", "end:false")],
 ])("UT-012 %s", (code, value, file?: string) =>
-  expect(scan(`export const flow=defineFlow(${value});`, file).problems.map(p => p.code)).toContain(
-    code
-  )
+  expect(scan(`export const flow=defineFlow(${value});`, file).problems.map(p => p.code)).toEqual([
+    code,
+  ])
 );
 it("UT-019 BFS numbering and UT-020 uncovered states", () => {
   const journey =

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createReviewServer } from "../../../src/server/index.ts";
 import { runStoreContract, input, png } from "../store/contract.ts";
@@ -7,6 +7,7 @@ import {
   httpContract,
   serverHarness,
   browserServer,
+  buildRemoteGallery,
   publicOrigin,
   renderOrigin,
 } from "./harness.ts";
@@ -27,7 +28,17 @@ describe("Remote authorization and render grants", () => {
     expect(anonymous.status).toBe(401);
     expect((await anonymous.json()).error).toMatchObject({
       code: "auth_required",
-      signInUrl: expect.stringContaining("/proto/sign-in?"),
+      signInUrl: "/proto/sign-in?returnTo=%2Fproto%2F",
+    });
+    const expiredReply = await h.request(
+      "api/comments/login-form-1/replies",
+      "POST",
+      { body: "Reply" },
+      ""
+    );
+    expect(expiredReply.status).toBe(401);
+    expect(await expiredReply.json()).toMatchObject({
+      error: { code: "auth_required", signInUrl: "/proto/sign-in?returnTo=%2Fproto%2F" },
     });
     expect(
       await (await h.request("__proto/bootstrap.json", "GET", undefined, "")).json()
@@ -77,11 +88,28 @@ describe("Remote authorization and render grants", () => {
     expect(
       await (await h.request("api/credentials", "POST", { name: "forged" }, "", headers)).json()
     ).toMatchObject({ error: { code: "scope_denied" } });
+    expect(h.credential.credential.scopes).toEqual(["comment"]);
+    const added = await h.request(
+      "api/comments",
+      "POST",
+      { key: "login-form", ...input },
+      "",
+      headers
+    );
+    expect(added.status).toBe(201);
+    expect((await added.json()).comment.thread[0]).toMatchObject({
+      author: "agent",
+      authorId: "agent-id",
+    });
     const agent = h.identities.get("agent")!;
     h.identities.delete("agent");
-    expect((await h.request("api/session", "GET", undefined, "", headers)).status).toBe(401);
+    const rejected = await h.request("api/session", "GET", undefined, "", headers);
+    expect(rejected.status).toBe(401);
+    expect(await rejected.json()).toMatchObject({ error: { code: "invalid_credential" } });
     h.identities.set("agent", { ...agent, scopes: ["review"] });
-    expect((await h.request("api/session", "GET", undefined, "", headers)).status).toBe(401);
+    const scopeless = await h.request("api/session", "GET", undefined, "", headers);
+    expect(scopeless.status).toBe(401);
+    expect(await scopeless.json()).toMatchObject({ error: { code: "invalid_credential" } });
     h.identities.set("agent", agent);
     const listed = await (await h.request("api/credentials", "GET", undefined, "agent")).text();
     expect(listed).not.toContain(h.credential.token);
@@ -90,6 +118,51 @@ describe("Remote authorization and render grants", () => {
     expect(
       await (await h.request("api/session", "GET", undefined, "", headers)).json()
     ).toMatchObject({ error: { code: "credential_revoked" } });
+  });
+  it("UT-079: server origins require HTTPS except loopback", () => {
+    for (const property of ["publicOrigin", "renderOrigin"] as const)
+      expect(() =>
+        createReviewServer({ ...h.options, [property]: "http://unsafe.example.org" })
+      ).toThrowError(expect.objectContaining({ code: "insecure_remote" }));
+  });
+  it("UT-076: document framing is limited to the canonical shell", async () => {
+    const shell = await h.request("");
+    expect(shell.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+    const render = await h.request(`${renderOrigin}/__proto/render/login-form`);
+    expect(render.status).toBe(401);
+    expect(render.headers.get("content-security-policy")).toBe(`frame-ancestors ${publicOrigin}`);
+  });
+  it("UT-090: registry source roots reach the remote router and storage engine", async () => {
+    const path = join(h.options.gallery.dir, "__proto/registry.json");
+    const registry = JSON.parse(await readFile(path, "utf8"));
+    registry.sourceRoots = { dirs: ["src", "journeys"], files: ["custom.canvas.tsx"] };
+    await writeFile(path, JSON.stringify(registry));
+    const rect = { x: 0, y: 0, width: 1, height: 1 };
+    const target = {
+      kind: "element",
+      selector: "button",
+      testId: null,
+      tag: "button",
+      text: "Target",
+      source: "journeys/example.ts:1:1",
+      sourceChain: ["custom.canvas.tsx:1:1"],
+      rect,
+      rectNormalized: rect,
+      offset: null,
+    };
+    const accepted = await h.request("api/comments", "POST", {
+      key: "login-form",
+      ...input,
+      target,
+    });
+    expect(accepted.status).toBe(201);
+    const rejected = await h.request("api/comments", "POST", {
+      key: "login-form",
+      ...input,
+      target: { ...target, source: "flows/old.ts:1:1" },
+    });
+    expect(rejected.status).toBe(422);
+    expect(await rejected.json()).toMatchObject({ error: { code: "invalid_source" } });
   });
   it("UT-086: cookie CSRF and ambiguous credentials are rejected", async () => {
     for (const headers of [{ origin: "https://evil.test" }, { "x-proto-request": "" }] as Record<
@@ -224,28 +297,13 @@ describe("Remote authorization and render grants", () => {
     expect(new TextDecoder().decode((await reader.read()).value)).toContain('"key":"login-form"');
     await reader.cancel();
   });
-  it("IT-026/032: Chromium loads a built gallery and excludes the session cookie from render", async () => {
-    const { build } = await import("vite");
+  // Deployment-layer invariant: the actual package build speaks the shell protocol over isolated TLS origins.
+  it("IT-026/032/033: real remote build picks, isolates cookies and renews expired grants", async () => {
     const { chromium } = await import("playwright");
-    const source = join(h.root, "build-source");
-    await mkdir(source);
-    await writeFile(
-      join(source, "index.html"),
-      '<html><body><main></main><script type="module" src="./main.js"></script></body></html>'
-    );
-    await writeFile(
-      join(source, "main.js"),
-      'fetch("api/comments").then(r=>r.json()).then(r=>document.querySelector("main").textContent=r.comments[0].thread[0].body)'
-    );
-    await build({
-      root: source,
-      configFile: false,
-      base: "/proto/",
-      logLevel: "silent",
-      build: { outDir: h.options.gallery.dir, emptyOutDir: false },
-    });
-    await h.request("api/comments", "POST", { key: "login-form", ...input });
+    let now = Date.now();
+    h.options.clock = () => now;
     const transport = await browserServer(h);
+    await buildRemoteGallery(h);
     const browser = await chromium.launch({
       headless: true,
       args: [
@@ -266,28 +324,62 @@ describe("Remote authorization and render grants", () => {
         },
       ]);
       const page = await context.newPage();
-      await page.goto(`${h.options.publicOrigin}/proto/`);
-      await page.getByText(input.body, { exact: true }).waitFor();
-      const ticket = await page.evaluate(async () =>
-        (await fetch("api/render-ticket?slug=login-form&state=default")).json()
-      );
-      await page.goto(ticket.url);
-      expect(page.url()).not.toContain("ticket=");
+      await page.addInitScript(() => {
+        (window as any).protocolMessages = [];
+        window.addEventListener("message", event => {
+          if (event.data?.proto === 1) (window as any).protocolMessages.push(event.data);
+        });
+      });
+      await page.goto(`${h.options.publicOrigin}/proto/?p=login-form`);
+      const frame = page.frameLocator("iframe").first();
+      await frame.getByTestId("remote-pick").waitFor();
+      expect(await frame.getByTestId("hostile-cookie").textContent()).toBe("empty");
+      await expect
+        .poll(() =>
+          page.evaluate(() => (window as any).protocolMessages.some((m: any) => m.type === "ready"))
+        )
+        .toBe(true);
+      await page.getByTestId("comment-tool").click();
+      await frame.getByTestId("proto-picker").waitFor();
+      const bounds = (await frame.getByTestId("remote-pick").boundingBox())!;
+      await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await page.getByTestId("comment-composer").waitFor();
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as any).protocolMessages.some((m: any) => m.type === "pick:result")
+          )
+        )
+        .toBe(true);
+      const oldFrame = page.frames().find(f => f.url().startsWith(h.options.renderOrigin))!;
+      now += 3600001;
+      await oldFrame.goto(oldFrame.url());
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as any).protocolMessages.some((m: any) => m.type === "auth:expired")
+          )
+        )
+        .toBe(true);
+      await frame.getByTestId("remote-pick").waitFor();
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => (window as any).protocolMessages.filter((m: any) => m.type === "ready").length
+          )
+        )
+        .toBeGreaterThan(1);
+      const renders = transport.seen.filter(r => r.host.startsWith("render."));
+      expect(renders.length).toBeGreaterThan(0);
+      expect(renders.every(r => !r.cookie.includes("session="))).toBe(true);
       expect((await context.cookies(h.options.renderOrigin)).map(c => c.name)).toEqual([
         "__Host-proto-render",
       ]);
-      expect(
-        transport.seen
-          .filter(r => r.host.startsWith("render."))
-          .every(r => !r.cookie.includes("session="))
-      ).toBe(true);
-      const response = await page.goto(`${h.options.renderOrigin}/__proto/render/assets/app.js`);
-      expect(response!.status()).toBe(200);
     } finally {
       await browser.close();
       await transport.close();
     }
-  });
+  }, 120000);
   it("IT-024: image, edit, discard, SSE and credential-revoke rows for all columns", async () => {
     for (const who of ["review", "comment", "bearer", ""]) {
       const headers: Record<string, string> =

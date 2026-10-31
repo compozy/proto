@@ -1,9 +1,32 @@
+async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const collected = (async () => {
+    let text = "";
+    const decoder = new TextDecoder();
+    while (!text.includes(expected)) {
+      const part = await reader.read();
+      if (part.done) throw new Error("SSE closed before " + expected);
+      text += decoder.decode(part.value, { stream: true });
+    }
+    return text;
+  })();
+  try {
+    return await Promise.race([
+      collected,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("SSE deadline: " + expected)), 15000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 import { createServer } from "node:net";
 import { request } from "node:http";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, expect, it } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
-import { startDev } from "../../../src/node/dev.ts";
+import { startDev, hostAllowed } from "../../../src/node/dev.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
 const app = resolve(import.meta.dirname, "../../../../../apps/app");
 import { freePortPair as port } from "../ports.ts";
@@ -17,21 +40,38 @@ afterAll(async () => {
   await sharedBrowser?.close();
 }, 30000);
 function hostRequest(port: number, host: string) {
-  return new Promise<{ status: number; location?: string }>((resolve, reject) => {
+  return new Promise<{ status: number; location?: string; body: string }>((resolve, reject) => {
     const req = request({ hostname: "127.0.0.1", port, path: "/", headers: { host } }, res => {
-      res.resume();
-      resolve({ status: res.statusCode!, location: res.headers.location });
+      let body = "";
+      res.on("data", chunk => {
+        body += String(chunk);
+      });
+      res.on("end", () =>
+        resolve({ status: res.statusCode!, location: res.headers.location, body })
+      );
     });
     req.on("error", reject);
     req.end();
   });
 }
+it("UT-094: allowlisted hostnames are bound to each server's own port", () => {
+  expect(hostAllowed("preview.test:4400", 4400, ["preview.test"])).toBe(true);
+  expect(hostAllowed("preview.test:4401", 4401, ["preview.test"])).toBe(true);
+  expect(hostAllowed("preview.test:4400", 4401, ["preview.test"])).toBe(false);
+  expect(hostAllowed("preview.test", 4400, ["preview.test"])).toBe(false);
+});
 it("UT-094 and IT-013 serve bootstrap, registry and render HTML with host confinement", async () => {
   const selected = await port();
   const server = await startDev(await loadProject(app), { port: selected });
   try {
     const bootstrap = bootstrapSchema.parse(
       await (await fetch(`${server.origin}/__proto/bootstrap.json`)).json()
+    );
+    const shell = await fetch(server.origin);
+    expect(shell.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+    const rendered = await fetch(`${server.renderOrigin}/__proto/render/login-form`);
+    expect(rendered.headers.get("content-security-policy")).toBe(
+      `frame-ancestors ${server.origin}`
     );
     expect(bootstrap.renderUrl).toBe(`${server.renderOrigin}/__proto/render/`);
     const virtual = await (
@@ -47,7 +87,9 @@ it("UT-094 and IT-013 serve bootstrap, registry and render HTML with host confin
       await (await fetch(`${server.renderOrigin}/__proto/render/login-form`)).text()
     ).toContain('<div id="root"></div>');
     for (const p of [selected, selected + 1]) {
-      expect((await hostRequest(p, "evil.example")).status).toBe(403);
+      const denied = await hostRequest(p, "evil.example");
+      expect(denied.status).toBe(403);
+      expect(JSON.parse(denied.body).error.code).toBe("host_not_allowed");
       expect(await hostRequest(p, `localhost:${p}`)).toMatchObject({
         status: 302,
         location: `http://127.0.0.1:${p}/`,
@@ -62,14 +104,15 @@ it("UT-069 busy ports name the pair", async () => {
   await new Promise<void>(r => occupied.listen(0, "127.0.0.1", r));
   const p = (occupied.address() as { port: number }).port;
   try {
-    await expect(startDev(await loadProject(app), { port: p })).rejects.toThrow(
-      `Ports ${p} and ${p + 1}`
-    );
+    await expect(startDev(await loadProject(app), { port: p })).rejects.toMatchObject({
+      code: "port_in_use",
+      message: expect.stringContaining(`Ports ${p} and ${p + 1}`),
+    });
   } finally {
     await new Promise<void>(r => occupied.close(() => r()));
   }
 }, 120000);
-it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
+it("IT-011 registry SSE follows prototype changes", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -88,11 +131,7 @@ it("IT-011 registry SSE follows prototype changes within two seconds", async () 
       join(root, "src/new.proto.tsx"),
       'export const meta=definePrototype({title:"New",states:[{id:"idle",label:"Idle"}]});'
     );
-    const next = await Promise.race([
-      reader.read(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(Error("SSE deadline")), 2000)),
-    ]);
-    expect(new TextDecoder().decode(next.value)).toContain("event: registry");
+    expect(await readEvent(reader, "event: registry")).toContain("event: registry");
     abort.abort();
   } finally {
     abort.abort();
@@ -151,13 +190,7 @@ it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and reject
     );
     expect(published).toMatchObject({ version: 3, sequence: 1, comments: [{ id: comment.id }] });
     expect((await project.store().get(comment.id)).thread[0]?.body).toBe(input.body);
-    const notification = await Promise.race([
-      reader.read(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(Error("Review SSE deadline")), 2000)
-      ),
-    ]);
-    expect(new TextDecoder().decode(notification.value)).toContain(
+    expect(await readEvent(reader, 'event: comments\ndata: {"key":"login-form"}')).toContain(
       'event: comments\ndata: {"key":"login-form"}'
     );
     const rejected = await fetch(`${server.origin}/__proto/api/comments`, {

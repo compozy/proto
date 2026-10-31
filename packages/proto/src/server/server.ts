@@ -1,3 +1,4 @@
+import { remoteUrl } from "../store/http-store.ts";
 import { randomBytes } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { resolve, sep, extname } from "node:path";
@@ -34,6 +35,8 @@ export function createReviewServer(
     ![publicUrl, renderUrl].every(url => ["https:", "http:"].includes(url.protocol))
   )
     throw new Error("Expected canonical HTTP origins.");
+  remoteUrl(options.publicOrigin);
+  remoteUrl(options.renderOrigin);
   const site = (url: URL) => getDomain(url.hostname, { allowPrivateDomains: true }) ?? url.hostname;
   if (
     publicUrl.host === renderUrl.host ||
@@ -194,7 +197,7 @@ export function createReviewServer(
     if (!principal) {
       const destination = signInUrl(url.pathname + url.search);
       if (url.pathname.startsWith(api))
-        throw new ProtoError("auth_required", undefined, { signInUrl: destination });
+        throw new ProtoError("auth_required", undefined, { signInUrl: signInUrl(base) });
       return new Response(null, {
         status: 302,
         headers: { Location: destination, "Cache-Control": "no-store" },
@@ -318,6 +321,13 @@ export function createReviewServer(
       headers: response.headers,
     });
     response.headers.set("Cache-Control", "private, no-store");
+    if (response.headers.get("Content-Type")?.includes("text/html"))
+      response.headers.set(
+        "Content-Security-Policy",
+        new URL(request.url).host === renderUrl.host
+          ? `frame-ancestors ${options.publicOrigin}`
+          : "frame-ancestors 'none'"
+      );
     // Never log query strings (tickets), bodies, cookies, authorization headers or user ids.
     const entry = {
       route: new URL(request.url).pathname,

@@ -48,10 +48,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
             "api/session",
             "api/comments",
             `${renderOrigin}/__proto/render/login-form`,
-          ])
-            expect(await (await h.request(path)).json()).toMatchObject({
-              error: { code: "schema_mismatch" },
-            });
+          ]) {
+            const response = await h.request(path);
+            expect(response.status).toBe(503);
+            expect(await response.json()).toMatchObject({ error: { code: "schema_mismatch" } });
+          }
         }
       } finally {
         await sql`update proto_schema set version=1`;

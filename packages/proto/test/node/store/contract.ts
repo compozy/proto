@@ -14,15 +14,31 @@ export const input: NewComment = {
   context: { state: "default", theme: "light", role: null, viewport: { width: 1440, height: 900 } },
   target: { kind: "node", node: null, label: "Whole flow" },
 };
-export type StoreHarness = { store: ReviewStore; dispose(): Promise<void> };
+export type StoreHarness = {
+  store: ReviewStore;
+  retireKey(): Promise<void>;
+  dispose(): Promise<void>;
+};
 export function runStoreContract(makeStore: () => Promise<StoreHarness>) {
   describe("ReviewStore contract", () => {
+    let retireKey: () => Promise<void>;
     let store: ReviewStore, dispose: () => Promise<void>;
     beforeEach(async () => {
-      ({ store, dispose } = await makeStore());
+      ({ store, dispose, retireKey } = await makeStore());
     });
     afterEach(async () => {
       await dispose?.();
+    });
+    it("UT-027: unfiltered history survives registry retirement, explicit keys reject it", async () => {
+      const comment = await store.add("login-form", input, reviewer);
+      await retireKey();
+      expect(await store.list({ status: "all" })).toEqual([comment]);
+      await expect(store.list({ key: "login-form" })).rejects.toMatchObject({
+        code: "comment_not_found",
+      });
+      await expect(
+        store.reply(comment.id, { body: "Must not mutate retired history" }, agent)
+      ).rejects.toMatchObject({ code: "comment_not_found" });
     });
     it("UT-027: retired ids survive deletion, including the last comment", async () => {
       const a = await store.add("login-form", input, reviewer),

@@ -69,6 +69,7 @@ export type RegistryWarning = {
 };
 
 export type Registry = {
+  sourceRoots?: import("./source.ts").SourceRoots;
   title: string;
   locale: "en" | "pt-BR";
   /** `null` when the `specs` function returned null (warning `specs_unavailable`). */

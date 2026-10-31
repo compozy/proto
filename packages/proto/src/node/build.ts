@@ -7,11 +7,14 @@ import type { ProtoProject } from "./project.ts";
 import type { ReviewSnapshot } from "../model/review.ts";
 import type { Bootstrap } from "../model/bootstrap.ts";
 import { renderPlugins } from "../vite/index.ts";
+import { remoteUrl } from "../store/http-store.ts";
 import { commitAt } from "./dev.ts";
 
-export type BuildOptions = { shellDir?: string };
+export type BuildOptions = { shellDir?: string; remote?: string };
 /** Build offline data and the consumer render graph before exposing any output. */
 export async function buildProject(project: ProtoProject, options: BuildOptions = {}) {
+  const remote = options.remote ?? project.config.review.remote?.url;
+  const shellOrigin = remote ? remoteUrl(remote).origin : "";
   const output = resolve(project.root, "dist-proto");
   await rm(output, { recursive: true, force: true });
   const staging = await mkdtemp(join(project.root, ".proto-build-"));
@@ -27,10 +30,14 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
     await build({
       root: project.root,
       mode: "proto-render",
-      base: "./",
+      base: remote ? "/__proto/render/" : "./",
       logLevel: "silent",
       plugins: [
-        ...renderPlugins(project, { mode: "read-only", form: "query", shellOrigin: "" }),
+        ...renderPlugins(project, {
+          mode: remote ? "remote" : "read-only",
+          form: remote ? "path" : "query",
+          shellOrigin,
+        }),
         {
           name: "proto:static-html",
           generateBundle(_options, bundle) {
@@ -42,7 +49,7 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
             this.emitFile({
               type: "asset",
               fileName: "index.html",
-              source: `<!doctype html><html><head><meta charset="utf-8">${styles.map(item => `<link rel="stylesheet" href="./${item.fileName}">`).join("")}</head><body><div id="root"></div><script type="module" src="./${entry.fileName}"></script></body></html>`,
+              source: `<!doctype html><html><head><meta charset="utf-8">${styles.map(item => `<link rel="stylesheet" href="${remote ? "/__proto/render/" : "./"}${item.fileName}">`).join("")}</head><body><div id="root"></div><script type="module" src="${remote ? "/__proto/render/" : "./"}${entry.fileName}"></script></body></html>`,
             });
           },
         },
@@ -54,7 +61,7 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
       },
     });
     const bootstrap: Bootstrap = {
-      mode: "read-only",
+      mode: remote ? "remote" : "read-only",
       title: project.config.title,
       locale: project.config.locale,
       commit: commitAt(project.root),
