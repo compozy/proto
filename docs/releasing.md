@@ -30,10 +30,31 @@ Vite React app, and serves the prebuilt shell, bootstrap and render origin throu
 
 ## Automated release
 
-Pushes to `main` run git-cliff 2.7.0 against Conventional Commits, compute the next version, and
-open/update `release/v<version>`. The PR contains the manifest and lockfile bump, `CHANGELOG.md`,
-and `.release-notes/v<version>.md`. Its title and squash merge subject must be
-`build: release v<version>`. The initial version is `0.1.0`.
+Releases use **pr-release** ([`github.com/compozy/releasepr`](https://github.com/compozy/releasepr),
+the release tool shared by the Compozy repositories; agent guide: the `releasepr` skill), pinned
+as `PR_RELEASE_MODULE` in `.github/workflows/release.yml`, with git-cliff 2.7.0.
+
+A push to `main` runs `pr-release pr-release --force --enable-rollback --ci-output`. It computes
+the next version from Conventional Commits with `cliff.toml`, writes `CHANGELOG.md`,
+`RELEASE_BODY.md` (this release) and `RELEASE_NOTES.md` (history), archives custom notes, pushes
+`release/v<version>` and opens or updates the pull request `build: release v<version>`. A failed
+step rolls back. `.pr-release.yaml` adds three `release_artifacts` steps:
+`scripts/release/sync-version.mjs` sets the version in `packages/proto/package.json` and undoes
+pr-release's own rewrite of the private root `package.json`, `bun install --lockfile-only` updates
+`bun.lock`, and oxfmt formats the generated files. The squash merge subject must stay
+`build: release v<version>`.
+
+Versioning follows the Compozy repositories: while the major version is 0, `feat`, `fix` and every
+other type bump the **patch**, and only a breaking change (`feat!`, `BREAKING CHANGE`) bumps the
+minor (`[bump]` in `cliff.toml`). Because the version stays the same until a release merges, new
+commits update the one open release pull request instead of opening another. To force a version,
+add a `Release-As: X.Y.Z` footer to a commit. For prose a commit subject cannot carry, add a note
+before the release; it is folded into the next release body and archived under
+`.release-notes/archive/v<version>/`:
+
+```sh
+go run github.com/compozy/releasepr@v0.0.35 add-note --title "..." --type feature --body "..."
+```
 
 The `compozy` organization provides `RELEASE_TOKEN` and `NPM_TOKEN` with ALL repository
 visibility, so this repository inherits both. `RELEASE_TOKEN` needs contents and pull-request
@@ -42,12 +63,16 @@ CI remains in
 `ci.yml`; release PRs additionally run package contract tests, build, dry-run pack and real tarball
 adoption. Never bypass a failed required CI check to merge a release PR.
 
-Merging the release PR selects publication rather than creating another PR. The workflow validates
-the committed version against the merge subject, builds, validates the tarball, publishes to npm
+Merging the release PR selects publication rather than creating another PR. The workflow checks
+the merge subject against the committed version, then `pr-release plan` proves the release identity
+(tag free, HEAD is the release commit) and `pr-release release-body` renders the GitHub Release
+body for exactly the planned range. Release PRs run the same plan as validation. It then builds, validates the tarball, publishes to npm
 with OIDC and provenance, then creates the tag and GitHub Release. No GitHub Release claims a
 publication before npm succeeds. Publication runs are serialized and non-cancellable; ordinary
 pushes use a separate group. Failed publication can be retried by dispatching `main` while it
-still contains the same release version and channel; registry failures other than 404 fail closed.
+still contains the same release version and channel; the plan then accepts an existing tag only
+when it is annotated and points to the release commit. Registry failures other than 404 fail
+closed.
 
 For an explicit release, land the intended version and matching lockfile on `main`, then dispatch
 `release.yml` with the branch selector set to `main`, plus `version` and `channel`. Both stable and

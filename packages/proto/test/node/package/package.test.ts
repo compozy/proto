@@ -6,7 +6,7 @@ import { test, expect } from "vitest";
 // @ts-expect-error Packaging scripts run as native ESM, outside the application TS graph.
 import { checkSize, budget } from "../../../scripts/check-size.mjs";
 // @ts-expect-error Release tooling runs as native ESM.
-import { releasePlan, isReleaseSubject } from "../../../../../scripts/release/plan.mjs";
+import { withVersion } from "../../../../../scripts/release/sync-version.mjs";
 
 test("UT-085: package build accepts a small shell and rejects one above 400 KiB gzip", async () => {
   const dir = await mkdtemp(join(tmpdir(), "proto-size-"));
@@ -20,20 +20,47 @@ test("UT-085: package build accepts a small shell and rejects one above 400 KiB 
   }
 });
 
-test("release plan owns version, branch, merge subject and channel identity", () => {
-  expect(releasePlan("0.1.0", "stable")).toMatchObject({
-    branch: "release/v0.1.0",
-    title: "build: release v0.1.0",
-    npmTag: "latest",
-    prerelease: false,
-  });
-  expect(releasePlan("0.2.0-beta.1", "beta")).toMatchObject({ npmTag: "beta", prerelease: true });
+// Owner: release preparation (pr-release `release_artifacts`). The release pull request changes
+// only the published package's version: pr-release's own root package.json rewrite is undone.
+test("release version sync touches only the published package version", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdir } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const script = fileURLToPath(
+    new URL("../../../../../scripts/release/sync-version.mjs", import.meta.url)
+  );
+  const dir = await mkdtemp(join(tmpdir(), "proto-release-sync-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+  const root = '{\n    "name": "proto",\n    "private": true\n}\n';
+  const manifest =
+    '{\n    "name": "@compozy/proto",\n    "version": "0.1.1",\n    "type": "module"\n}\n';
+  try {
+    git("init", "--initial-branch=main");
+    await mkdir(join(dir, "packages/proto"), { recursive: true });
+    await writeFile(join(dir, "package.json"), root);
+    await writeFile(join(dir, "packages/proto/package.json"), manifest);
+    git("add", ".");
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "init");
+    // What pr-release leaves behind: a reformatted root manifest with a version it does not own.
+    await writeFile(
+      join(dir, "package.json"),
+      '{\n  "private": true,\n  "name": "proto",\n  "version": "0.1.2"\n}\n'
+    );
+    execFileSync("node", [script], {
+      cwd: dir,
+      env: { ...process.env, PR_RELEASE_VERSION_NUMBER: "0.1.2" },
+    });
+    expect(await readFile(join(dir, "package.json"), "utf8")).toBe(root);
+    expect(await readFile(join(dir, "packages/proto/package.json"), "utf8")).toBe(
+      manifest.replace('"0.1.1"', '"0.1.2"')
+    );
+    expect(() => execFileSync("node", [script], { cwd: dir, stdio: "pipe" })).toThrow();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
   for (const version of ["v1.0.0", "01.0.0", "1.0", "1.0.0\n", "1.0.0;echo bad"])
-    expect(() => releasePlan(version, "stable")).toThrow();
-  expect(() => releasePlan("0.2.0-beta.1", "stable")).toThrow();
-  expect(() => releasePlan("0.2.0", "beta")).toThrow();
-  expect(isReleaseSubject("build: release v0.1.0 (#123)")).toBe(true);
-  expect(isReleaseSubject("feat: add shell")).toBe(false);
+    expect(() => withVersion(manifest, version)).toThrow("Invalid version");
+  expect(() => withVersion("{}", "0.2.0")).toThrow("no top-level");
 });
 
 test("release workflow contract isolates publication and finalizes GitHub only after npm", async () => {
@@ -59,63 +86,12 @@ test("release workflow contract isolates publication and finalizes GitHub only a
     );
   }
   expect(workflow).toContain("BOOTSTRAP_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}");
+  // pr-release owns the release pull request and the publication identity.
+  expect(workflow).toContain('go run "$PR_RELEASE_MODULE" pr-release --force --enable-rollback');
+  expect(workflow).toContain("plan --ref HEAD --version");
   expect(workflow.indexOf("node packages/proto/scripts/publish.mjs")).toBeLessThan(
     workflow.indexOf("bash scripts/release/finalize.sh")
   );
-});
-
-test("release planner validates the actual Git commit and refuses conflicting tags without mutation", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const { mkdir } = await import("node:fs/promises");
-  const { fileURLToPath } = await import("node:url");
-  const dir = await mkdtemp(join(tmpdir(), "proto-release-plan-"));
-  const planner = fileURLToPath(
-    new URL("../../../../../scripts/release/plan.mjs", import.meta.url)
-  );
-  const git = (...args: string[]) =>
-    execFileSync("git", args, {
-      cwd: dir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  try {
-    git("init", "--initial-branch=main");
-    git("config", "user.name", "Release Contract");
-    git("config", "user.email", "contract@example.invalid");
-    await mkdir(join(dir, "packages/proto"), { recursive: true });
-    await writeFile(join(dir, "packages/proto/package.json"), '{"version":"0.1.0"}');
-    git("add", ".");
-    git("-c", "core.hooksPath=/dev/null", "commit", "-m", "build: release v0.1.0");
-    const head = git("rev-parse", "HEAD");
-    const output = join(dir, "output");
-    const env = {
-      ...process.env,
-      GITHUB_EVENT_NAME: "push",
-      GITHUB_OUTPUT: output,
-      RELEASE_CHANNEL: "stable",
-      RELEASE_VERSION: "0.1.0",
-    };
-    execFileSync("node", [planner], { cwd: dir, env });
-    expect(await readFile(output, "utf8")).toContain(`commit=${head}`);
-    expect(git("rev-parse", "HEAD")).toBe(head);
-    git("tag", "v0.1.0");
-    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "build: release v0.1.0");
-    execFileSync("node", [planner], {
-      cwd: dir,
-      env: { ...env, GITHUB_EVENT_NAME: "pull_request" },
-      stdio: "pipe",
-    });
-    expect(() => execFileSync("node", [planner], { cwd: dir, env, stdio: "pipe" })).toThrow();
-    expect(() =>
-      execFileSync("node", [planner], {
-        cwd: dir,
-        env: { ...env, RELEASE_VERSION: "0.2.0" },
-        stdio: "pipe",
-      })
-    ).toThrow();
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 });
 
 // Owner: executable package/release boundary; denied refs cannot reach registry I/O.
