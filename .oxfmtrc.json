@@ -1,0 +1,31 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "printWidth": 100,
+    "singleQuote": false,
+    "semi": true,
+    "trailingComma": "es5",
+    "arrowParens": "avoid",
+    "ignorePatterns": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/.output/**",
+        "**/gallery/comments/**",
+        "**/storybook-static/**",
+        "**/dist-gallery/**",
+        "**/.tanstack/**",
+        "**/.turbo/**",
+        "**/routeTree.gen.ts",
+        "**/src/generated/**",
+        "apps/api/openapi.json",
+        "packages/db/drizzle/meta/**",
+        ".agents/skills/**",
+        ".claude/skills/**",
+        "skills-lock.json",
+        "bun.lock",
+        "packages/ui/src/components/**",
+        "!packages/ui/src/components/*.stories.tsx",
+        "packages/ui/src/hooks/**",
+        "packages/ui/src/lib/**",
+        "packages/ui/src/styles/**"
+    ]
+}

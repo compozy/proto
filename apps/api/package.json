@@ -1,0 +1,28 @@
+{
+    "name": "@proto/api",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun --env-file=../../.env.local --watch src/server.ts",
+        "start": "bun src/server.ts",
+        "build": "bun build src/server.ts --target=bun --packages=external --outdir=dist",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "codegen": "bun scripts/codegen.ts",
+        "codegen:check": "bun scripts/codegen.ts --check"
+    },
+    "dependencies": {
+        "@hono/zod-openapi": "1.6.3",
+        "@proto/db": "workspace:*",
+        "better-auth": "1.7.10",
+        "hono": "4.13.13",
+        "zod": "4.6.7"
+    },
+    "devDependencies": {
+        "@types/bun": "1.4.3",
+        "openapi-typescript": "7.13.0",
+        "oxfmt": "0.74.0",
+        "typescript": "6.0.3",
+        "vitest": "5.0.5"
+    }
+}

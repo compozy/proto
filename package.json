@@ -1,0 +1,51 @@
+{
+    "name": "proto",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "type": "module",
+    "scripts": {
+        "dev": "turbo run dev",
+        "build": "turbo run build",
+        "typecheck": "turbo run typecheck",
+        "test": "turbo run test",
+        "codegen": "turbo run codegen",
+        "proto": "bun packages/gallery/src/cli/main.ts",
+        "storybook": "turbo run storybook",
+        "test:stories": "turbo run test:stories",
+        "lint": "oxlint --deny-warnings --no-error-on-unmatched-pattern",
+        "format": "oxfmt",
+        "format:check": "oxfmt --check",
+        "verify": "bun run format:check && bun run lint && turbo run codegen:check typecheck test build",
+        "db:up": "docker compose --env-file .env.local up -d --wait",
+        "db:generate": "bun run --cwd packages/db db:generate",
+        "db:migrate": "bun run --cwd packages/db db:migrate",
+        "prepare": "husky",
+        "postinstall": "bash scripts/postinstall.sh"
+    },
+    "devDependencies": {
+        "@commitlint/cli": "21.2.4",
+        "@commitlint/config-conventional": "21.2.4",
+        "husky": "9.1.7",
+        "lint-staged": "17.6.0",
+        "oxfmt": "0.74.0",
+        "oxlint": "1.89.0",
+        "turbo": "2.11.9"
+    },
+    "lint-staged": {
+        "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
+            "oxfmt --no-error-on-unmatched-pattern",
+            "oxlint --deny-warnings --no-error-on-unmatched-pattern"
+        ],
+        "*.{css,html,json,jsonc,yaml,yml,md}": [
+            "oxfmt --no-error-on-unmatched-pattern"
+        ]
+    },
+    "engines": {
+        "bun": ">=1.4.4",
+        "node": ">=24.22.1"
+    },
+    "packageManager": "bun@1.4.4"
+}

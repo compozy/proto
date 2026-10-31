@@ -1,0 +1,205 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["typescript", "unicorn", "oxc"],
+    "categories": {
+        "correctness": "error"
+    },
+    "rules": {
+        "no-unused-vars": "error"
+    },
+    "env": {
+        "builtin": true
+    },
+    "ignorePatterns": [
+        "**/dist/**",
+        "**/node_modules/**",
+        "**/.output/**",
+        "**/.tanstack/**",
+        "**/.turbo/**",
+        "**/routeTree.gen.ts",
+        "**/src/generated/**",
+        "**/dist-gallery/**",
+        "**/storybook-static/**",
+        ".agents/skills/**",
+        ".claude/skills/**"
+    ],
+    "overrides": [
+        {
+            "files": [
+                "apps/*/src/**/*.{ts,tsx}",
+                "apps/*/preview/**/*.{ts,tsx}",
+                "apps/*/.storybook/**/*.{ts,tsx}",
+                "packages/ui/src/**/*.{ts,tsx}",
+                "packages/gallery/src/**/*.{ts,tsx}"
+            ],
+            "plugins": ["react"],
+            "rules": {
+                "react/rules-of-hooks": "error",
+                "react/exhaustive-deps": "error",
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "react",
+                                "importNames": ["memo", "useMemo", "useCallback"],
+                                "allowTypeImports": true,
+                                "message": "React Compiler owns memoization."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["apps/*/src/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "react",
+                                "importNames": ["memo", "useMemo", "useCallback"],
+                                "allowTypeImports": true,
+                                "message": "React Compiler owns memoization."
+                            }
+                        ],
+                        "patterns": [
+                            {
+                                "group": [
+                                    "**/*.proto",
+                                    "**/*.proto.*",
+                                    "**/*.fixtures",
+                                    "**/*.fixtures.*",
+                                    "**/drafts/**",
+                                    "**/flows/**",
+                                    "@proto/gallery",
+                                    "@proto/gallery/**",
+                                    "**/gallery/**",
+                                    "**/*.stories",
+                                    "**/*.stories.*",
+                                    "**/preview/**",
+                                    "**/.storybook/**"
+                                ],
+                                "message": "Production code cannot import stories, prototypes, fixtures, drafts, flows or preview tooling."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": [
+                "apps/*/src/**/*.proto.tsx",
+                "apps/*/src/**/*.fixtures.{ts,tsx}",
+                "apps/*/src/drafts/**/*.{ts,tsx}",
+                "apps/*/src/**/*.stories.{ts,tsx}"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "react",
+                                "importNames": ["memo", "useMemo", "useCallback"],
+                                "allowTypeImports": true,
+                                "message": "React Compiler owns memoization."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/**/*.tsx", "packages/ui/src/hooks/*.ts"],
+            "rules": {
+                "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/code-block/code-block-highlight.tsx"],
+            "rules": {
+                "no-control-regex": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/data-grid/data-grid-column-header.tsx"],
+            "rules": {
+                "oxc/const-comparisons": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/code-block/code-block.tsx"],
+            "plugins": ["react"],
+            "rules": {
+                "react/refs": "off"
+            }
+        },
+        {
+            "files": [
+                "packages/ui/src/components/code-block/code-block.tsx",
+                "packages/ui/src/components/data-grid/data-grid-scroll-area.tsx",
+                "packages/ui/src/components/data-grid/data-grid-table-dnd-rows.tsx",
+                "packages/ui/src/components/date-selector.tsx",
+                "packages/ui/src/components/filters/filters-advanced.tsx",
+                "packages/ui/src/components/filters/filters-chip.tsx"
+            ],
+            "plugins": ["react"],
+            "rules": {
+                "react/set-state-in-effect": "off"
+            }
+        },
+        {
+            "files": [
+                "packages/ui/src/components/code-block/code-block.tsx",
+                "packages/ui/src/components/data-grid/data-grid-column-header.tsx",
+                "packages/ui/src/components/data-grid/data-grid-table-virtual.tsx",
+                "packages/ui/src/components/data-grid/data-grid.tsx",
+                "packages/ui/src/components/filters/filters-advanced.tsx",
+                "packages/ui/src/hooks/use-file-upload.ts"
+            ],
+            "plugins": ["react"],
+            "rules": {
+                "react/exhaustive-deps": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/data-grid/data-grid.tsx"],
+            "rules": {
+                "unicorn/no-useless-fallback-in-spread": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/filters/filters-query.tsx"],
+            "rules": {
+                "unicorn/no-useless-length-check": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/components/filters/filters-dnd.tsx"],
+            "rules": {
+                "unicorn/no-useless-spread": "off"
+            }
+        },
+        {
+            "files": ["packages/ui/src/**/*.stories.tsx"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "react",
+                                "importNames": ["memo", "useMemo", "useCallback"],
+                                "allowTypeImports": true,
+                                "message": "React Compiler owns memoization."
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

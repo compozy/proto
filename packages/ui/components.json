@@ -1,0 +1,29 @@
+{
+    "$schema": "https://ui.shadcn.com/schema.json",
+    "style": "base-nova",
+    "rsc": false,
+    "tsx": true,
+    "tailwind": {
+        "config": "",
+        "css": "src/styles/globals.css",
+        "baseColor": "neutral",
+        "cssVariables": true,
+        "prefix": ""
+    },
+    "iconLibrary": "lucide",
+    "aliases": {
+        "components": "@proto/ui/components",
+        "ui": "@proto/ui/components",
+        "utils": "@proto/ui/lib/utils",
+        "lib": "@proto/ui/lib",
+        "hooks": "@proto/ui/hooks"
+    },
+    "registries": {
+        "@bnui": {
+            "url": "https://ui.branasnauck.com.br/r/{name}.json",
+            "headers": {
+                "Authorization": "Bearer ${BNUI_TOKEN}"
+            }
+        }
+    }
+}

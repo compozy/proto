@@ -1,0 +1,6 @@
+/* The app entry stylesheet: `@import "@proto/ui/styles.css";` once in the app's main CSS. */
+@import "./contract.css";
+@import "./theme.css";
+
+/* Components in this package are class sources for every app that imports this stylesheet. */
+@source "../components";
