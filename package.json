@@ -12,7 +12,7 @@
         "typecheck": "turbo run typecheck",
         "test": "turbo run test",
         "codegen": "turbo run codegen",
-        "proto": "bun packages/proto/src/cli/main.ts",
+        "proto": "bunx --no-install --bun --package @compozy/proto proto",
         "storybook": "turbo run storybook",
         "test:stories": "turbo run test:stories",
         "lint": "oxlint --deny-warnings --no-error-on-unmatched-pattern",
@@ -28,6 +28,7 @@
     "devDependencies": {
         "@commitlint/cli": "21.2.4",
         "@commitlint/config-conventional": "21.2.4",
+        "@compozy/proto": "workspace:*",
         "husky": "9.1.7",
         "lint-staged": "17.6.0",
         "oxfmt": "0.74.0",

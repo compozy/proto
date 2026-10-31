@@ -16,128 +16,137 @@ typecheck: bun run --cwd apps/app typecheck
 dev: bun run proto dev
 preview: "http://127.0.0.1:4401/__proto/render/{slug}?chrome=0"
 evidence: bun run proto evidence {slug}
-verified: 2026-10-28
+verified: 2026-10-31
 ---
 
 # Prototyping
 
-The gallery (`packages/proto`) serves a prebuilt shell on port 4400 and compiles the app's
-prototypes through the consumer Vite pipeline on port 4401. Storybook uses `vite.shared.ts`
-and `protoPresentation()`. When several apps have `proto.config.ts`, pass `--app <name>`.
+Run commands from the repository root with `bun run proto … --app app`. The root script uses
+`@compozy/proto`'s public `proto` binary. The app consumes only the package's public entries:
+`@compozy/proto`, `/config`, `/flow` and `/vite`; Node integrations use `/node` and MCP uses `/mcp`.
 
-`proto build` validates the registry and builds the consumer Vite graph in render mode, then
-publishes `dist-proto/`. A registry problem, forbidden import or build failure exits 1 and leaves
-no `dist-proto`, including an old output. Build the package shell first (`build:shell`); a missing
-prebuilt shell fails explicitly. The Node entry exports `buildProject(project)` for integrations.
+## App integration
 
-The output deploys at `/` or any subpath such as `/gallery/` using a plain static server with no
-rewrites. Shell assets live at the root; `__proto/bootstrap.json` sets `mode: "read-only"`, null
-API/events/auth endpoints and document-relative URLs. The consumer render entry is
-`__proto/render/index.html?slug=<slug>&state=<state>` and derives its trusted shell origin from
-the current location. Its assets and lazy prototype chunks are relative to that entry.
+`apps/app/proto.config.ts` defines specs, roles, discovery paths, guards and dev/build options with
+`defineProtoConfig`. `proto.canvas.tsx` exports `Canvas` and optional `Frame`, owns CSS imports and
+provides the memory router/toasts. `vite.config.ts` installs `proto()`. Storybook and Vitest install
+`protoPresentation()`; use `{ sourceTags: true }` when source annotations are needed. They share
+Tailwind, aliases and app React Compiler settings through `vite.shared.ts`.
 
-Review history is excluded by default. Opt in with `build: { includeReview: true }` in
-`proto.config.ts` to emit `__proto/review/<key>.json` and referenced images under
-`__proto/review/<key>/attachments/`. Each snapshot is `{ key, comments, review }`, where `comments`
-contains v3 threads and `review` is the store's `ReviewState` (including events). Attachment `url`
-values are relative to the shell document, like `__proto/review/<key>/attachments/<id>.png`.
-No pending uploads or unreferenced attachment files are copied. Without opt-in,
-`reviewSnapshotBase` is null and no review directory is emitted. A subsequent default build removes
-previously exported history while preserving the source review store.
+- Component prototypes (`src/**/<slug>.proto.tsx`) compose real views with fixture props. Routes
+  own data, auth and navigation. Intrinsic JSX belongs in the view, not its component prototype.
+- Drafts (`src/drafts/<slug>/index.proto.tsx`) allow free markup. Both kinds export literal
+  `meta = definePrototype({ title, states, … })` and a default component receiving state and role.
+  Optional metadata includes spec, surface, route, roles, blocks and standalone.
+- Flows (`flows/<id>.flow.ts`) export a literal `flow = defineFlow({ title, start, nodes, edges })`
+  from `/flow`. Nodes reference prototype states/roles or external destinations. Discovery uses
+  the AST and never executes prototype or flow modules in Node.
+- The network guard rejects runtime data-layer imports reachable from prototypes, drafts and
+  stories. Type imports are allowed. The production boundary rejects prototype-only modules
+  entering the application's production build. Keep both boundaries enabled.
 
-## Authoring
+`bun run proto check --app app --json` validates the registry, flow references, network graph and
+consumer render build without writing output. JSON contains `problems` and `warnings`; problems
+or a build error exit 1, warnings alone exit 0.
 
-- Component prototypes sit beside the view they compose: `src/**/<slug>.proto.tsx`. They render
-  components only (no intrinsic JSX: `proto check` rejects it) with local fixtures. Routes own
-  data, auth and navigation; views take props and callbacks (`src/components/login-form.tsx`).
-- Drafts explore freely in `src/drafts/<slug>/index.proto.tsx` and are labeled as drafts.
-- Each file exports a literal `meta = definePrototype({...})` from `@compozy/proto` and a default
-  component receiving `{ state, role }`. `meta` requires `title` and `states`; `surface` and `route` are optional;
-  optional `spec` (a group of `proto.config.ts`; the rest are "Unsorted"), `roles` (a subset of
-  its roles), `blocks` and `standalone` (skip the app's `Frame`). Discovery reads it
-  statically; the slug is the file stem, or the folder for `index.proto.tsx`.
-- `bun run proto new <slug> --in src/components/view.tsx --app <app>` or `--draft` scaffolds one.
-- Prototypes and stories never reach the data layer: the presentation guard fails the gallery
-  and Storybook when they import (at runtime) the modules and packages listed in
-  `proto.config.ts`. Production lint and the production build guard keep prototypes,
-  fixtures, stories, drafts, flows and preview tooling out of the app. Do not weaken them.
-- Every canvas gets `proto.canvas.tsx`: a fresh memory router, toasts and tooltips; no
-  QueryClient. Links between prototypes use `protoHref(slug, state)`; state changes use
-  `setParam("state", id)`.
+## Dev and URLs
 
-## URLs
+Build the prebuilt shell once with `bun run --cwd packages/proto build:shell`, then run
+`bun run proto dev --app app`. The Node shell/API is at `http://127.0.0.1:4400`; the app's Vite
+render server is at `http://127.0.0.1:4401`. `--port` moves the strict pair together. `PROTO_PORT`
+and `PROTO_POLL=1` configure defaults. Hosts must match loopback or `dev.allowedHosts`; localhost
+redirects to 127.0.0.1. A missing shell bundle tells you to run its build.
 
-`/__proto/render/<slug>?state=<id>&theme=light|dark&role=<id>&chrome=0` is the standalone canvas and screenshot
-URL. The gallery at `/` gives every level its own link: `?spec=<id>`, `?p=<slug>`,
-`?p=<slug>&state=<id>` (plus `theme`, `role`, `w=320–3840`, `compare=themes`, `comments=1`,
-`comment=<id>`), and flows `?flow=<id>&node=<id>`. `bun run proto url <slug> [--bare]` prints one.
+Shell URLs on port 4400:
 
-## Flows
+| URL                                                       | View                                         |
+| --------------------------------------------------------- | -------------------------------------------- |
+| `/`                                                       | Overview                                     |
+| `/?spec=auth`                                             | Spec page                                    |
+| `/?p=login-form&state=error&w=1440&theme=dark&role=admin` | Screen state                                 |
+| `/?p=login-form&state=error&compare=themes`               | Theme comparison                             |
+| `/?flow=sign-in&node=error`                               | Flow and selected step                       |
+| `/?comments=open`                                         | Comments inbox; also `waiting` or `resolved` |
+| `/?p=login-form&comment=login-form-7`                     | Focused thread                               |
+| `/?drafts`                                                | Drafts                                       |
+| `/?settings=credentials` or `/?settings=health`           | Settings                                     |
 
-Journeys live in `apps/<app>/flows/<id>.flow.ts` as a literal `flow = defineFlow({...})` from
-`@compozy/proto/flow`, importing nothing else: `title`, optional `spec` and `description`, `start`,
-`nodes` (`{ proto, state, role?, end? }` or `{ external: "site" | "auth" | "payment" | "email" |
-"other", label?, url?, end? }`) and `edges` (`[from, to, { on, kind? }]`, kinds `navigate`,
-`overlay`, `redirect`, `external`). External `url`s are absolute HTTPS, or paths when
-`proto.config.ts` sets `siteUrl`. `proto check` rejects unknown prototypes, states and roles,
-unreachable nodes and dead ends, and warns on states of a touched spec that no flow uses.
-`proto flow new|list|show|coverage` author and inspect them.
+The bare render URL is
+`http://127.0.0.1:4401/__proto/render/login-form?state=error&theme=dark&role=admin&chrome=0`.
+Use `bun run proto url login-form --state error --app app` for a shell URL, or add `--bare` for
+rendering. `protoHref` and `setParam`/`setParams` from the public authoring entry update prototype
+navigation. Source attributes use app-relative `src/…:line:column` coordinates.
 
-## Review comments
+The shell loads `/__proto/bootstrap.json`, `/__proto/api/registry` and `/__proto/api/events` (SSE).
+Registry changes and CLI review writes update an open dev shell.
 
-Comment mode (C) pins a note to an element or area; flows take notes per step. Comments and
-images are local JSON in `apps/<app>/proto/review/<slug>/` (commit them with the work), served
-by `proto dev` only. Agents use `bun run proto comments list|show|add|reply|resolve|reopen|edit|
-delete|attach|detach|attachments`; `show` prints the source location and the commit the note was
-written on. Resolve with a note saying what changed.
+## CLI and reviews
 
-## Evidence
+All commands accept `--app`, `--json` and `--verbose`. Exit codes are 0 success, 1 problems/user
+error, 2 usage, 3 missing optional dependency and 4 remote/auth failure.
 
-`bun run proto evidence <slug> [--state id] [--theme dark]` saves the
-rendered DOM to the app-relative `docs/design/<slug>/index.html` through Playwright's Chromium.
+```sh
+bun run proto list --app app --json
+bun run proto new review-digest --draft --app app
+bun run proto new --in src/components/example.tsx --spec auth --app app
+bun run proto flow new checkout --spec auth --app app
+bun run proto flow list --app app --json
+bun run proto flow show sign-in --app app --json
+bun run proto flow coverage --app app --json
+bun run proto comments list --app app --json
+bun run proto comments show proto-shell-1 --app app --json
+```
 
-## Package integration
+The local v3 store is `apps/app/proto/review/<key>.json`, containing sequence, review state,
+events and comment threads. Images live in `<key>/attachments/`; flow keys use `flow-<id>`.
+Commit review files and referenced images. Locks, temporary files and pending uploads are ignored.
+The repository's old review source has been migrated and removed; the verification record is
+`apps/app/proto-migration-report.json`. Never edit review JSON manually.
 
-The application Vite config installs `proto()`. Storybook and browser tests install
-`protoPresentation({ sourceTags: true })` when source annotations are needed. Shared Tailwind,
-aliases and React Compiler configuration lives in `vite.shared.ts`.
+Review commands work without a running dev server. Read the entire thread and download attachments
+with `comments attachments <id> --out .tmp/review-images`. Match context.state, theme, role, viewport
+and commit; use target.sourceChain to find the owning view. Change component views or draft sources,
+then verify the reviewed state. Reply with `comments reply <id> --note "…"` and resolve with
+`comments resolve <id> --note "…"` only after verification. Other comment verbs are add, reopen,
+edit, attach, detach and delete. `--message` is one-based and defaults to the author's latest message.
 
-`proto dev --app app` serves the prebuilt shell and API at `http://127.0.0.1:4400` and the consumer
-render host at `http://127.0.0.1:4401/__proto/render/<slug>`. `--port` moves both ports together;
-`PROTO_PORT` and `PROTO_POLL=1` configure defaults. Both ports are strict. Hosts must match loopback
-or `dev.allowedHosts`, and localhost redirects to the canonical loopback origin.
+`review status <key>` reports review state. Human reviewers use `review approve` and `review reopen`;
+open comments require `--confirm-open` for approval. Agents never approve or reopen reviews, and
+never delete comments on their own initiative. `review unlock <key> --force` is operator recovery.
+Follow `.agents/skills/apply-prototype-comments/SKILL.md` when applying assigned comments.
 
-The shell reads `/__proto/bootstrap.json`, `/__proto/api/registry` and the SSE stream
-`/__proto/api/events`. Review integrations mount a fetch handler through `startDev` and publish
-`comments` and `review` events on that stream. The consumer canvas owns its own CSS imports.
+## Evidence and static delivery
 
-`loadProject(appRoot)` from `@compozy/proto/node` exposes `registry`, `watch` and `url`. Registry
-paths and `data-proto-src` coordinates are app-relative. Discovery uses TypeScript AST literals;
-prototype and flow modules are never evaluated in Node. `proto check --json` compiles all
-prototypes without writing output and exits nonzero for problems.
+```sh
+bun run proto screenshot proto-shell --state overview --width 1440 --app app
+bun run proto evidence proto-shell --state overview --app app
+bun run proto build --app app
+```
 
-## CLI and agent integrations
+Playwright Chromium is required for capture (missing installation exits 3). Both capture commands
+start and stop temporary dev servers when needed. PNGs are saved under the app-relative
+`docs/design/<slug>/<state>--<theme>--<width>.png`; evidence writes `docs/design/<slug>/index.html`
+as static DOM without scripts.
 
-Every CLI operation accepts `--json`, `--app` and `--verbose`. The package capability catalog also
-produces the 22 MCP tools (`proto mcp`, optional `@modelcontextprotocol/sdk` peer). Store-backed
-commands share `project.store()` and do not need a running gallery. The local FileStore is wired; remote transport is wired in slice 8. Until then `--remote` fails
-explicitly, and remote review approval/deletion is denied.
+`proto build` validates and writes `apps/app/dist-proto/`, using the prebuilt shell. Failures remove
+stale output. Deploy it at `/` or a subpath such as `/gallery/` with a plain static server, without
+rewrites. Bootstrap has mode `read-only`, null API/events/auth endpoints and relative URLs. Static
+render URLs use `__proto/render/index.html?slug=<slug>&state=<state>`.
 
-- `proto list`, `proto check`, `proto url <slug> [--bare]` inspect the current project.
-- `proto new <slug> --draft` or `proto new --in src/components/view.tsx` scaffolds a prototype.
-- `proto flow new <id>`, `flow list`, `flow show <id>` and `flow coverage` operate on flows.
-- `proto comments list|show|add|reply|resolve|reopen|edit|attach|detach|attachments|delete` operate
-  on threads. `--message` is one-based; omitted means the author's most recent message.
-- `proto review status|approve|reopen|unlock` operates on review state. Unlock requires `--force`.
-  Approval with open comments requires `--confirm-open`. Agents never approve or reopen reviews.
-- `proto screenshot <slug> --state <id> --width 1440` writes a PNG; `proto evidence <slug>` writes
-  inert HTML under `docs/design/<slug>/`. Both can start and stop their own temporary dev server.
-- `proto migrate --from gallery/comments --dry-run` previews local legacy review migration; omit
-  `--dry-run` to write migrated files while preserving the source. Migration is CLI-only.
-- `proto init --skills` writes the config, canvas, welcome draft, Vite integration and design record,
-  plus review ignore rules and the two shipped authoring/review skills. Existing configuration is
-  skipped unless `--force` is supplied.
+Review history is excluded by default. Set `build: { includeReview: true }` to publish snapshots
+at `__proto/review/<key>.json` and their referenced images. No pending or orphaned uploads are
+included. A later default build removes exported history while preserving the local store.
 
-Playwright and the MCP SDK are optional peers; install them only for those features. JSON results
-and registered errors are shared across CLI and MCP. CLI exit codes are 0 success, 1 problems,
-2 usage, 3 missing dependency and 4 remote/auth failure.
+## MCP and setup
+
+`bun run proto mcp --app app` serves the catalog's 22 tools over stdio through the optional
+`@modelcontextprotocol/sdk` peer. CLI JSON and MCP results share execution and error contracts.
+Stdout belongs to MCP. Review transitions, unlock, credentials, migration and process lifecycle
+are excluded from agent tools. Store tools expose `remote`, but remote CLI transport is still a
+separate integration; remote approval/deletion is denied.
+
+`proto init --skills` writes config, canvas, welcome draft, Vite integration, design record and
+review ignore rules, and installs authoring/review skills. Existing configuration is preserved
+unless `--force` is supplied. For another legacy app, `proto migrate --from gallery/comments
+--dry-run` previews the local v3 migration; removing `--dry-run` writes the verified report and
+preserves its source until the operator deletes it.

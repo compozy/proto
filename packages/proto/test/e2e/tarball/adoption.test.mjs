@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, realpath, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,7 +150,10 @@ try {
         assert.equal(bootstrap.mode, "read-only");
         assert.equal(bootstrap.reviewSnapshotBase, null);
         assert.ok(existsSync(join(app, "dist-proto/__proto/render/index.html")));
-        assert.ok(!existsSync(join(app, "dist-gallery")));
+        assert.deepEqual(
+          (await readdir(app)).filter(name => name.startsWith("dist-")),
+          ["dist-proto"]
+        );
       });
       await t.test("prebuilt shell is shipped", async () => {
         assert.match(await readFile(join(installed, "dist/shell/index.html"), "utf8"), /<script/);

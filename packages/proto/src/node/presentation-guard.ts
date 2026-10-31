@@ -22,8 +22,11 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
   const parents = new Map<string, Set<string>>();
   let building = false;
   const matchers = [...boundary.modules, ...boundary.packages, ...(boundary.matchers ?? [])];
-  const matches = (id: string) =>
-    matchers.some(matcher => {
+  const matchCache = new Map<string, boolean>();
+  const matches = (id: string): boolean => {
+    const cached = matchCache.get(id);
+    if (cached !== undefined) return cached;
+    const matched = matchers.some(matcher => {
       const candidates = [id, relative(appRoot, id)];
       const installed = id.split("/node_modules/").at(-1);
       if (installed !== id && installed) candidates.push(installed);
@@ -39,12 +42,15 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
         );
       });
     });
+    matchCache.set(id, matched);
+    return matched;
+  };
   const clean = (id: string) => id.split("?")[0]!;
 
   function forbiddenPath(id: string, seen = new Set<string>()): string[] | undefined {
-    if (matches(id)) return [id];
     if (seen.has(id)) return;
     seen.add(id);
+    if (matches(id)) return [id];
     for (const dependency of imports.get(id) ?? []) {
       const path = forbiddenPath(dependency, seen);
       if (path) return [id, ...path];
@@ -67,6 +73,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
     buildStart() {
       imports.clear();
       parents.clear();
+      matchCache.clear();
     },
     buildEnd(error) {
       if (!building || error) return;
@@ -119,6 +126,12 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
         ts.forEachChild(node, visit);
       };
       visit(syntax);
+      if (building) {
+        // BuildEnd owns the complete resolved graph. Retain raw matches (notably anchored
+        // package regexes), but avoid resolving and walking partial graphs per module.
+        imports.set(from, new Set([...specifiers].filter(matches)));
+        return;
+      }
       const resolved = await Promise.all(
         [...specifiers].map(specifier => this.resolve(specifier, source))
       );

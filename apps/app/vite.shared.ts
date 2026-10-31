@@ -10,17 +10,13 @@ const uiRequire = createRequire(require.resolve("@proto/ui/package.json"));
 const baseUiExports = Object.keys(uiRequire("@base-ui/react/package.json").exports);
 
 /**
- * React Compiler options shared with the production config. It compiles app and gallery code;
+ * React Compiler options shared with the production config. It compiles app views, prototypes and canvas;
  * the vendored `@proto/ui` memoizes by hand and is consumed like a library.
  */
 export const reactOptions: Options = {
   compiler: {
     panicThreshold: "all_errors",
-    sources: [
-      `${app}src/`,
-      `${app}proto.canvas.tsx`,
-      fileURLToPath(new URL("../../packages/proto/src/", import.meta.url)),
-    ],
+    sources: [`${app}src/`, `${app}proto.canvas.tsx`],
   },
 };
 
