@@ -90,7 +90,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
   });
   // Deployed journey: actual SPA login, Hono/Beter Auth, package build, TLS and CLI process.
   it("E2E-012: browser reviewer and remote CLI agent complete the deployed review loop", async () => {
-    const { chromium, createViteServer: createServer } =
+    const { chromium, buildViteApp, previewViteApp } =
       await import("../../../packages/proto/test/node/server/harness.ts");
     const { resolve, join } = await import("node:path");
     const { writeFile } = await import("node:fs/promises");
@@ -107,7 +107,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
         url.pathname.startsWith("/auth/")
       )
         return app.request(request);
-      return fetch(spaOrigin + url.pathname + url.search);
+      // fetch decodes compressed bodies; request identity so forwarded headers match the bytes.
+      return fetch(spaOrigin + url.pathname + url.search, {
+        headers: { "accept-encoding": "identity" },
+      });
     });
     const env = loadEnv({
       DATABASE_URL: database.url,
@@ -143,16 +146,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     const { appFixture, appFiles } =
       await import("../../../packages/proto/test/node/app-fixture.ts");
     const spaRoot = appFixture("proto-api-spa-", appFiles);
-    const spa = await createServer({
+    // This deployed journey serves the production SPA. Dev HTML transforms and dependency
+    // optimization must not run on the navigation path while CI builds other packages.
+    await buildViteApp({
       root: spaRoot,
-      cacheDir: join(h.root, "vite-cache"),
       define: { "import.meta.env.VITE_API_URL": JSON.stringify(env.API_URL) },
-      server: { host: "127.0.0.1", port: 0, warmup: { clientFiles: ["./src/main.tsx"] } },
       logLevel: "silent",
     });
-    await spa.listen();
-    await spa.environments.client?.depsOptimizer?.scanProcessing;
-    await spa.waitForRequestsIdle();
+    const spa = await previewViteApp({
+      root: spaRoot,
+      preview: { host: "127.0.0.1", port: 0 },
+      logLevel: "silent",
+    });
     spaOrigin = spa.resolvedUrls!.local[0]!.replace(/\/$/, "");
     const browser = await chromium.launch({
       headless: true,
@@ -295,7 +300,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
       });
     } finally {
       await browser.close();
-      await spa.close();
+      await new Promise<void>((resolve, reject) =>
+        spa.httpServer.close(error => (error ? reject(error) : resolve()))
+      );
       await (await import("node:fs/promises")).rm(spaRoot, { recursive: true, force: true });
       await tls.close();
       await h.dispose();

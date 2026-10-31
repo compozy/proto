@@ -388,4 +388,4 @@ export async function buildRemoteGallery(h: Awaited<ReturnType<typeof serverHarn
 }
 
 export { chromium } from "playwright";
-export { createServer as createViteServer } from "vite";
+export { build as buildViteApp, preview as previewViteApp } from "vite";
