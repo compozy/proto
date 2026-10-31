@@ -36,6 +36,7 @@ import { screenView, type ThemeChoice, type View } from "../lib/view";
 import { Button } from "../ui/button";
 import { Check, Copy, ExternalLink, Moon, Sun, Users } from "../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../ui/native-select";
+import { useStateAnnotation } from "../review/review-ui";
 import { StatePicker } from "./state-picker";
 import { ViewportControl } from "./viewport-control";
 
@@ -57,20 +58,28 @@ export function ScreenPage({
   const { bootstrap } = useShellData();
   const slots = useSlots();
   const inspector = useInspector();
-  const [tab, setTab] = useState("state");
+  const [tab, setTab] = useState(view.comment ? "comments" : "state");
+  const annotate = useStateAnnotation(prototype.slug);
+  // A comment focused from the URL (inbox, search, a CLI link) opens the Comments tab.
+  const [seenComment, setSeenComment] = useState(view.comment);
+  if (view.comment !== seenComment) {
+    setSeenComment(view.comment);
+    if (view.comment) setTab("comments");
+  }
   const [fitWidth, setFitWidth] = useState(0);
   const { state, unknown } = resolveState(prototype, view.state);
   const role = resolveRole(registry, prototype, view.role);
   const slugs = new Set(registry.prototypes.map(item => item.slug));
   const flowsHere = occurrences(registry, prototype.slug, state.id);
   const flowsAny = flowsHere.length ? flowsHere : occurrences(registry, prototype.slug);
-  const target: ReviewTarget = {
+  const target: Extract<ReviewTarget, { kind: "prototype" }> = {
     kind: "prototype",
     key: prototype.slug,
     slug: prototype.slug,
     state: state.id,
   };
 
+  const frameSlot = slots.screenFrame?.(target);
   const update = (patch: Partial<ScreenView>, options?: { replace?: boolean }) =>
     go({ ...view, ...patch }, options);
   const ordered = orderedPrototypes(registry);
@@ -147,6 +156,7 @@ export function ScreenPage({
         onView={openView}
         theme={theme}
         panel={inspector.panel}
+        menu={slots.reviewMenu?.(target)}
       />
       <div className="relative flex min-h-0 flex-1">
         <section
@@ -158,6 +168,7 @@ export function ScreenPage({
               prototype={prototype}
               state={state}
               unknown={unknown}
+              annotate={annotate}
               onState={id => update({ state: id })}
             />
             {roles.length > 0 && (
@@ -188,6 +199,8 @@ export function ScreenPage({
               title={`${prototype.title} · ${state.label}`}
               slugs={slugs}
               onContext={onContext}
+              onMessage={frameSlot?.onMessage}
+              overlay={frameSlot?.overlay}
               onGeometry={(geometry: FrameGeometry) => setFitWidth(geometry.width)}
               className="flex-1 px-6 pt-5 pb-2"
               caption={geometry => (

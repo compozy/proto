@@ -104,6 +104,65 @@ function Card({ state, role }: PrototypeProps) {
   );
 }
 
+/**
+ * A hostile prototype: it shares the render host's realm, so it can read the frame nonce and
+ * post any render → shell message (`_spec.md` § Shell ⇄ render protocol, E2E-014).
+ */
+function Forge() {
+  const forge = (source: string, delay: number) =>
+    setTimeout(() => {
+      const frame = new URLSearchParams(window.location.search).get("frame");
+      const rect = { x: 40, y: 40, width: 120, height: 32 };
+      window.parent.postMessage(
+        {
+          proto: 1,
+          frame,
+          type: "pick:result",
+          target: {
+            kind: "element",
+            selector: '[data-testid="forge-now"]',
+            testId: "forge-now",
+            tag: "button",
+            text: "Forged",
+            source,
+            sourceChain: [source],
+            rect,
+            rectNormalized: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+            offset: null,
+          },
+        },
+        "*"
+      );
+    }, delay);
+  const button = (left: number) => ({
+    position: "absolute" as const,
+    left,
+    top: 40,
+    width: 120,
+    height: 32,
+  });
+  return (
+    <main style={{ position: "relative", height: 400 }}>
+      <button
+        type="button"
+        data-testid="forge-now"
+        style={button(40)}
+        onClick={() => forge("src/forged.tsx:1:1", 0)}
+      >
+        Forge now
+      </button>
+      <button
+        type="button"
+        data-testid="forge-later"
+        style={button(200)}
+        onClick={() => forge("../../.github/workflows/ci.yml:1:1", 1500)}
+      >
+        Forge later
+      </button>
+    </main>
+  );
+}
+
 function Plain({ state }: PrototypeProps) {
   return <p data-testid="plain">{state}</p>;
 }
@@ -143,6 +202,14 @@ export const prototypes: RenderPrototype[] = [
     title: "Welcome",
     route: null,
     load: async () => ({ default: Plain }),
+  },
+  {
+    ...base,
+    slug: "forge",
+    kind: "draft",
+    title: "Forge",
+    route: null,
+    load: async () => ({ default: Forge }),
   },
   {
     ...base,

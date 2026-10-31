@@ -73,7 +73,7 @@ export function ScreenFrame({
                 <iframe
                   key={frame.nonce}
                   ref={iframe}
-                  src={frame.src}
+                  src={frame.src ?? undefined}
                   title={title}
                   className="absolute top-0 left-0 origin-top-left border-0 bg-background"
                   style={{ width: frameWidth, height: frameHeight, transform: `scale(${scale})` }}

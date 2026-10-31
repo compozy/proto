@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { renderHref } from "../../model/protocol";
 import { useT } from "../lib/i18n";
@@ -21,6 +21,8 @@ type PreviewProps = {
   /** False keeps the placeholder (flow cards below 60% zoom). */
   enabled?: boolean;
   className?: string;
+  /** Content over the preview in its own box (a comment pin). */
+  overlay?: ReactNode;
 };
 
 const noSlugs: ReadonlySet<string> = new Set();
@@ -38,6 +40,7 @@ export function Preview({
   order = 0,
   enabled = true,
   className,
+  overlay,
 }: PreviewProps) {
   const [ref, box] = useBox();
   const visibility = useVisibility(ref);
@@ -70,6 +73,7 @@ export function Preview({
           scale={scale}
         />
       )}
+      {overlay}
     </div>
   );
 }
@@ -105,7 +109,7 @@ function PreviewFrame({
         <iframe
           key={frame.nonce}
           ref={iframe}
-          src={frame.src}
+          src={frame.src ?? undefined}
           title={title}
           tabIndex={-1}
           className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-background"

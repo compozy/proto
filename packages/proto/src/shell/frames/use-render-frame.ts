@@ -4,7 +4,7 @@
  * `send` for shell → render messages. Picking, anchors and scrolling (review slice) build on
  * `send` and `onMessage`; this hook never reads the iframe's document.
  */
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import {
   readContextUrl,
@@ -21,6 +21,7 @@ import {
   type FrameStatus,
 } from "../lib/render-channel";
 import { useShellData } from "../lib/shell-data";
+import { useRenderTickets } from "../review/data";
 
 export type FrameTarget = {
   slug: string;
@@ -82,6 +83,9 @@ export function useRenderFrame(
   options: Options
 ) {
   const { renderUrl, renderOrigin } = useShellData();
+  // Remote galleries protect the render origin: each load carries a short-lived ticket.
+  const tickets = useRenderTickets();
+  const [ticket, setTicket] = useState<{ nonce: string; value: string } | null>(null);
   const key = keyOf(target);
   const load = (nonce: string) =>
     renderHref(renderUrl, {
@@ -112,6 +116,11 @@ export function useRenderFrame(
     const nonce = frameNonce();
     setFrame({ key, adopted: null, nonce, src: load(nonce), status: initialStatus });
   };
+
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  });
 
   const { nonce } = frame;
   const { slugs, onContext, onMessage } = options;
@@ -144,11 +153,17 @@ export function useRenderFrame(
         onContext?.(context);
         return;
       }
+      if (message.type === "auth:expired" && tickets) {
+        // The render grant expired: a fresh ticket and a fresh load.
+        tickets.invalidate();
+        reloadRef.current();
+        return;
+      }
       onMessage?.(message);
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [iframe, nonce, renderOrigin, slugs, onContext, onMessage]);
+  }, [iframe, nonce, renderOrigin, slugs, onContext, onMessage, tickets]);
 
   const loading = frame.status.kind === "loading" && !frame.status.slow;
   useEffect(() => {
@@ -167,7 +182,41 @@ export function useRenderFrame(
     windowOf(iframe)?.postMessage({ proto: 1, frame: nonce, ...message }, renderOrigin);
   };
 
-  return { src: frame.src, nonce, status: frame.status, reload, send };
+  /** Moves keyboard focus into the frame (keyboard picking starts from a focused frame). */
+  const focus = () => iframe.current?.focus();
+
+  useEffect(() => {
+    if (!tickets) return;
+    let current = true;
+    tickets.next(target.slug, target.state).then(
+      value => {
+        if (current) setTicket({ nonce, value });
+      },
+      (error: unknown) => {
+        if (current)
+          setFrame(state =>
+            state.nonce === nonce
+              ? {
+                  ...state,
+                  status: { kind: "error", message: String(error), componentStack: null },
+                }
+              : state
+          );
+      }
+    );
+    return () => {
+      current = false;
+    };
+  }, [tickets, nonce, target.slug, target.state]);
+
+  /** Null while a remote frame waits for its render ticket. */
+  const src = !tickets
+    ? frame.src
+    : ticket?.nonce === nonce
+      ? `${frame.src}${frame.src.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket.value)}`
+      : null;
+
+  return { src, nonce, status: frame.status, reload, send, focus };
 }
 
 export type RenderFrameHandle = ReturnType<typeof useRenderFrame>;

@@ -33,6 +33,7 @@ import {
 import { Kbd, KbdGroup } from "../ui/kbd";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { cn } from "../ui/utils";
+import { CommentsRailItem } from "../review/review-ui";
 import { Link } from "./link";
 import { useSlots, type InspectorTab, type ReviewTarget } from "./slots";
 
@@ -70,7 +71,15 @@ export function ShellRail({ view }: { view: View }) {
       >
         <Layers className="size-4" />
       </Link>
-      {railItems(t).map(item => (
+      {railItems(t).map(item => [
+        item.area === "drafts" && (
+          <CommentsRailItem
+            key="comments"
+            active={active === "comments"}
+            className={railButton}
+            activeClassName={railActive}
+          />
+        ),
         <Link
           key={item.area}
           to={item.to}
@@ -80,11 +89,11 @@ export function ShellRail({ view }: { view: View }) {
           className={cn(railButton, item.area === active && railActive)}
         >
           <item.icon className="size-4" />
-        </Link>
-      ))}
+        </Link>,
+      ])}
       <div className="my-2 h-px w-6 bg-border" />
       <Link
-        to={{ area: "settings", section: "health" }}
+        to={{ area: "settings", section: "project" }}
         aria-label={t("rail.settings")}
         title={t("rail.settings")}
         aria-current={active === "settings" ? "page" : undefined}
@@ -256,6 +265,7 @@ export function ShellSubHeader({
   onView,
   theme,
   panel,
+  menu,
 }: {
   title: string;
   status?: ReactNode;
@@ -267,6 +277,8 @@ export function ShellSubHeader({
   theme: "light" | "dark";
   /** The inspector toggle: always on narrow layouts, and once the inspector was closed. */
   panel?: { open: boolean; onToggle: () => void };
+  /** The More menu of the open item (review slice: Reopen). */
+  menu?: ReactNode;
 }) {
   const t = useT();
   const labels: Record<ViewTab, string> = {
@@ -328,6 +340,7 @@ export function ShellSubHeader({
         >
           {theme === "dark" ? <Sun /> : <Moon />}
         </Button>
+        {menu}
       </div>
     </div>
   );
@@ -416,7 +429,7 @@ export function ShellModal({
         aria-label={label}
         tabIndex={-1}
         onKeyDown={keep}
-        className="w-full rounded-2xl border border-border bg-[var(--shell-panel)] shadow-2xl outline-none"
+        className="w-full rounded-2xl border border-border bg-[var(--shell-panel)] whitespace-normal shadow-2xl outline-none"
         style={{ maxWidth: width }}
       >
         {children}
@@ -500,10 +513,12 @@ export function Inspector({
               className="flex-none px-0 text-[13px] after:!bg-primary data-active:text-foreground"
             >
               {item.label}
-              {item.count !== undefined && (
-                <span className="rounded-full bg-[var(--shell-primary-soft)] px-1.5 font-mono text-[10px] text-primary">
+              {typeof item.count === "number" ? (
+                <span className="rounded-full bg-[var(--shell-primary-soft)] px-1.5 font-mono text-[10px] text-[var(--shell-primary-text)]">
                   {item.count}
                 </span>
+              ) : (
+                item.count
               )}
             </TabsTrigger>
           ))}

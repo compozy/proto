@@ -170,6 +170,8 @@
   --shell-edge: oklch(0.72 0.01 330);
   --shell-primary-soft: color-mix(in oklch, var(--primary) 14%, transparent);
   --shell-primary-glow: color-mix(in oklch, var(--primary) 28%, transparent);
+  /* Pink text on the soft pink fill (status pills, counts): AA at 12 px. */
+  --shell-primary-text: oklch(0.47 0.2 354);
   --tone-start: oklch(0.52 0.15 245);
   --tone-screen: var(--primary);
   --tone-overlay: oklch(0.52 0.2 295);
@@ -186,6 +188,7 @@
   --popover: oklch(0.2 0.006 300);
   --primary: oklch(0.74 0.19 352);
   --primary-foreground: oklch(0.17 0.02 352);
+  --shell-primary-text: var(--primary);
   --secondary: oklch(0.22 0.006 300);
   --muted: oklch(0.22 0.006 300);
   --muted-foreground: oklch(0.7 0.012 300);

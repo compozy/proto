@@ -18,7 +18,8 @@ export type Preset = (typeof presets)[number]["id"];
 
 export type Width = number | "fit";
 export type ThemeChoice = "light" | "dark" | "system";
-export type SettingsSection = "health";
+export const settingsSections = ["project", "review", "credentials", "health", "about"] as const;
+export type SettingsSection = (typeof settingsSections)[number];
 export type InboxFilter = "open" | "waiting" | "resolved";
 
 export type View =
@@ -83,7 +84,13 @@ function readArea(params: URLSearchParams): View {
   }
   const spec = params.get("spec");
   if (spec) return { area: "spec", spec };
-  if (params.has("settings")) return { area: "settings", section: "health" };
+  if (params.has("settings")) {
+    const section = params.get("settings");
+    return {
+      area: "settings",
+      section: settingsSections.find(item => item === section) ?? "project",
+    };
+  }
   if (params.has("comments")) {
     const filter = params.get("comments");
     return {

@@ -1,5 +1,6 @@
 /** S2 Overview, S14 first run, and the Flows / Screens / Drafts indexes (S12). */
-import type { RegistryPrototype } from "../../model/registry";
+import { flowKey, type RegistryPrototype } from "../../model/registry";
+import { KeysStatus } from "../review/review-ui";
 import { CommandLine, JourneyRow, ScreenCard, SectionTitle } from "../app/cards";
 import { Eyebrow } from "../app/chrome";
 import { Link } from "../app/link";
@@ -129,14 +130,22 @@ function SpecCard({
         </span>
       </div>
       <div className="p-4">
-        <h3 className="min-w-0 truncate text-[15px] font-semibold tracking-tight">
-          <Link
-            to={{ area: "spec", spec: group.id }}
-            className="outline-none after:absolute after:inset-0 after:content-['']"
-          >
-            {group.title}
-          </Link>
-        </h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="min-w-0 truncate text-[15px] font-semibold tracking-tight">
+            <Link
+              to={{ area: "spec", spec: group.id }}
+              className="outline-none after:absolute after:inset-0 after:content-['']"
+            >
+              {group.title}
+            </Link>
+          </h3>
+          <KeysStatus
+            keys={[
+              ...group.prototypes.map(item => item.slug),
+              ...group.flows.map(flow => flowKey(flow.id)),
+            ]}
+          />
+        </div>
         <div className="mt-1.5 truncate font-mono text-[11px] text-muted-foreground">
           {[
             t("count.flows", { count: group.flows.length }),

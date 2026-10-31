@@ -15,7 +15,6 @@ import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
 import type { View } from "../lib/view";
 import { Drafts, FlowsIndex, Overview, ScreensIndex } from "../pages/overview";
-import { Settings } from "../pages/health";
 import { SpecPage } from "../pages/spec-page";
 import { ScreenPage } from "../screen/screen-page";
 import { Button } from "../ui/button";
@@ -25,7 +24,23 @@ import { Shell, ShellSubHeader, ShellTopBar, type Crumb } from "./chrome";
 import { Link } from "./link";
 import { actionItems, SearchPalette } from "./search-palette";
 import { ShortcutsSheet } from "./shortcuts-sheet";
-import type { ReviewTarget } from "./slots";
+import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
+import { reviewKeys, ReviewProvider, useReviewData } from "../review/data";
+import { Inbox } from "../review/inbox/inbox";
+import { KeysStatus, readOnlySlots, reviewSlots, useCommentSearchItems } from "../review/review-ui";
+import { Settings } from "../review/settings/settings";
+import {
+  CommentModeProvider,
+  commentModeSlots,
+  Composer,
+  useCommentMode,
+} from "../review/comment-mode";
+import {
+  CommentFocusProvider,
+  ShellSlotsProvider,
+  type ReviewTarget,
+  type ShellSlots,
+} from "./slots";
 
 type Boot =
   | { status: "loading" }
@@ -120,7 +135,42 @@ function App() {
   if (registry.status === "error") {
     return <Fatal title={t("app.registryFailed")} message={registry.message} onRetry={reload} />;
   }
-  return <Browse view={view} choice={choice} theme={theme} registry={registry.registry} />;
+  if (bootstrap.mode === "remote" && !bootstrap.principal) return <SignInPage />;
+  return (
+    <ReviewProvider keys={reviewKeys(registry.registry)}>
+      <Slots>
+        <Browse view={view} choice={choice} theme={theme} registry={registry.registry} />
+      </Slots>
+    </ReviewProvider>
+  );
+}
+
+/** Review slots (threads, approval) and comment mode (tools, picking, pins, composer). */
+function Slots({ children }: { children: ReactNode }) {
+  const t = useT();
+  const review = useReviewData();
+  const { bootstrap } = useShellData();
+  const [slots] = useState<ShellSlots>(() =>
+    review
+      ? { ...reviewSlots(t), ...commentModeSlots, composer: Composer }
+      : bootstrap.mode === "read-only"
+        ? readOnlySlots(t)
+        : {}
+  );
+  if (!review) return <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>;
+  return (
+    <CommentModeProvider>
+      <FocusBridge>
+        <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>
+      </FocusBridge>
+    </CommentModeProvider>
+  );
+}
+
+/** Threads and pins share one focused comment: comment mode's. */
+function FocusBridge({ children }: { children: ReactNode }) {
+  const { focused, focusComment } = useCommentMode();
+  return <CommentFocusProvider value={{ focused, focusComment }}>{children}</CommentFocusProvider>;
 }
 
 type Page = { crumbs: Crumb[]; target: ReviewTarget | null; share: boolean; body: ReactNode };
@@ -148,9 +198,11 @@ function Browse({
     },
     overlay === null
   );
-  const page = pageFor(view, registry, theme, choice, t);
+  const review = useReviewData() !== null;
+  const page = pageFor(view, registry, theme, choice, t, review);
   const searchable = [
     ...registryItems(registry),
+    ...useCommentSearchItems(),
     ...actionItems(t, { compare: view.area === "screen" && !view.compare }),
   ];
   const onAction = (action: string) => {
@@ -168,6 +220,7 @@ function Browse({
         share={page.share}
         onSearch={() => setOverlay("search")}
       />
+      <SessionExpiredBanner />
       <main id="shell-main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
         {page.body}
       </main>
@@ -184,7 +237,8 @@ function pageFor(
   registry: Registry,
   theme: "light" | "dark",
   choice: ReturnType<typeof useLocation>["theme"],
-  t: ReturnType<typeof useT>
+  t: ReturnType<typeof useT>,
+  review: boolean
 ): Page {
   const area = (title: string, body: ReactNode, subtitle?: ReactNode): Page => ({
     crumbs: [{ label: title }],
@@ -212,6 +266,11 @@ function pageFor(
         <ShellSubHeader
           title={title}
           theme={theme}
+          status={
+            <KeysStatus
+              keys={[...prototypes.map(item => item.slug), ...flows.map(flow => `flow-${flow.id}`)]}
+            />
+          }
           meta={[
             view.spec,
             t("count.flows", { count: flows.length }),
@@ -278,7 +337,10 @@ function pageFor(
     case "drafts":
       return area(t("rail.drafts"), <Drafts theme={theme} />);
     case "settings":
-      return area(t("rail.settings"), <Settings />);
+      return area(t("rail.settings"), <Settings section={view.section} />);
+    case "comments":
+      if (review) return area(t("rail.comments"), <Inbox filter={view.filter} theme={theme} />);
+      return area(t("rail.overview"), <Overview theme={theme} />);
     default:
       return area(t("rail.overview"), <Overview theme={theme} />);
   }

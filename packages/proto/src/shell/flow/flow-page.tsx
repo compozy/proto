@@ -32,6 +32,7 @@ import { flowKey } from "../../model/registry";
 import { screenView } from "../lib/view";
 import { Button } from "../ui/button";
 import { ArrowRight, ExternalLink } from "../ui/icons";
+import { useStepBadge } from "../review/review-ui";
 import { FlowCanvas } from "./flow-canvas";
 
 export function FlowPage({
@@ -48,6 +49,7 @@ export function FlowPage({
   const { bootstrap } = useShellData();
   const slots = useSlots();
   const inspector = useInspector();
+  const badge = useStepBadge(flow.id);
   const [tab, setTab] = useState("step");
   const selected = flow.nodes.find(item => item.id === node) ?? null;
   const target: ReviewTarget = {
@@ -134,6 +136,7 @@ export function FlowPage({
         onView={openView}
         theme={theme}
         panel={inspector.panel}
+        menu={slots.reviewMenu?.(target)}
       />
       <div className="relative flex min-h-0 flex-1">
         <section aria-label={t("flow.canvas")} className="flex min-h-0 min-w-0 flex-1">
@@ -145,6 +148,7 @@ export function FlowPage({
             uncovered={uncovered}
             theme={theme}
             tools={slots.canvasTools?.(target)}
+            badge={badge}
           />
         </section>
         <Inspector

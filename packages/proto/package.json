@@ -51,7 +51,8 @@
         "test:tarball": "node --test test/e2e/tarball/adoption.test.mjs",
         "prepack": "node scripts/prepack.mjs",
         "build:shell": "vite build -c vite.shell.config.ts",
-        "dev:shell": "vite -c test/harness/vite.config.ts"
+        "dev:shell": "vite -c test/harness/vite.config.ts",
+        "test:e2e:shell": "bun run build:shell && vitest run -c vitest.e2e.config.ts"
     },
     "dependencies": {
         "citty": "0.2.2",

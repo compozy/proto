@@ -42,13 +42,14 @@ export function useShortcuts(bindings: Bindings, enabled = true) {
   }, [bindings, enabled]);
 }
 
-/** The shortcut sheet; the review slice appends its own rows (C comment mode). */
+/** The shortcut sheet (C is bound by comment mode). */
 export const shortcutRows: { label: string; keys: string[] }[] = [
   { label: "shortcuts.search", keys: ["⌘K", "/"] },
   { label: "shortcuts.states", keys: ["J", "K"] },
   { label: "shortcuts.prototypes", keys: ["[", "]"] },
   { label: "shortcuts.views", keys: ["1", "2", "3"] },
   { label: "shortcuts.theme", keys: ["T"] },
+  { label: "shortcuts.comment", keys: ["C"] },
   { label: "shortcuts.fit", keys: ["F"] },
   { label: "shortcuts.help", keys: ["?"] },
   { label: "shortcuts.close", keys: ["Esc"] },

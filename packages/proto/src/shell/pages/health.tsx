@@ -1,48 +1,12 @@
-/**
- * Settings area. This slice ships the Health section (S15: problems and warnings with codes and
- * files); Project, Review, Credentials and About (S17) join it with the review slice.
- */
+/** S15 Health: discovery, flow and guard problems and warnings with codes and files. */
 import { useState } from "react";
 
 import type { RegistryProblem, RegistryWarning } from "../../model/registry";
-import { Link } from "../app/link";
 import { useT } from "../lib/i18n";
 import { useRegistry } from "../lib/shell-data";
 import { Button } from "../ui/button";
-import { Check, CircleCheck, Copy, ShieldCheck, TriangleAlert } from "../ui/icons";
+import { Check, CircleCheck, Copy, TriangleAlert } from "../ui/icons";
 import { cn } from "../ui/utils";
-
-export function Settings() {
-  const t = useT();
-  const registry = useRegistry();
-  return (
-    <div className="flex min-h-0 flex-1">
-      <nav
-        aria-label={t("settings.label")}
-        className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-border p-3 max-md:w-14 max-md:items-center"
-      >
-        <Link
-          to={{ area: "settings", section: "health" }}
-          aria-current="page"
-          className="flex h-8 items-center gap-2.5 rounded-lg bg-[var(--shell-primary-soft)] px-2.5 text-[13px] text-foreground max-md:w-9 max-md:justify-center max-md:px-0"
-        >
-          <ShieldCheck className="size-4 shrink-0 text-primary" />
-          <span className="max-md:hidden">{t("settings.health")}</span>
-          {registry.problems.length > 0 && (
-            <span className="ml-auto rounded-full bg-destructive/12 px-1.5 font-mono text-[10px] text-destructive max-md:hidden">
-              {registry.problems.length}
-            </span>
-          )}
-        </Link>
-      </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-6 xl:px-10">
-        <div className="mx-auto max-w-[760px]">
-          <Health />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type Entry = { severity: "problem" | "warning"; item: RegistryProblem | RegistryWarning };
 
@@ -53,7 +17,7 @@ function location(item: RegistryProblem | RegistryWarning) {
   return `${item.file}${line}`;
 }
 
-function Health() {
+export function Health() {
   const t = useT();
   const registry = useRegistry();
   const entries: Entry[] = [
