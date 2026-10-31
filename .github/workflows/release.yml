@@ -1,0 +1,101 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version already committed on the selected ref
+        required: true
+        type: string
+      channel:
+        required: true
+        type: choice
+        options: [stable, beta]
+permissions:
+  contents: read
+concurrency:
+  group: >-
+    release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build: release v')) && '-publish' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  release-pr:
+    if: >-
+      github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'build: release v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun install --global git-cliff@2.7.0
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          node scripts/release/prepare.mjs
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+  package:
+    if: >-
+      github.event_name != 'push' || startsWith(github.event.head_commit.message, 'build: release v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: proto-npm-publication-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: npm install --global npm@11.9.0
+      - run: bun install --frozen-lockfile
+      - run: bun install --global git-cliff@2.7.0
+      - run: bun run --cwd packages/proto test --project node test/node/package/package.test.ts
+      - name: Resolve release identity
+        id: plan
+        run: node scripts/release/plan.mjs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+      - run: bun run --cwd packages/proto build
+      - run: npm pack ./dist/package --dry-run --ignore-scripts
+        working-directory: packages/proto
+      - run: bun run --cwd packages/proto test:tarball
+      - name: Require integrated slices before publication
+        if: github.event_name != 'pull_request'
+        run: |
+          test -f packages/proto/dist/package/dist/shell/index.html
+          node packages/proto/dist/package/src/cli/main.js --help | grep -w init
+      - name: Publish npm with trusted identity
+        if: github.event_name != 'pull_request'
+        run: node packages/proto/scripts/publish.mjs
+        env:
+          REQUESTED_VERSION: ${{ steps.plan.outputs.version }}
+          CHANNEL: ${{ steps.plan.outputs.channel }}
+      - name: Tag and publish GitHub Release after npm succeeds
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.plan.outputs.commit }}
+          PRERELEASE: ${{ steps.plan.outputs.prerelease }}
+        run: bash scripts/release/finalize.sh
