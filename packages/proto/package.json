@@ -9,7 +9,8 @@
         "./vite": "./src/vite.ts"
     },
     "scripts": {
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
     },
     "dependencies": {
         "@proto/ui": "workspace:*",
@@ -26,8 +27,11 @@
         "@types/node": "24.19.2",
         "@types/react": "19.2.0",
         "@types/react-dom": "19.2.0",
+        "@vitejs/plugin-react": "6.1.2",
+        "@vitest/browser-playwright": "5.0.5",
         "react": "19.2.0",
-        "react-dom": "19.2.0"
+        "react-dom": "19.2.0",
+        "vitest": "5.0.5"
     },
     "peerDependencies": {
         "react": "19.2.0",
