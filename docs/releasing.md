@@ -42,7 +42,9 @@ step rolls back. `.pr-release.yaml` adds three `release_artifacts` steps:
 `scripts/release/sync-version.mjs` sets the version in `packages/proto/package.json` and undoes
 pr-release's own rewrite of the private root `package.json`, `bun install --lockfile-only` updates
 `bun.lock`, and oxfmt formats the generated files. The squash merge subject must stay
-`build: release v<version>`.
+`build: release v<version>` (the PR title) or `build: prepare release v<version>` (the subject of
+pr-release's single commit, which GitHub keeps when squashing a one-commit PR); either selects
+publication.
 
 Versioning follows the Compozy repositories: while the major version is 0, `feat`, `fix` and every
 other type bump the **patch**, and only a breaking change (`feat!`, `BREAKING CHANGE`) bumps the
