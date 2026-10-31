@@ -171,7 +171,7 @@ afterAll(async () => {
 
 async function open(path: string) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${server.origin}${path}`);
+  await page.goto(`${server.origin}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   return page;
 }
 

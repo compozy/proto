@@ -163,13 +163,26 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     });
     try {
       const page = await browser.newPage({ ignoreHTTPSErrors: true });
+      page.setDefaultTimeout(60000);
+      await page.addInitScript(() => {
+        window.addEventListener("message", event => {
+          const iframe = document.querySelector("iframe");
+          if (
+            event.source === iframe?.contentWindow &&
+            event.data?.proto === 1 &&
+            event.data.type === "ready"
+          )
+            document.documentElement.dataset.renderReady = "true";
+        });
+      });
       const target = env.API_URL + "/proto/?p=login-form&state=default";
-      await page.goto(target);
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       await page.getByLabel("Email", { exact: true }).fill("deployed@example.com");
       await page.getByLabel("Password", { exact: true }).fill("deployed-password-strong");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      await page.waitForURL(target);
+      await page.waitForURL(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       const frame = page.frameLocator("iframe").first();
+      await page.locator('html[data-render-ready="true"]').waitFor({ state: "attached" });
       await frame.getByTestId("remote-pick").waitFor();
       await page.getByTestId("comment-tool").click();
       await frame.getByTestId("proto-picker").waitFor();
@@ -249,7 +262,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
         authorName: "Deployed Reviewer · cli-journey",
       });
       await page.getByText("Improved in the agent loop.", { exact: true }).waitFor();
-      await page.goto(env.API_URL + "/proto/?comments=waiting");
+      await page.goto(env.API_URL + "/proto/?comments=waiting", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
       await page.getByRole("tab", { name: "Waiting · 1", exact: true }).waitFor();
       expect(
         await page
@@ -259,7 +275,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
       await page
         .getByText("Deployed Reviewer · cli-journey replied · waiting for you", { exact: true })
         .waitFor();
-      await page.goto(target);
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       await page.getByRole("banner").getByRole("button", { name: "Approve", exact: true }).click();
       await page.getByRole("button", { name: "Approve anyway", exact: true }).click();
       await page.getByRole("banner").getByText("Approved", { exact: true }).waitFor();

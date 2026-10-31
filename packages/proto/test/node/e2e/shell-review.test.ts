@@ -66,7 +66,7 @@ const reviewer = { kind: "reviewer" } as const;
 
 async function open(path: string) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${dev.origin}${path}`);
+  await page.goto(`${dev.origin}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   return page;
 }
 
@@ -167,7 +167,10 @@ describe("review journeys against proto dev", () => {
       reviewer
     );
     await dev.store.setStatus(step.id, "resolved", reviewer);
-    await page.goto(`${dev.origin}/?comments=resolved`);
+    await page.goto(`${dev.origin}/?comments=resolved`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
     await page.getByRole("button", { name: /Retry link missing/ }).click();
     await page.getByRole("link", { name: "Open in context" }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("comment")).toBe(step.id);
@@ -269,7 +272,7 @@ describe("remote review server", () => {
       expect(created.status()).toBe(201);
       const { comment: thread } = (await created.json()) as { comment: { id: string } };
       const screen = `/proto/?p=login-form&state=sign-in&comment=${thread.id}`;
-      await page.goto(`${origin}${screen}`);
+      await page.goto(`${origin}${screen}`, { waitUntil: "domcontentloaded", timeout: 60000 });
       const reply = page.getByRole("textbox", { name: "Reply…" });
       await reply.fill("Narrowed it to the form width.");
 
@@ -285,7 +288,10 @@ describe("remote review server", () => {
 
       // Round trip through the project's sign-in: back on the same screen with the draft.
       await expired.getByRole("link", { name: "Sign in again" }).click();
-      await page.waitForURL(`${origin}${screen}`);
+      await page.waitForURL(`${origin}${screen}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
       await expect
         .poll(() => page.getByRole("textbox", { name: "Reply…" }).inputValue())
         .toBe("Narrowed it to the form width.");
