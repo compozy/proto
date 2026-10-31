@@ -57,7 +57,7 @@ Integration tests (`*.it.test.ts`) run only when `TEST_DATABASE_URL` is set; loc
 - Explore and review UI as prototypes before building routes: `*.proto.tsx` beside the view
   they compose, drafts in `src/drafts/<slug>/index.proto.tsx`, journeys in `flows/*.flow.ts`.
   Contract, URLs and the `proto` CLI: `docs/design/prototyping.md`. Answer review comments with
-  `bun run proto comments`.
+  `bun run proto comments`, following the `apply-prototype-comments` skill.
 - Views take props and callbacks; routes own data and auth. Prototypes and stories never import
   the data layer (the presentation guard and the production boundary enforce it).
 - Stories (`*.stories.tsx`, `docs/design/storybook.md`) run in Chromium in light and dark with

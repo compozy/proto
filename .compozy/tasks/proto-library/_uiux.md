@@ -85,6 +85,11 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 
 ### S6. Screen view · S7. Compare
 
+- **Change**: canvas toolbar with the **state picker** — a searchable combobox (number, label, open
+  comments per state, current position `3 / 4`, previous/next J/K) instead of a chip row, so
+  prototypes with dozens of states never overflow (Pedro, comment proto-shell-1, 2026-10-30);
+  viewport presets + width; comment/select tools. Contract states `screen`, `state-picker`.
+
 - **States**: default; unknown state in URL; viewport presets + free width; role picker (when roles);
   preview loading (skeleton); render failure (S16).
 

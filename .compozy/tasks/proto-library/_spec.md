@@ -530,6 +530,8 @@ request `{ route, status, principal_kind, duration_ms }` and never logs comment 
   — remote API, approval, credentials, gallery serving.
 - `~/Dev/courses/reloaddev/apps/platform/gallery/cli/remote-auth.ts`, `remote-comments.ts` — CLI remote flow.
 - `~/Dev/courses/reloaddev/packages/db/src/schema/prototypes.ts` — remote schema to evolve.
+- `.agents/skills/apply-prototype-comments/SKILL.md` (this repo) — the comment loop for today's CLI;
+  becomes the shipped skill of ADR-005, gaining `--remote`/`auth` in slice 6.
 - `~/Dev/courses/reloaddev/.agents/skills/apply-prototype-comments/SKILL.md` and CompozyOS
   `.agents/skills/eng/eng-prototype-comments/SKILL.md` — skills to merge.
 - `~/Dev/compozy/compozy/extensions/open-design/skills/open-design/SKILL.md` — consumer of the record.
