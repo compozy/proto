@@ -601,4 +601,46 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     ]);
     expect(JSON.parse(result.stdout)).toHaveProperty("comments");
   });
+  it("human output: failures go to stderr as ✗ <message> (<code>) with the registry exit; --json keeps the error body on stdout", async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const run = (...args: string[]) =>
+      promisify(execFile)("bun", [
+        resolve(import.meta.dirname, "../../../src/cli/main.ts"),
+        ...args,
+      ]).then(
+        output => ({ code: 0, ...output }),
+        (error: { code: number; stdout: string; stderr: string }) => error
+      );
+    const human = await run("comments", "show", "login-form-404", "--app", root);
+    expect(human.code).toBe(1);
+    expect(human.stdout).toBe("");
+    expect(human.stderr).toMatch(/^✗ .+ \(comment_not_found\)\n$/);
+    const json = await run("comments", "show", "login-form-404", "--app", root, "--json");
+    expect(json.code).toBe(1);
+    expect(json.stderr).toBe("");
+    expect(JSON.parse(json.stdout)).toMatchObject({ error: { code: "comment_not_found" } });
+  });
+  it("human output never prints a credential token", async () => {
+    const { formatHuman } = await import("../../../src/cli/human.ts");
+    const token = `pcr_${"ab".repeat(32)}`;
+    const credential = {
+      remote: "https://acme.test/proto/",
+      id: "cr_1",
+      name: "laptop",
+      scopes: ["comment"],
+      token,
+    };
+    const outputs = [
+      formatHuman(["auth", "credentials"], { exitCode: 0, data: { credentials: [credential] } }),
+      formatHuman(["auth", "login", "--remote", credential.remote], {
+        exitCode: 0,
+        data: { saved: true, ...credential },
+      }),
+    ];
+    for (const output of outputs) {
+      expect(output.stdout + output.stderr).toContain("laptop");
+      expect(output.stdout + output.stderr).not.toContain(token);
+    }
+  });
 });

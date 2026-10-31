@@ -211,30 +211,13 @@ if (import.meta.main) {
   const result = await runCli(process.argv.slice(2));
   if (process.argv.length === 3 && ["--version", "-v"].includes(process.argv[2]!))
     console.log(version);
+  else if (result.data !== undefined && process.argv.includes("--json"))
+    console.log(JSON.stringify(result.data));
   else if (result.data !== undefined) {
-    const data = result.data as {
-      saved?: boolean;
-      removed?: boolean;
-      name?: string;
-      remote?: string;
-      error?: { message?: string };
-    };
-    if (
-      process.argv[2] === "auth" &&
-      !process.argv.includes("--json") &&
-      (data.saved || data.removed || data.error)
-    ) {
-      console.log(
-        data.saved
-          ? `✓ Saved credential "${data.name}" for ${data.remote} (scope: comment)`
-          : data.removed
-            ? `✓ Removed the local credential for ${data.remote}`
-            : `✗ ${data.error?.message}`
-      );
-    } else
-      console.log(
-        JSON.stringify(result.data, null, process.argv.includes("--json") ? undefined : 2)
-      );
+    const { formatHuman } = await import("./human.ts");
+    const output = formatHuman(process.argv.slice(2), result);
+    if (output.stdout) console.log(output.stdout);
+    if (output.stderr) console.error(output.stderr);
   }
   if (process.argv.includes("--verbose"))
     console.error(`proto completed in ${Date.now() - started}ms (exit ${result.exitCode})`);
