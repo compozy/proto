@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, matchesGlob } from "node:path";
 import ts from "typescript";
 import type { Plugin } from "vite";
 
@@ -8,6 +8,7 @@ export type PresentationBoundary = {
   modules: readonly string[];
   /** Packages (and their subpaths) a story or prototype must not reach at runtime. */
   packages: readonly string[];
+  matchers?: readonly (string | RegExp)[];
 };
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -37,6 +38,19 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
 
   function forbiddenPath(id: string, seen = new Set<string>()): string[] | undefined {
     if (
+      boundary.matchers?.some(matcher => {
+        if (matcher instanceof RegExp) {
+          matcher.lastIndex = 0;
+          return matcher.test(id);
+        }
+        return (
+          matchesGlob(relative(appRoot, id), matcher) ||
+          matchesGlob(id, matcher) ||
+          id === matcher ||
+          id.startsWith(`${matcher}/`) ||
+          id.includes(`/node_modules/${matcher}/`)
+        );
+      }) ||
       forbidden.has(id) ||
       packageSpecifier?.test(id) ||
       packageDirs.some(dir => id.startsWith(dir))
@@ -53,7 +67,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
   function violation(id: string) {
     const chain = forbiddenPath(id);
     if (chain)
-      return `presentation_boundary: ${relative(appRoot, chain[0]!)} reaches ${relative(appRoot, chain.at(-1)!)}: ${chain.map(id => relative(appRoot, id)).join(" → ")}. Stories and prototypes render views; move data access to the route container.`;
+      return `network_import: ${relative(appRoot, chain[0]!)} reaches ${relative(appRoot, chain.at(-1)!)}: ${chain.map(id => relative(appRoot, id)).join(" → ")}. Stories and prototypes render views; move data access to the route container.`;
   }
 
   return {
@@ -79,7 +93,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
           );
       }
       for (const id of imports.keys()) {
-        if (!/\.(proto|stories)\.[jt]sx?$/.test(id)) continue;
+        if (!/\.(proto|stories)\.[jt]sx?$|\/src\/drafts\//.test(id)) continue;
         const message = violation(id);
         if (message) this.error(message);
       }
@@ -134,7 +148,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
         const current = pending.pop()!;
         if (seen.has(current)) continue;
         seen.add(current);
-        if (/\.(proto|stories)\.[jt]sx?$/.test(current)) {
+        if (/\.(proto|stories)\.[jt]sx?$|\/src\/drafts\//.test(current)) {
           const message = violation(current);
           if (message) this.error(message);
         }

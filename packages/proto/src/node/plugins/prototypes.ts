@@ -20,8 +20,8 @@ export function prototypeRegistry(app: GalleryApp, repoRoot: string): Plugin {
   };
   const { appRoot, config } = app;
   let building = false;
-  const canvas = join(appRoot, "preview/canvas.tsx");
-  const styles = join(appRoot, "preview/gallery.css");
+  const canvas = join(appRoot, "proto.canvas.tsx");
+  const styles = join(appRoot, "src/styles.css");
   return {
     name: "gallery:prototypes",
     config() {
@@ -40,7 +40,7 @@ export function prototypeRegistry(app: GalleryApp, repoRoot: string): Plugin {
         for (const file of [canvas, styles])
           if (!existsSync(file)) this.error(`Missing ${file}: see packages/proto/CLAUDE.md`);
         return `import ${JSON.stringify(styles)};
-export { PresentationCanvas, PrototypeFrame } from ${JSON.stringify(canvas)};
+export { Canvas as PresentationCanvas, Frame as PrototypeFrame } from ${JSON.stringify(canvas)};
 export const config = ${JSON.stringify(config)};`;
       }
       if (source !== ids[registry]) return;

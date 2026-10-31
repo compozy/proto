@@ -1,4 +1,3 @@
-import { presentationGuard } from "@compozy/proto/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react, { type Options } from "@vitejs/plugin-react";
 import { createRequire } from "node:module";
@@ -19,7 +18,7 @@ export const reactOptions: Options = {
     panicThreshold: "all_errors",
     sources: [
       `${app}src/`,
-      `${app}preview/`,
+      `${app}proto.canvas.tsx`,
       fileURLToPath(new URL("../../packages/proto/src/", import.meta.url)),
     ],
   },
@@ -37,18 +36,5 @@ export default defineConfig({
       .filter(path => /^\.\/[a-z-]+$/.test(path) && path !== "./types" && path !== "./esm")
       .map(path => `@proto/ui > @base-ui/react${path.slice(1)}`),
   },
-  plugins: [
-    tailwindcss(),
-    react(reactOptions),
-    // Stories and prototypes render views: they never reach the API client, Query or auth.
-    presentationGuard(app, {
-      modules: [
-        "src/lib/api.ts",
-        "src/lib/query.ts",
-        "src/lib/config.ts",
-        "src/lib/auth-client.ts",
-      ],
-      packages: ["@tanstack/react-query", "better-auth", "openapi-fetch"],
-    }),
-  ],
+  plugins: [tailwindcss(), react(reactOptions)],
 });

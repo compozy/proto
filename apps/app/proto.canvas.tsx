@@ -1,3 +1,4 @@
+import "./src/styles.css";
 import type { PrototypeFrameProps } from "@compozy/proto";
 import { Toaster } from "@proto/ui/components/toast";
 import {
@@ -9,16 +10,16 @@ import {
 } from "@tanstack/react-router";
 import { createContext, use, useState, type ReactNode } from "react";
 
-const Canvas = createContext<ReactNode>(null);
+const CanvasContext = createContext<ReactNode>(null);
 function Content() {
-  return use(Canvas);
+  return use(CanvasContext);
 }
 
 /**
  * Providers around every story and prototype: a fresh memory router per canvas (links never
  * enter production loaders or change the preview URL) and toasts. No QueryClient or API client.
  */
-export function PresentationCanvas({ children }: { children: ReactNode }) {
+export function Canvas({ children }: { children: ReactNode }) {
   const [router] = useState(() => {
     const root = createRootRoute({ component: Content });
     const catchAll = createRoute({ getParentRoute: () => root, path: "$" });
@@ -29,9 +30,9 @@ export function PresentationCanvas({ children }: { children: ReactNode }) {
   });
   return (
     <Toaster>
-      <Canvas value={children}>
+      <CanvasContext value={children}>
         <RouterProvider router={router} />
-      </Canvas>
+      </CanvasContext>
     </Toaster>
   );
 }
@@ -40,6 +41,6 @@ export function PresentationCanvas({ children }: { children: ReactNode }) {
  * The app's production chrome around component prototypes (not drafts or `standalone` ones),
  * fed with local fixtures for `route`, `role` and `state`. The template has no shell yet.
  */
-export function PrototypeFrame({ children }: PrototypeFrameProps) {
+export function Frame({ children }: PrototypeFrameProps) {
   return children;
 }

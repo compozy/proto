@@ -1,24 +1,15 @@
 import { defineCommand } from "citty";
-import { createServer } from "vite";
-
-import { galleryViteConfig } from "../../node/vite-config";
-
+import { loadProject } from "../../node/project.ts";
+import { startDev } from "../../node/dev.ts";
+import { currentApp } from "../../node/paths.ts";
 export default defineCommand({
-  meta: { description: "Start the review gallery (http://127.0.0.1:4400)" },
-  args: {
-    port: { type: "string", default: "4400" },
-    host: { type: "string", default: "127.0.0.1" },
-  },
+  meta: { description: "Start the shell and render origins" },
+  args: { port: { type: "string" } },
   async run({ args }) {
-    const port = Number(args.port);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid port");
-    const config = await galleryViteConfig("serve");
-    const server = await createServer({
-      ...config,
-      server: { ...config.server, port, host: args.host },
+    const server = await startDev(await loadProject(currentApp().appRoot), {
+      port: args.port ? Number(args.port) : undefined,
     });
-    await server.listen();
-    server.printUrls();
+    console.log(`Proto: ${server.origin}\nRender: ${server.renderOrigin}`);
     const stop = () => void server.close().then(() => process.exit(0));
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);

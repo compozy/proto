@@ -50,7 +50,7 @@ type RegistryInput = {
 };
 
 function bySurface(a: Entry, b: Entry) {
-  return a.meta.surface.localeCompare(b.meta.surface, "en", { numeric: true });
+  return (a.meta.surface ?? "").localeCompare(b.meta.surface ?? "", "en", { numeric: true });
 }
 
 function byTitle(a: FlowEntry, b: FlowEntry) {

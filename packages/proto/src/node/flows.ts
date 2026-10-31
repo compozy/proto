@@ -47,7 +47,8 @@ type Report = (code: FlowProblemCode, message: string, node?: string) => void;
 function files(root: string): string[] {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
-    if (entry.name.startsWith(".") || ignored.has(entry.name)) return [];
+    if (entry.name.startsWith(".") || /\.lock|\.tmp/.test(entry.name) || ignored.has(entry.name))
+      return [];
     const path = join(root, entry.name);
     return entry.isDirectory()
       ? files(path)
@@ -106,7 +107,10 @@ function resolveNode(
   value: unknown,
   start: string[],
   prototypes: readonly PrototypeEntry[],
-  config: ResolvedGalleryConfig,
+  config: Omit<ResolvedGalleryConfig, "specs"> & {
+    specs: Record<string, string> | null;
+    flows?: string;
+  },
   report: Report
 ): ResolvedNode | null {
   if (!object(value) || !validFlowId(id) || "proto" in value === "external" in value) {
@@ -165,7 +169,7 @@ function resolveNode(
       state: state.id,
       stateLabel: state.label,
       title: meta.title,
-      route: meta.route,
+      route: meta.route ?? "",
       spec: meta.spec ?? null,
       ...(value.role === undefined ? {} : { role: value.role }),
     };
@@ -208,7 +212,10 @@ function resolveFlow(
   file: string,
   value: unknown,
   prototypes: readonly PrototypeEntry[],
-  config: ResolvedGalleryConfig,
+  config: Omit<ResolvedGalleryConfig, "specs"> & {
+    specs: Record<string, string> | null;
+    flows?: string;
+  },
   report: Report
 ): FlowEntry | null {
   if (
@@ -230,7 +237,7 @@ function resolveFlow(
     return null;
   }
   const spec = typeof value.spec === "string" ? value.spec : null;
-  if (spec !== null && !Object.hasOwn(config.specs, spec))
+  if (spec !== null && config.specs !== null && !Object.hasOwn(config.specs, spec))
     report("unknown_spec", `${id}: unknown spec "${spec}" (not in gallery.config.ts)`);
   if (new Set(value.start).size !== value.start.length)
     report("invalid_flow", `${id}: start must not repeat node ids`);
@@ -309,18 +316,23 @@ export function findFlows(
   appRoot: string,
   repoRoot: string,
   prototypes: readonly PrototypeEntry[],
-  config: ResolvedGalleryConfig
+  config: Omit<ResolvedGalleryConfig, "specs"> & {
+    specs: Record<string, string> | null;
+    flows?: string;
+  }
 ): { flows: FlowEntry[]; problems: FlowProblem[]; warnings: CoverageWarning[] } {
   const flows: FlowEntry[] = [];
   const problems: FlowProblem[] = [];
   for (const path of files(appRoot).sort()) {
-    const local = relative(appRoot, path);
     const file = relative(repoRoot, path);
     const id = path.split("/").at(-1)!.slice(0, -8);
     const before = problems.length;
     const report: Report = (code, message, node) =>
       problems.push({ code, flow: id, file, ...(node ? { node } : {}), message });
-    if (!/^flows\/[^/]+\.flow\.ts$/.test(local)) {
+    if (
+      relative(join(appRoot, config.flows ?? "flows"), path).includes("/") ||
+      relative(join(appRoot, config.flows ?? "flows"), path).startsWith("..")
+    ) {
       report("flow_outside_root", `${file}: flows live in the app's flows/<id>.flow.ts`);
       continue;
     }
@@ -344,7 +356,7 @@ export function findFlows(
     const flow = resolveFlow(id, file, value, prototypes, config, report);
     if (flow && problems.length === before) flows.push(flow);
   }
-  const specOrder = Object.keys(config.specs);
+  const specOrder = Object.keys(config.specs ?? {});
   const position = (spec: string | null) => {
     const index = spec === null ? -1 : specOrder.indexOf(spec);
     return index === -1 ? specOrder.length : index;

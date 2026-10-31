@@ -17,6 +17,8 @@ Bun + Turborepo monorepo. `CLAUDE.md` is canonical; `AGENTS.md` is a symlink mad
   `@proto/ui/lib/icons`, never `lucide-react`. Add components with `bunx shadcn add` from
   `packages/ui`.
 - `packages/proto`: the prototype gallery and `proto` CLI (`packages/proto/CLAUDE.md`).
+  Apps adopt it with `proto.config.ts`, `proto.canvas.tsx`, `proto()` in Vite and
+  `protoPresentation()` in Storybook/Vitest. Dev uses shell port 4400 and render port 4401.
 - Auth: Better Auth (email + password) with the Drizzle adapter. Validation: zod 4.
 - React Compiler is on: never write `memo`, `useMemo` or `useCallback`.
 

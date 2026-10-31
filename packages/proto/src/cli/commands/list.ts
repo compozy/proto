@@ -1,43 +1,17 @@
 import { defineCommand } from "citty";
-
-import { countComments } from "../../node/comments-store";
-import { findPrototypes } from "../../node/discovery";
-import { currentApp, repoRoot } from "../../node/paths";
-
+import { loadProject } from "../../node/project.ts";
+import { currentApp } from "../../node/paths.ts";
 export default defineCommand({
-  meta: { description: "List prototypes" },
-  args: {
-    spec: { type: "string" },
-    kind: { type: "enum", options: ["draft", "component"] },
-    json: { type: "boolean" },
-  },
-  run({ args }) {
-    const { appRoot, config } = currentApp();
-    const counts = countComments();
-    const entries = findPrototypes(appRoot, repoRoot, config)
-      .entries.filter(
-        entry =>
-          (!args.spec || entry.meta?.spec === args.spec) && (!args.kind || entry.kind === args.kind)
-      )
-      .map(entry => ({
-        slug: entry.slug,
-        kind: entry.kind,
-        spec: entry.meta?.spec,
-        surface: entry.meta?.surface,
-        route: entry.meta?.route,
-        states: entry.meta?.states.map(state => state.id) ?? [],
-        file: entry.file,
-        openComments: counts[entry.slug]?.open ?? 0,
-      }));
+  args: { json: { type: "boolean" }, spec: { type: "string" }, kind: { type: "string" } },
+  async run({ args }) {
+    const registry = await (await loadProject(currentApp().appRoot)).registry();
+    const entries = registry.prototypes.filter(
+      p => (!args.spec || p.spec === args.spec) && (!args.kind || p.kind === args.kind)
+    );
     console.log(
       args.json
         ? JSON.stringify(entries)
-        : entries
-            .map(
-              entry =>
-                `${entry.slug}\t${entry.kind}\t${entry.surface}\t${entry.route}\t${entry.states.length} states\t${entry.openComments} open\t${entry.file}`
-            )
-            .join("\n")
+        : entries.map(p => `${p.slug}\t${p.kind}\t${p.file}`).join("\n")
     );
   },
 });

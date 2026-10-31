@@ -11,8 +11,8 @@ export type PrototypeState = { id: string; label: string };
 export type PrototypeMeta = {
   title: string;
   spec?: string;
-  surface: string;
-  route: string;
+  surface?: string;
+  route?: string;
   blocks?: readonly string[];
   states: readonly [PrototypeState, ...PrototypeState[]];
   roles?: readonly [string, ...string[]];

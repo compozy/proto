@@ -3,12 +3,14 @@ import ts from "typescript";
 export type Literal = string | boolean | Literal[] | { [key: string]: Literal };
 
 export class LiteralError extends Error {
-  constructor(
-    readonly reason: "not_literal" | "duplicate_key",
-    readonly key?: string,
-    readonly path: readonly string[] = []
-  ) {
+  readonly reason: "not_literal" | "duplicate_key";
+  readonly key: string | undefined;
+  readonly path: readonly string[];
+  constructor(reason: "not_literal" | "duplicate_key", key?: string, path: readonly string[] = []) {
     super(reason);
+    this.reason = reason;
+    this.key = key;
+    this.path = path;
   }
 }
 

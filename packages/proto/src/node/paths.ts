@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { resolveGalleryConfig, type GalleryConfig, type ResolvedGalleryConfig } from "../config.ts";
+import { resolveProtoConfig, type ProtoConfig, type ResolvedGalleryConfig } from "../config.ts";
 
 export const galleryRoot = fileURLToPath(new URL("../", import.meta.url));
 export const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -16,7 +16,7 @@ export type GalleryApp = {
   config: ResolvedGalleryConfig;
 };
 
-const configFile = "gallery.config.ts";
+const configFile = "proto.config.ts";
 
 /** Apps under `apps/` that have a `gallery.config.ts`. */
 export function galleryApps() {
@@ -52,13 +52,14 @@ export async function loadApp(requested?: string): Promise<GalleryApp> {
   const name = pickApp(requested);
   const appRoot = resolve(repoRoot, "apps", name);
   const module = (await import(pathToFileURL(join(appRoot, configFile)).href)) as {
-    default: GalleryConfig;
+    default: ProtoConfig;
   };
+  const resolved = resolveProtoConfig(module.default, appRoot);
   current = {
     name,
     appRoot,
     commentsRoot: join(appRoot, "gallery", "comments"),
-    config: resolveGalleryConfig(module.default),
+    config: { ...resolved, specs: resolved.specs ?? {} },
   };
   return current;
 }

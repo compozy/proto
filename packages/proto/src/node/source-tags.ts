@@ -57,7 +57,7 @@ export function tagJsx(code: string, file: string): string | null {
 
 export function sourceTags(repoRoot: string, appRoot: string): Plugin {
   const root = repoRoot;
-  const prefix = `${relative(repoRoot, appRoot)}/src/`;
+  const prefix = `${relative(repoRoot, appRoot) ? relative(repoRoot, appRoot) + "/" : ""}src/`;
   return {
     name: "gallery:source-tags",
     // Before React Compiler, which is also `pre`, so it sees the authored source attributes.

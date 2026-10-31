@@ -1,12 +1,16 @@
 {
     "name": "@compozy/proto",
     "private": true,
+    "bin": {
+        "proto": "./src/cli/main.ts"
+    },
     "type": "module",
     "exports": {
         ".": "./src/contract.ts",
         "./flow": "./src/flow.ts",
         "./config": "./src/config.ts",
-        "./vite": "./src/vite.ts"
+        "./vite": "./src/vite.ts",
+        "./node": "./src/node/index.ts"
     },
     "scripts": {
         "typecheck": "tsc --noEmit",

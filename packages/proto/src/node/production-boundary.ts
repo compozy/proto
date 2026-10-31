@@ -6,7 +6,7 @@ import type { Plugin } from "vite";
  */
 export function productionBoundary(): Plugin {
   const prototypeOnly =
-    /\.(proto|fixtures|stories)\.[cm]?[jt]sx?(?:\?|$)|\/src\/drafts\/|\/apps\/[^/]+\/(flows|preview|gallery|\.storybook)\/|\/packages\/gallery\//;
+    /\.(proto|fixtures|stories)\.[cm]?[jt]sx?(?:\?|$)|\/src\/drafts\/|\/apps\/[^/]+\/(flows|preview|gallery|\.storybook)\/|\/packages\/(?:gallery|proto)\//;
   return {
     name: "gallery:production-boundary",
     generateBundle(_options, bundle) {
@@ -14,7 +14,9 @@ export function productionBoundary(): Plugin {
         if (output.type !== "chunk") continue;
         for (const id of Object.keys(output.modules)) {
           if (prototypeOnly.test(id))
-            this.error(`Prototype-only module reached the production bundle: ${id}`);
+            this.error(
+              `production_boundary: Prototype-only module reached the production bundle: ${id}`
+            );
         }
       }
     },

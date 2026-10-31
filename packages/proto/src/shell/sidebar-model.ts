@@ -36,6 +36,6 @@ export function matches(entry: Entry, query: string) {
   if (!needle) return true;
   const { meta } = entry;
   return [meta.title, entry.slug, meta.route, meta.surface, meta.spec ?? ""].some(value =>
-    value.toLowerCase().includes(needle)
+    (value ?? "").toLowerCase().includes(needle)
   );
 }

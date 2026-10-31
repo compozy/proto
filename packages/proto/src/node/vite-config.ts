@@ -27,13 +27,13 @@ function buildCommit() {
 }
 
 /**
- * The gallery's Vite config: the app's `vite.presentation.ts` (aliases, Tailwind, React Compiler,
+ * The gallery's Vite config: the app's `vite.shared.ts` (aliases, Tailwind, React Compiler,
  * presentation boundary; the same config Storybook uses) plus the gallery root, discovery,
  * source tags and the local comments API. Port 4400, output `apps/<app>/dist-gallery`.
  */
 export async function galleryViteConfig(command: "serve" | "build"): Promise<InlineConfig> {
   const app = currentApp();
-  const presentationFile = join(app.appRoot, "vite.presentation.ts");
+  const presentationFile = join(app.appRoot, "vite.shared.ts");
   if (!existsSync(presentationFile)) throw new Error(`Missing ${presentationFile}`);
   const exported = (await import(pathToFileURL(presentationFile).href)) as {
     default: UserConfigExport;
@@ -48,13 +48,13 @@ export async function galleryViteConfig(command: "serve" | "build"): Promise<Inl
   // cannot follow, and a dependency found late reloads the page.
   const { warmup: _appWarmup, ...serverOptions } = server ?? {};
   const appSource = relative(galleryRoot, join(app.appRoot, "src"));
-  const appPreview = relative(galleryRoot, join(app.appRoot, "preview"));
+  const appPreview = relative(galleryRoot, join(app.appRoot, "proto.canvas.tsx"));
   return mergeConfig(base, {
     configFile: false,
     root: galleryRoot,
     cacheDir: resolve(app.appRoot, "node_modules/.cache/gallery"),
     optimizeDeps: {
-      entries: ["index.html", `${appPreview}/*.tsx`, `${appSource}/**/*.proto.tsx`],
+      entries: ["index.html", appPreview, `${appSource}/**/*.proto.tsx`],
     },
     publicDir: resolve(app.appRoot, "public"),
     define: { "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit()) },

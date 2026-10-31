@@ -96,7 +96,7 @@ function App() {
     <>
       <PresentationCanvas key={slug}>
         {kindFor(slug) === "component" && !meta.standalone ? (
-          <PrototypeFrame route={meta.route} role={role} state={state}>
+          <PrototypeFrame route={meta.route ?? ""} role={role} state={state}>
             {canvas}
           </PrototypeFrame>
         ) : (

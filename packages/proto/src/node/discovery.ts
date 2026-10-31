@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync, readFileSync, globSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import type { PrototypeMeta } from "../contract.ts";
 import type { ResolvedGalleryConfig } from "../config.ts";
@@ -19,10 +19,23 @@ export type ProblemCode =
   | "outside_root"
   | "missing_meta"
   | "markup"
-  | "presentation_boundary";
-export type Problem = { slug: string | null; file: string; code: ProblemCode; message: string };
+  | "presentation_boundary"
+  | "reserved_slug"
+  | "invalid_meta"
+  | "duplicate_state"
+  | "unknown_spec"
+  | "unknown_role";
+export type Problem = {
+  slug: string | null;
+  file: string;
+  code: ProblemCode;
+  message: string;
+  line?: number;
+  column?: number;
+};
 
 function files(root: string): string[] {
+  if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
     const path = join(root, entry.name);
     return entry.isDirectory()
@@ -33,7 +46,7 @@ function files(root: string): string[] {
   });
 }
 
-function metadata(source: ts.SourceFile, config: ResolvedGalleryConfig): PrototypeMeta | null {
+function metadata(source: ts.SourceFile): PrototypeMeta | null {
   for (const statement of source.statements) {
     if (
       !ts.isVariableStatement(statement) ||
@@ -54,9 +67,7 @@ function metadata(source: ts.SourceFile, config: ResolvedGalleryConfig): Prototy
         const raw: unknown = readLiteral(value.arguments[0]);
         const meta = raw as PrototypeMeta;
         if (
-          ![meta.title, meta.surface, meta.route].every(
-            item => typeof item === "string" && item.trim().length > 0
-          ) ||
+          ![meta.title].every(item => typeof item === "string" && item.trim().length > 0) ||
           !Array.isArray(meta.states) ||
           !meta.states.length ||
           !meta.states.every(
@@ -69,13 +80,18 @@ function metadata(source: ts.SourceFile, config: ResolvedGalleryConfig): Prototy
           )
         )
           return null;
-        if (new Set(meta.states.map(state => state.id)).size !== meta.states.length) return null;
-        if (meta.spec !== undefined && !Object.hasOwn(config.specs, meta.spec)) return null;
+
         if (
           meta.roles !== undefined &&
           (!Array.isArray(meta.roles) ||
             !meta.roles.length ||
-            !meta.roles.every(role => Object.hasOwn(config.roles, role)))
+            !meta.roles.every(role => typeof role === "string"))
+        )
+          return null;
+        if (
+          [meta.surface, meta.route, meta.spec].some(
+            value => value !== undefined && (typeof value !== "string" || !value.trim())
+          )
         )
           return null;
         if (meta.standalone !== undefined && typeof meta.standalone !== "boolean") return null;
@@ -97,27 +113,42 @@ function metadata(source: ts.SourceFile, config: ResolvedGalleryConfig): Prototy
  * Every `*.proto.tsx` under the app's `src`: colocated component prototypes anywhere, drafts in
  * `src/drafts/<slug>/index.proto.tsx`. Metadata is read statically and checked against `config`.
  */
-export function findPrototypes(appRoot: string, repoRoot: string, config: ResolvedGalleryConfig) {
+export function findPrototypes(
+  appRoot: string,
+  repoRoot: string,
+  config: Omit<ResolvedGalleryConfig, "specs"> & {
+    specs: Record<string, string> | null;
+    prototypes?: string | readonly string[];
+    drafts?: string;
+  }
+) {
   const entries: PrototypeEntry[] = [];
   const problems: Problem[] = [];
-  for (const path of files(join(appRoot, "src")).sort()) {
+  const paths = config.prototypes
+    ? globSync(
+        [...(typeof config.prototypes === "string" ? [config.prototypes] : config.prototypes)],
+        { cwd: appRoot }
+      ).map(file => resolve(appRoot, file))
+    : files(join(appRoot, "src"));
+  for (const path of paths.filter(path => !/(?:\.pending\/|\.lock|\.tmp)/.test(path)).sort()) {
     const local = relative(appRoot, path);
     const file = relative(repoRoot, path);
     const parts = local.split("/");
     const name = parts.at(-1)!;
     const slug = name === "index.proto.tsx" ? parts.at(-2)! : name.slice(0, -10);
-    const kind = parts[1] === "drafts" ? "draft" : "component";
+    const draftLocal = relative(resolve(appRoot, config.drafts ?? "src/drafts"), path);
+    const kind = !draftLocal.startsWith("..") ? "draft" : "component";
     const report = (code: ProblemCode, message: string) =>
       problems.push({ slug, file, code, message });
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || slug.length > 120)
       report("invalid_slug", `Invalid prototype slug "${slug}" (${file})`);
     else if (slug.startsWith(flowKeyPrefix))
       report(
-        "invalid_slug",
+        "reserved_slug",
         `"${flowKeyPrefix}" is reserved for flow comments: "${slug}" (${file})`
       );
-    if (kind === "draft" && !/^src\/drafts\/[^/]+\/index\.proto\.tsx$/.test(local))
-      report("outside_root", `${file}: drafts live in src/drafts/<slug>/index.proto.tsx`);
+    if (kind === "draft" && !/^[^/]+\/index\.proto\.tsx$/.test(draftLocal))
+      report("invalid_meta", `${file}: drafts live in src/drafts/<slug>/index.proto.tsx`);
     const previous = entries.find(entry => entry.slug === slug);
     if (previous)
       report("duplicate_slug", `Duplicate prototype slug "${slug}": ${previous.file} and ${file}`);
@@ -128,12 +159,31 @@ export function findPrototypes(appRoot: string, repoRoot: string, config: Resolv
       true,
       ts.ScriptKind.TSX
     );
-    const meta = metadata(source, config);
+    const meta = metadata(source);
     if (!meta)
       report(
-        "missing_meta",
+        "invalid_meta",
         `${slug}: missing or invalid export meta (specs and roles must exist in gallery.config.ts)`
       );
+    if (!meta) {
+      const declaration = source.statements.find(
+        statement =>
+          ts.isVariableStatement(statement) &&
+          statement.declarationList.declarations.some(
+            d => ts.isIdentifier(d.name) && d.name.text === "meta"
+          )
+      );
+      const at = source.getLineAndCharacterOfPosition(declaration?.getStart(source) ?? 0);
+      Object.assign(problems.at(-1)!, { line: at.line + 1, column: at.character + 1 });
+    }
+    if (meta) {
+      if (new Set(meta.states.map(s => s.id)).size !== meta.states.length)
+        report("duplicate_state", "State ids must be unique");
+      if (meta.spec && config.specs !== null && !Object.hasOwn(config.specs, meta.spec))
+        report("unknown_spec", `Unknown spec ${meta.spec}`);
+      for (const role of meta.roles ?? [])
+        if (!Object.hasOwn(config.roles, role)) report("unknown_role", `Unknown role ${role}`);
+    }
     if (kind === "component") {
       const visit = (node: ts.Node) => {
         if (
@@ -145,6 +195,7 @@ export function findPrototypes(appRoot: string, repoRoot: string, config: Resolv
             "markup",
             `Component prototypes render components only: <${node.tagName.getText(source)}> at ${file}:${at.line + 1}:${at.character + 1}. Move the markup into a view component.`
           );
+          Object.assign(problems.at(-1)!, { line: at.line + 1, column: at.character + 1 });
         }
         ts.forEachChild(node, visit);
       };

@@ -2,7 +2,7 @@ import { TooltipProvider } from "@proto/ui/components/tooltip";
 import { withThemeByClassName } from "@storybook/addon-themes";
 import type { Preview } from "@storybook/react-vite";
 
-import { PresentationCanvas } from "../preview/canvas";
+import { Canvas } from "../proto.canvas";
 import "../src/styles.css";
 
 const preview: Preview = {
@@ -15,9 +15,9 @@ const preview: Preview = {
     }),
     Story => (
       <TooltipProvider>
-        <PresentationCanvas>
+        <Canvas>
           <Story />
-        </PresentationCanvas>
+        </Canvas>
       </TooltipProvider>
     ),
   ],

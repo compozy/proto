@@ -1,22 +1,23 @@
 # @compozy/proto
 
-Prototype gallery shared by the apps: authoring contract (`@compozy/proto`: `definePrototype`,
-`useSearch`, `setParam(s)`, `protoHref`; `@compozy/proto/flow`: `defineFlow`;
-`@compozy/proto/config`: `defineGalleryConfig`), Vite plugins for the apps' own configs
-(`@compozy/proto/vite`) and the `proto` CLI (`bun run proto <command> [--app <name>]`). Contract,
-URLs and commands: `docs/design/prototyping.md`.
+Authoring entries: `.`, `/flow`, `/config`; Node API: `/node`; Vite plugins: `/vite`.
+The CLI is `bun run proto <command> --app app`.
 
-- An app opts in with `gallery.config.ts`, `vite.presentation.ts` (shared with Storybook) and
-  `preview/{canvas.tsx,gallery.css}`. `canvas.tsx` exports `PresentationCanvas` (providers of
-  every canvas) and `PrototypeFrame` (production chrome around component prototypes).
-- `src/node` and `src/cli` run in Bun/Node; `src/shell` and `src/render` in the browser. Keep the
-  shell free of `node/` imports and `registry-model`, `view`, `flow-graph` pure (no DOM).
-- Discovery reads `meta` and `flow` literals statically and never executes prototype or flow
-  files. Flows import only `@compozy/proto/flow`. External flow nodes never become iframes; flow
-  previews are inert and trust status messages only from their own iframe.
-- Comments are local files, `apps/<app>/gallery/comments/<slug>/comments.json` (flows use the
-  reserved key `flow-<id>`, so slugs cannot start with `flow-`), written through
-  `node/comments-store.ts` by the dev server and the CLI alike. New comments carry
-  `context.commit`; keep it through parsing and replies. A built gallery is read-only.
-- The production-boundary build guard and the presentation guard live in `src/node`; never
-  weaken them to make a prototype render.
+- `proto.config.ts` supplies `defineProtoConfig`; `proto.canvas.tsx` exports `Canvas` and optional
+  `Frame`. The consumer Vite config installs `proto()`; Storybook and browser tests install
+  `protoPresentation()`. Shared aliases, styles and React Compiler stay in `vite.shared.ts`.
+- `loadProject(root)` validates configuration, discovers prototype and flow literals without
+  executing them, returns registry snapshots and watches authored files. Paths are app-relative.
+- `startDev(project, { port, review })` starts shell/API on port 4400 and the consumer render
+  server on 4401. `mountReview(handler)` replaces the fetch handler for review API requests;
+  `publish("comments" | "review" | "registry", data)` sends SSE events. `close()` stops both servers.
+- The shell is served from `dist/shell`; a missing bundle explains how to build it. The render
+  host is compiled by the consumer pipeline at `/__proto/render/<slug>`. `renderPlugins` injects
+  `virtual:proto/render-config`, `virtual:proto/prototypes`, and `virtual:proto/canvas`.
+- `proto check` checks registry problems and compiles all prototypes without writing build output.
+  The existing legacy static output remains available; new static packaging is a later slice. `store`, `screenshot`, `evidence`, and `migrate` are explicit
+  later-slice integration points on the project API.
+- Runtime imports from configured data modules fail only graphs rooted in stories or prototypes.
+  Production builds reject prototype-only modules. Source tags use app-relative paths.
+- Keep `src/node` out of browser modules. The shell and render host communicate across origins.
+  Existing `apps/app/gallery` review history is preserved for the migration slice.
