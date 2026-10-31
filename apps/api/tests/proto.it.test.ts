@@ -25,11 +25,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
   it("IT-024/032: real session authorizes allowed users and never reaches auth on render", async () => {
     const env = loadEnv({
       DATABASE_URL: database.url,
-      API_URL: "https://gallery.example.com",
-      APP_URL: "https://gallery.example.com",
+      API_URL: "https://gallery.localhost",
+      APP_URL: "https://gallery.localhost",
       BETTER_AUTH_SECRET: "test-secret-at-least-thirty-two-characters",
-      PROTO_PUBLIC_ORIGIN: "https://gallery.example.com",
-      PROTO_RENDER_ORIGIN: "https://render.example.net",
+      PROTO_PUBLIC_ORIGIN: "https://gallery.localhost",
+      PROTO_RENDER_ORIGIN: "https://render.localhost",
       PROTO_TICKET_SECRET: "s".repeat(32),
       PROTO_REVIEW_EMAILS: "review@example.com",
       PROTO_GALLERY_DIR: fixture.options.gallery.dir,
@@ -156,10 +156,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     spaOrigin = spa.resolvedUrls!.local[0]!.replace(/\/$/, "");
     const browser = await chromium.launch({
       headless: true,
-      args: [
-        "--no-proxy-server",
-        "--host-resolver-rules=MAP gallery.example.com 127.0.0.1, MAP render.example.net 127.0.0.1",
-      ],
+      args: ["--no-proxy-server"],
     });
     try {
       const page = await browser.newPage({ ignoreHTTPSErrors: true });
@@ -210,11 +207,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
         ).json()
       );
       expect(credential.credential.scopes).toEqual(["comment"]);
-      // DNS is the sole I/O substitution: Node and Chromium resolve the same two test domains locally.
+      // Chromium resolves *.localhost natively; Node lookup is OS-dependent.
+      // Override only these fixture hosts in the real CLI subprocess.
       const preload = join(h.root, "dns.cjs");
       await writeFile(
         preload,
-        `const dns=require('node:dns');const original=dns.lookup;dns.lookup=function(host,options,callback){if(typeof options==='function'){callback=options;options={};}if(['gallery.example.com','render.example.net'].includes(host)){queueMicrotask(()=>options?.all?callback(null,[{address:'127.0.0.1',family:4}]):callback(null,'127.0.0.1',4));return;}return original.call(this,host,options,callback);};require('node:module').syncBuiltinESMExports();`
+        `const dns=require('node:dns');const original=dns.lookup;dns.lookup=function(host,options,callback){if(typeof options==='function'){callback=options;options={};}if(['gallery.localhost','render.localhost'].includes(host)){queueMicrotask(()=>options?.all?callback(null,[{address:'127.0.0.1',family:4}]):callback(null,'127.0.0.1',4));return;}return original.call(this,host,options,callback);};require('node:module').syncBuiltinESMExports();`
       );
       const cli = async (...args: string[]) =>
         promisify(execFile)(

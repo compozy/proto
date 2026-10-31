@@ -13,8 +13,10 @@ import {
 } from "../../../src/server/index.ts";
 import { ProtoError, type ErrorCode } from "../../../src/model/errors.ts";
 import type { Author } from "../../../src/model/review.ts";
-export const publicOrigin = "https://gallery.example.com",
-  renderOrigin = "https://render.example.net";
+// Chromium resolves these hosts to loopback without resolver flags. tldts treats
+// them as distinct registrable domains, preserving the production same-site guard.
+export const publicOrigin = "https://gallery.localhost",
+  renderOrigin = "https://render.localhost";
 export async function serverHarness(storage?: ReviewStorage) {
   const root = await mkdtemp(join(tmpdir(), "proto-server-"));
   await mkdir(join(root, "gallery/__proto/render/assets"), { recursive: true });
@@ -296,7 +298,7 @@ export async function browserServer(
     "-days",
     "1",
     "-subj",
-    "/CN=gallery.example.com",
+    "/CN=gallery.localhost",
   ]);
   const seen: { host: string; cookie: string }[] = [];
   const server = createServer(
@@ -339,8 +341,8 @@ export async function browserServer(
   );
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
-  h.options.publicOrigin = `https://gallery.example.com:${port}`;
-  h.options.renderOrigin = `https://render.example.net:${port}`;
+  h.options.publicOrigin = `https://gallery.localhost:${port}`;
+  h.options.renderOrigin = `https://render.localhost:${port}`;
   h.rebuild();
   return {
     seen,

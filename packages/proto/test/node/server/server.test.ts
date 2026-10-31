@@ -314,10 +314,7 @@ describe("Remote authorization and render grants", () => {
     await buildRemoteGallery(h);
     const browser = await chromium.launch({
       headless: true,
-      args: [
-        "--no-proxy-server",
-        "--host-resolver-rules=MAP gallery.example.com 127.0.0.1, MAP render.example.net 127.0.0.1",
-      ],
+      args: ["--no-proxy-server"],
     });
     try {
       const context = await browser.newContext({ ignoreHTTPSErrors: true });
