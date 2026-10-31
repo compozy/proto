@@ -20,7 +20,8 @@ npm pack ./packages/proto/dist/package --ignore-scripts
 
 `bun run --cwd packages/proto pack` is the build-and-pack shorthand. Direct packing of the source
 package fails with an instruction to use the staging directory, preventing an accidental TS-only
-release. The package build checks aggregate per-file gzip size of shell JS, CSS and HTML against
+release. Declaration emission canonicalizes union types and property-only type literals through the TypeScript AST because inferred union
+ordering varies with compiler scheduling. The package build checks aggregate per-file gzip size of shell JS, CSS and HTML against
 400 KiB. When `build:shell` is present, it must emit `dist/shell/index.html`; errors are fatal.
 The integrated package emits every public entry, SQL migrations under `src/server/migrations/`,
 and the skills used by `proto init --skills`. The tarball adoption test has no slice skips: it
@@ -81,24 +82,21 @@ Node 24, npm 11.9.0 and `id-token: write`. The bootstrap secret is exposed only 
 See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for the authoritative UI
 and minimum runtime requirements.
 
-The first release publishes the real stable `0.1.0` from GitHub Actions, with provenance:
+The first release required a one-time local bootstrap `0.1.0-beta.0`, now deprecated,
+because the organization `NPM_TOKEN` cannot create packages. The trusted publisher was then
+configured with `npm trust github`; stable `0.1.0` was published by GitHub Actions with provenance.
+The bootstrap code remains restricted to an absent package and stable `0.1.0`; existing packages
+always use OIDC, with token credentials stripped from subprocesses.
 
-1. Merge the validated `release/v0.1.0` PR with subject `build: release v0.1.0`, or dispatch
-   `release.yml` on `main` with version `0.1.0` and channel `stable`.
-2. The script checks the package endpoint (not the version endpoint). Only HTTP 404 enables
-   bootstrap, and only for stable `0.1.0`. It maps the inherited `NPM_TOKEN` to `NODE_AUTH_TOKEN`
-   for the npm publish child using a temporary private npmrc, removed afterward. The token must
-   authorize creating a public package in the npm `compozy` organization and unattended publishing.
-   `--provenance` and `id-token: write` remain enabled. No local npm login or beta is needed.
-3. After npm integrity, tag and provenance verification succeeds, the workflow creates the git
-   tag and GitHub Release. Failure withholds both.
-4. Open the npm access URL above and configure the trusted publisher using the exact table values.
-   Once the package exists, its HTTP 200 selects OIDC even though the org bootstrap secret remains
-   available. The secret is stripped before subprocess execution; direct `NPM_TOKEN` or
-   `NODE_AUTH_TOKEN` inputs are refused. A missing new version never re-enables bootstrap.
-5. Verify npm `latest`, provenance and GitHub `v0.1.0`. Subsequent releases and retries require
-   trusted publishing; registry errors other than 404 fail closed. Do not delete the npm package:
-   the bootstrap condition is registry absence, not a separate persistent workflow flag.
+Registry processing can take several minutes after npm accepts a publication. Verification uses
+exponential backoff from 5 seconds to a 60-second cap, with a ten-minute deadline and progress
+logs. `NPM_VERIFY_TIMEOUT_MS` can shorten that deadline (1–600000 ms).
+A fresh publication must match the candidate integrity. A retry of an existing immutable version
+instead checks the registry SLSA v1 attestation: its SHA-512 subject must match published integrity,
+and its source repository, main ref, release workflow and resolved commit must identify this run.
+Both paths require the expected dist-tag and provenance before GitHub finalization. Mismatches
+and registry errors fail closed. Existing matching tags and Releases are reused without regenerating
+release notes; conflicting commit or prerelease identity is refused.
 
 ## Runtime boundary
 

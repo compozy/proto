@@ -1,7 +1,8 @@
-import { readFile, writeFile, cp, chmod, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, cp, chmod, mkdir, rm, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { checkSize } from "./check-size.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -64,3 +65,56 @@ for (const name of ["README.md", "LICENSE"]) {
   if (existsSync(new URL(`../${name}`, import.meta.url)))
     await cp(new URL(`../${name}`, import.meta.url), new URL(name, stage));
 }
+
+// Inferred union order depends on declaration-emission scheduling. Canonicalize the
+// type AST (not source text) so semantically identical declarations pack identically.
+async function canonicalDeclarations(directory) {
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  )) {
+    const path = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
+    if (entry.isDirectory()) await canonicalDeclarations(path);
+    else if (entry.name.endsWith(".d.ts")) {
+      const source = ts.createSourceFile(
+        entry.name,
+        await readFile(path, "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+      const result = ts.transform(source, [
+        context => {
+          const visit = node => {
+            const visited = ts.visitEachChild(node, visit, context);
+            if (
+              ts.isTypeLiteralNode(visited) &&
+              visited.members.every(member => ts.isPropertySignature(member))
+            ) {
+              return ts.factory.updateTypeLiteralNode(
+                visited,
+                [...visited.members].sort((a, b) => {
+                  const left = a.name.getText(source);
+                  const right = b.name.getText(source);
+                  return left < right ? -1 : left > right ? 1 : 0;
+                })
+              );
+            }
+            if (!ts.isUnionTypeNode(visited)) return visited;
+            return ts.factory.updateUnionTypeNode(
+              visited,
+              [...visited.types].sort((a, b) => {
+                const left = printer.printNode(ts.EmitHint.Unspecified, a, source);
+                const right = printer.printNode(ts.EmitHint.Unspecified, b, source);
+                return left < right ? -1 : left > right ? 1 : 0;
+              })
+            );
+          };
+          return node => ts.visitNode(node, visit);
+        },
+      ]);
+      await writeFile(path, printer.printFile(result.transformed[0]));
+      result.dispose();
+    }
+  }
+}
+await canonicalDeclarations(stage);
