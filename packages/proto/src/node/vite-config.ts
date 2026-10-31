@@ -4,7 +4,6 @@ import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mergeConfig, type InlineConfig, type UserConfig, type UserConfigExport } from "vite";
 
-import { commentsApi } from "./comments-plugin.ts";
 import { currentApp, galleryRoot, repoRoot } from "./paths.ts";
 import { prototypeRegistry } from "./plugins/prototypes.ts";
 import { sourceTags } from "./source-tags.ts";
@@ -70,7 +69,6 @@ export async function galleryViteConfig(command: "serve" | "build"): Promise<Inl
       sourceTags(repoRoot, app.appRoot),
       prototypeRegistry(app, repoRoot),
       ...(plugins ?? []),
-      commentsApi(),
     ],
   } satisfies InlineConfig);
 }

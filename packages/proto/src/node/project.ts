@@ -7,6 +7,10 @@ import type { Registry } from "../model/registry.ts";
 import { findPrototypes } from "./discovery.ts";
 import { findFlows } from "./flows.ts";
 
+import { FileStore, type ReviewStore } from "../store/index.ts";
+import { sourceRoots } from "../model/source.ts";
+import { migrateFiles, type MigrateOptions, type MigrationReport } from "../migrate/index.ts";
+
 export type UrlTarget = {
   slug: string;
   state?: string;
@@ -22,10 +26,10 @@ export interface ProtoProject {
   registry(): Promise<Registry>;
   watch(onChange: (registry: Registry) => void): () => void;
   url(target: UrlTarget, options?: { remote?: boolean }): string;
-  store(options?: { remote?: boolean }): never;
+  store(options?: { remote?: boolean }): ReviewStore;
   screenshot(target: unknown): never;
   evidence(target: unknown): never;
-  migrate(options: unknown): never;
+  migrate(options: MigrateOptions): Promise<MigrationReport>;
 }
 export async function loadProject(
   cwd: string,
@@ -190,10 +194,17 @@ export async function loadProject(
       if (target.width) url.searchParams.set("w", String(target.width));
       return url.href;
     },
-    store: () => later("store"),
+    store(options) {
+      if (options?.remote) throw new Error("Remote review stores are implemented in slice 8");
+      return new FileStore({
+        root,
+        registry: () => project.registry(),
+        roots: sourceRoots(config),
+      });
+    },
     screenshot: () => later("screenshot"),
     evidence: () => later("evidence"),
-    migrate: () => later("migrate"),
+    migrate: options => migrateFiles(root, options),
   };
   return project;
 }

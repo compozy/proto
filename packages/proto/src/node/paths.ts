@@ -32,6 +32,7 @@ export function galleryApps() {
 export function pickApp(requested?: string) {
   const apps = galleryApps();
   if (requested) {
+    if (existsSync(resolve(requested, configFile))) return resolve(requested);
     if (!apps.includes(requested))
       throw new Error(`Unknown gallery app "${requested}" (${apps.join(", ") || "none"})`);
     return requested;

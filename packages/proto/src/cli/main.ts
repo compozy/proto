@@ -21,6 +21,7 @@ export const main = defineCommand({
     description: "Prototype gallery (pass --app <name> when several apps have one)",
   },
   subCommands: {
+    migrate: () => import("./commands/migrate").then(module => module.default),
     dev: () => import("./commands/dev").then(module => module.default),
     build: () => import("./commands/build").then(module => module.default),
     list: () => import("./commands/list").then(module => module.default),
@@ -36,9 +37,10 @@ export const main = defineCommand({
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   const help = argv.length === 0 || argv.includes("--help") || argv.includes("-h");
-  const app = takeApp(argv);
+  const migration = argv[0] === "migrate";
+  const app = migration ? undefined : takeApp(argv);
   try {
-    if (!help || app) await loadApp(app);
+    if (!migration && (!help || app)) await loadApp(app);
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);

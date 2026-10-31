@@ -10,6 +10,9 @@ import { execFileSync } from "node:child_process";
 import { createServer, type InlineConfig } from "vite";
 import { ProtoError } from "../model/errors.ts";
 import type { ProtoProject } from "./project.ts";
+import { FileStore, currentCommit } from "../store/index.ts";
+import { createReviewRouter, createDevAuthorizer, ReviewEvents } from "../review/index.ts";
+import { sourceRoots } from "../model/source.ts";
 import { renderPlugins } from "../vite/index.ts";
 
 export type ReviewHandler = (request: Request) => Promise<Response>;
@@ -61,6 +64,30 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   let review = options.review;
+  const mountReview = (handler: ReviewHandler) => {
+    review = handler;
+  };
+  const events = new ReviewEvents();
+  const stopEvents = events.subscribe(event => {
+    if (event.type !== "registry") publish(event.type, { key: event.key });
+  });
+  const store = options.review ? null : project.store();
+  if (store)
+    mountReview(
+      createReviewRouter({
+        store,
+        registry: () => project.registry(),
+        events,
+        authorize: createDevAuthorizer({
+          shellOrigin: origin,
+          allowedHosts: project.config.dev.allowedHosts,
+        }),
+        roots: sourceRoots(project.config),
+        commit: () => currentCommit(project.root),
+      })
+    );
+  let stopReviews = () => {};
+
   const shellDir = options.shellDir ?? fileURLToPath(new URL("../../dist/shell/", import.meta.url));
   const server = createHttpServer(async (req, res) => {
     if (!hostAllowed(req.headers.host, port, project.config.dev.allowedHosts)) {
@@ -105,7 +132,20 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
         response = Response.json(await project.registry());
       else if (url.pathname.startsWith("/__proto/api/") && review) {
         const chunks: Buffer[] = [];
-        for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        let bytes = 0;
+        for await (const chunk of req) {
+          bytes += (chunk as Buffer).length;
+          if (bytes > 5 * 1024 * 1024 + 65536) {
+            res.writeHead(413, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                error: { code: "attachment_too_large", message: "Images are limited to 5 MB." },
+              })
+            );
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        }
         const headers = new Headers();
         for (const [key, value] of Object.entries(req.headers))
           if (value) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
@@ -174,7 +214,11 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       server.listen(port, "127.0.0.1", resolve);
     });
     await vite.listen();
+    if (store instanceof FileStore)
+      stopReviews = await store.subscribe(event => events.publish(event));
   } catch (error) {
+    stopReviews();
+    stopEvents();
     await vite.close();
     await new Promise<void>(resolve => server.close(() => resolve()));
     if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
@@ -186,11 +230,11 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     origin,
     renderOrigin: `http://127.0.0.1:${port + 1}`,
     publish,
-    mountReview(handler: ReviewHandler) {
-      review = handler;
-    },
+    mountReview,
     async close() {
       stop();
+      stopReviews();
+      stopEvents();
       for (const client of clients) client.end();
       await vite.close();
       await new Promise<void>(resolve => server.close(() => resolve()));

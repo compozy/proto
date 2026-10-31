@@ -80,7 +80,9 @@ export class FileStore implements ReviewStore {
   readonly directory: string;
   readonly locks: KeyLocks;
   private opening?: Promise<void>;
-  constructor(readonly options: FileStoreOptions) {
+  readonly options: FileStoreOptions;
+  constructor(options: FileStoreOptions) {
+    this.options = options;
     this.directory = resolve(options.directory ?? join(options.root, "proto/review"));
     this.locks = new KeyLocks(this.directory, options.lockEnvironment);
   }

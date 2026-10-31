@@ -92,10 +92,12 @@ export async function readOwner(path: string): Promise<LockOwner | null> {
   }
 }
 export class KeyLocks {
-  constructor(
-    readonly directory: string,
-    readonly environment: LockEnvironment = systemLockEnvironment
-  ) {}
+  readonly directory: string;
+  readonly environment: LockEnvironment;
+  constructor(directory: string, environment: LockEnvironment = systemLockEnvironment) {
+    this.directory = directory;
+    this.environment = environment;
+  }
   path(key: string) {
     return join(this.directory, `${key}.lock`);
   }

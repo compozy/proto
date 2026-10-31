@@ -97,3 +97,76 @@ it("IT-011 registry SSE follows prototype changes within two seconds", async () 
     rmSync(root, { recursive: true, force: true });
   }
 }, 30000);
+
+// Owner: real dev host; invariant: review writes reach the app store and the shared SSE stream.
+it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and rejects foreign writes", async () => {
+  const { mkdtemp, mkdir, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "proto-review-dev-"));
+  await mkdir(join(root, "src"));
+  await writeFile(
+    join(root, "proto.config.ts"),
+    'export default { title: "Review", dev: { poll: true } };'
+  );
+  await writeFile(join(root, "vite.config.ts"), "export default {};");
+  await writeFile(
+    join(root, "src/login-form.proto.tsx"),
+    'export const meta=definePrototype({title:"Login",states:[{id:"default",label:"Default"}]}); export default function Prototype(){return null;}'
+  );
+  const abort = new AbortController();
+  let server: Awaited<ReturnType<typeof startDev>> | undefined;
+  try {
+    const project = await loadProject(root);
+    expect(() => project.store({ remote: true })).toThrow("slice 8");
+    server = await startDev(project, { port: await port() });
+    const response = await fetch(`${server.origin}/__proto/api/events`, { signal: abort.signal });
+    const reader = response.body!.getReader();
+    await reader.read();
+    const input = {
+      key: "login-form",
+      body: "Actual HTTP review",
+      context: {
+        state: "default",
+        theme: "light",
+        role: null,
+        viewport: { width: 1440, height: 900 },
+      },
+      target: { kind: "node", node: null, label: "Whole view" },
+    };
+    const added = await fetch(`${server.origin}/__proto/api/comments`, {
+      method: "POST",
+      headers: { Origin: server.origin, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(added.status).toBe(201);
+    const comment = (await added.json()).comment;
+    const published = JSON.parse(
+      await readFile(join(root, "proto/review/login-form.json"), "utf8")
+    );
+    expect(published).toMatchObject({ version: 3, sequence: 1, comments: [{ id: comment.id }] });
+    expect((await project.store().get(comment.id)).thread[0]?.body).toBe(input.body);
+    const notification = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(Error("Review SSE deadline")), 2000)
+      ),
+    ]);
+    expect(new TextDecoder().decode(notification.value)).toContain(
+      'event: comments\ndata: {"key":"login-form"}'
+    );
+    const rejected = await fetch(`${server.origin}/__proto/api/comments`, {
+      method: "POST",
+      headers: { Origin: server.renderOrigin, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(rejected.status).toBe(403);
+    expect((await rejected.json()).error.code).toBe("cross_origin_write");
+    expect((await project.store().list()).length).toBe(1);
+    abort.abort();
+  } finally {
+    abort.abort();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30000);

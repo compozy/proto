@@ -1,0 +1,71 @@
+{
+    "version": 3,
+    "key": "proto-shell",
+    "sequence": 1,
+    "review": {
+        "status": "in_review",
+        "updatedAt": null
+    },
+    "events": [],
+    "comments": [
+        {
+            "id": "proto-shell-1",
+            "slug": "proto-shell",
+            "status": "open",
+            "createdAt": "2026-10-31T01:34:29.169Z",
+            "updatedAt": "2026-10-31T01:34:29.169Z",
+            "resolvedAt": null,
+            "context": {
+                "commit": null,
+                "state": "compare",
+                "theme": "dark",
+                "role": null,
+                "viewport": {
+                    "width": 1128,
+                    "height": 747
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div:nth-of-type(2) > div > div:nth-of-type(1) > div:nth-of-type(1)",
+                "testId": null,
+                "tag": "div",
+                "text": "01 Sign in 02 Create account 1 03 Wrong password 2 04 Submitting",
+                "source": "src/drafts/proto-shell/screen-view.tsx:21:7",
+                "sourceChain": [
+                    "src/drafts/proto-shell/screen-view.tsx:21:7",
+                    "src/drafts/proto-shell/screen-view.tsx:20:5",
+                    "src/drafts/proto-shell/screen-view.tsx:139:7",
+                    "src/drafts/proto-shell/screen-view.tsx:138:5",
+                    "src/drafts/proto-shell/index.proto.tsx:58:13",
+                    "src/drafts/proto-shell/index.proto.tsx:56:9",
+                    "src/drafts/proto-shell/shell.tsx:228:7",
+                    "src/drafts/proto-shell/shell.tsx:226:5"
+                ],
+                "rect": {
+                    "x": 72,
+                    "y": 112,
+                    "width": 541.6875,
+                    "height": 38
+                },
+                "rectNormalized": {
+                    "x": 0.0638,
+                    "y": 0.1499,
+                    "width": 0.4802,
+                    "height": 0.0509
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "id": "e95261d2-f105-4900-8cd8-d5995c740577",
+                    "at": "2026-10-31T01:34:29.169Z",
+                    "editedAt": null,
+                    "body": "aqui era melhor que fosse um combobox, porque se tiver muitas paginas aqui vai logo quebrar",
+                    "author": "reviewer",
+                    "attachments": []
+                }
+            ]
+        }
+    ]
+}
