@@ -1,7 +1,7 @@
 # Authoring prototypes, drafts, flows and the canvas
 
 Contents: component prototypes · `meta` fields · fixtures and state · drafts · URL state ·
-canvas and frame · flows · finishing.
+canvas and frame · flows. The check-and-render loop is in `SKILL.md`.
 
 ## Component prototypes
 
@@ -203,13 +203,3 @@ export const flow = defineFlow({
   `end: true` (`dead_end`).
 - Coverage: once a flow touches a spec, every state of that spec's prototypes should appear in
   some flow. `proto flow coverage --json` lists the gaps as warnings.
-
-## Finishing
-
-1. `proto check --json` must exit 0, with an empty `problems` and no `error`. Warnings
-   (`uncovered_state`, `canvas_missing`, `specs_unavailable`) do not fail. Run the project's
-   typecheck too, because `check` does not type-check.
-2. Render the states you touched. With `proto dev` running, open
-   `proto url <slug> --state <id> --bare`. Or capture `proto screenshot <slug> --state <id>`
-   (add `--theme dark` and `--width <px>`), which starts a temporary server when none is running.
-3. Run the view's own checks (typecheck, its stories or tests).

@@ -1,6 +1,6 @@
 ---
 name: proto
-description: How @compozy/proto works and how to author with it. Use when creating or editing `*.proto.tsx` prototypes, drafts under `src/drafts/`, `*.flow.ts` flows or `proto.canvas.tsx`; when setting up proto or changing `proto.config.ts` and its Vite, Storybook or Vitest guards; when running the `proto` CLI or MCP tools; or when asked how proto works or why `proto check`, `proto dev` or a capture fails. Not for ordinary UI edits that touch no prototype, and not for answering gallery review comments (use proto-apply-comments).
+description: Author, set up and debug @compozy/proto prototypes, drafts, flows and the canvas. Use when editing `*.proto.tsx`, `src/drafts/`, `*.flow.ts`, `proto.canvas.tsx` or `proto.config.ts` and its Vite, Storybook or Vitest guards, when running the `proto` CLI or MCP tools, or when `proto check`, `proto dev` or a capture fails. Not for UI edits that touch no prototype, nor for gallery review comments (proto-apply-comments).
 ---
 
 # proto
@@ -40,12 +40,11 @@ project rules (which views exist, where fixtures live, which specs to use) in th
   (key = `flow-<id>`), committed with the code. Comment ids are `<key>-<n>`. Each key is
   `in_review` or `approved`; approval records the commit and is a human act. A new comment on an
   approved prototype puts it back in review.
-- **Guards.** `proto()` in the app's `vite.config.ts` fails the production build when
-  prototype-only code (prototypes, `*.fixtures.ts(x)` and `*.stories.ts(x)` modules, drafts,
-  flows, the canvas, proto itself) reaches the bundle. The network guard fails `proto check`,
-  `proto build`, and Storybook/Vitest with `protoPresentation()`, when a prototype, draft or
-  story reaches a module listed in `guards.forbidRuntimeImports` through runtime imports. It
-  only knows the listed modules, so it cannot catch a global `fetch` or an unlisted client.
+- **Guards.** The production boundary (`proto()` in `vite.config.ts`) fails the app build when
+  prototype-only code reaches it. The network guard fails `proto check`, `proto build` and
+  Storybook/Vitest with `protoPresentation()` when a prototype, draft or story reaches a module
+  listed in `guards.forbidRuntimeImports`; it cannot see a global `fetch` or an unlisted client.
+  Matching rules: `references/setup.md`, section Guards.
 
 ## Proto or Storybook
 
@@ -80,9 +79,13 @@ project rules (which views exist, where fixtures live, which specs to use) in th
 3. Edit, then run `proto check --json` until it exits 0, with an empty `problems` and no `error`.
    Warnings never fail. The compile step, and with it `network_import`, only runs once the
    registry problems are gone.
-4. Look at the result: with `proto dev` running, open `proto url <slug> --state <id> --bare`, or
-   capture `proto screenshot <slug> --state <id>` without a server.
-5. Report the gallery URL and any evidence. Approval stays with people.
+4. Look at every state you touched: with `proto dev` running, open
+   `proto url <slug> --state <id> --bare`, or capture `proto screenshot <slug> --state <id>`
+   (`--theme dark`, `--width <px>`), which starts a temporary server when none is running.
+5. Run the project's typecheck and the view's own stories or tests: `check` does not type-check.
+
+The work is done when `check` passes and the touched states render as intended. Approval stays
+with people.
 
 Invoke the binary the way the project does: `bunx proto`, `npx proto`, or a package script such as
 `bun run proto <command> --app app`.

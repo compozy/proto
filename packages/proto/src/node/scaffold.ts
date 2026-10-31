@@ -156,15 +156,17 @@ function syncSkills(appRoot: string) {
       path: relative(app, target),
       status: unchanged ? "unchanged" : present ? "updated" : "installed",
     });
-    for (const dir of [".agents/skills", ".claude/skills"]) {
-      const path = join(base, dir, legacy);
-      try {
-        lstatSync(path);
-      } catch {
-        continue;
+    // 0.1.x installed into the app root, so a nested app can hold copies there too.
+    for (const root of base === app ? [base] : [base, app])
+      for (const dir of [".agents/skills", ".claude/skills"]) {
+        const path = join(root, dir, legacy);
+        try {
+          lstatSync(path);
+        } catch {
+          continue;
+        }
+        legacySkills.push({ name: legacy, path: relative(app, path), replacedBy: name });
       }
-      legacySkills.push({ name: legacy, path: relative(app, path), replacedBy: name });
-    }
   }
   return { skills, legacySkills };
 }

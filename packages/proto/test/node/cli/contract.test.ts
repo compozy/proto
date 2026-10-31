@@ -404,6 +404,9 @@ describe("CLI contracts", { timeout: 30000 }, () => {
         join(repo, ".claude/skills/apply-prototype-comments")
       );
 
+      mkdirSync(join(app, ".agents/skills/apply-prototype-comments"), { recursive: true });
+      writeFileSync(join(app, ".agents/skills/apply-prototype-comments/SKILL.md"), "0.1.x copy");
+
       const first = await runCli(["init", "--skills", "--json"], { cwd: app });
       expect(first).toMatchObject({ exitCode: 0, data: { skipped: false } });
       expect(first.data).toMatchObject({
@@ -424,6 +427,11 @@ describe("CLI contracts", { timeout: 30000 }, () => {
           {
             name: "apply-prototype-comments",
             path: "../../.claude/skills/apply-prototype-comments",
+            replacedBy: "proto-apply-comments",
+          },
+          {
+            name: "apply-prototype-comments",
+            path: ".agents/skills/apply-prototype-comments",
             replacedBy: "proto-apply-comments",
           },
         ],

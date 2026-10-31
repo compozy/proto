@@ -1,6 +1,6 @@
 ---
 name: proto-apply-comments
-description: Apply @compozy/proto gallery review comments to the code that renders them, verify the reviewed state and answer each thread. Use when given a prototype review comment id such as `login-form-7` or `flow-checkout-2`, a gallery link with `comment=`, or a request to process, address, fix or resolve open prototype or gallery review comments. Never approves reviews; for authoring prototypes or setting up proto, use the proto skill.
+description: Apply @compozy/proto gallery review comments to the code that renders them, verify the reviewed state and answer each thread. Use for a comment id such as `login-form-7` or `flow-checkout-2`, a gallery link with `comment=`, or a request to address open prototype review comments. For authoring prototypes or setting up proto, use the proto skill.
 ---
 
 # Apply prototype review comments
@@ -8,10 +8,10 @@ description: Apply @compozy/proto gallery review comments to the code that rende
 A reviewer pinned a comment to something rendered in the proto gallery. The comment records where
 it was clicked in the source, plus the exact state, theme, role, viewport and commit they saw.
 Your job is to change the code that ships, prove the reviewed state now looks right, and answer
-the thread. For proto concepts (prototypes, drafts, flows, the canvas, guards) and the full CLI
-reference, read the `proto` skill installed beside this one: its `SKILL.md`, then
-`references/cli.md` and `references/troubleshooting.md` as needed. Project rules in `AGENTS.md`
-or `CLAUDE.md` take precedence for code conventions.
+the thread. The `proto` skill installed beside this one owns the concepts and hard rules: read
+its `SKILL.md` when prototypes, drafts, flows or guards are unfamiliar, `references/cli.md` for a
+command's flags or JSON, and `references/troubleshooting.md` when a command fails. Project rules
+in `AGENTS.md` or `CLAUDE.md` take precedence for code conventions.
 
 ## Rules
 
@@ -20,11 +20,9 @@ or `CLAUDE.md` take precedence for code conventions.
   directly, a flow in its `.flow.ts`, and fixture data only when the comment is about the data.
 - **Agents never approve.** Do not run `review approve`, `review reopen` or `review unlock`, and
   delete a comment only when a person asks. Resolving a thread is not approval.
-- **Never edit `proto/review/**` by hand.** Every write goes through `proto comments ...` or the
-  matching MCP tool.
-- **Never weaken a guard**, and do not copy view markup into a `.proto.tsx` to satisfy a comment.
-- Make the smallest change that satisfies the request, using the project's existing components and
-  tokens.
+- The `proto` hard rules still apply: never edit `proto/review/**` by hand (write through
+  `proto comments ...` or MCP), never weaken a guard, and never copy view markup into a
+  `.proto.tsx` to satisfy a comment.
 
 ## Loop
 
@@ -77,8 +75,9 @@ add `--remote` to the `comments` and `review status` commands only. `check`, `fl
    - A resolved thread that still needs work: `proto comments reopen <id> --note "..."`. That
      reopens the comment; reopening the review is a person's call.
    - Fix your own wording with `proto comments edit <id> --note "..." [--message <n>]`.
-8. **Report** each thread as resolved or open, with the files changed and the evidence you
-   captured. Approval stays with the reviewer.
+
+The work is done when every thread you took is either resolved with a verified note or open with
+a reply that says what is needed. Approval stays with the reviewer.
 
 ## Pitfalls
 

@@ -360,7 +360,7 @@ export function formatHuman(
       return out(
         [
           ...(data.skipped
-            ? ["Already set up: nothing to write"]
+            ? ["Already set up: setup files unchanged"]
             : [...(data.files as string[]).map(file => `✓ ${file}`), "Next: bunx proto dev"]),
           ...skills.map(skill => `✓ ${skill.path} (${skill.status})`),
           ...legacy.map(
