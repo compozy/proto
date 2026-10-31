@@ -1,3 +1,4 @@
+import { protoPresentation } from "@compozy/proto/vite";
 import type { StorybookConfig } from "@storybook/react-vite";
 import { fileURLToPath } from "node:url";
 import { mergeConfig } from "vite";
@@ -15,7 +16,7 @@ const config: StorybookConfig = {
     options: {
       strictMode: true,
       builder: {
-        viteConfigPath: fileURLToPath(new URL("../vite.presentation.ts", import.meta.url)),
+        viteConfigPath: fileURLToPath(new URL("../vite.shared.ts", import.meta.url)),
       },
     },
   },
@@ -23,6 +24,7 @@ const config: StorybookConfig = {
   features: { experimentalDocgenServer: true },
   viteFinal: config =>
     mergeConfig(config, {
+      plugins: protoPresentation(),
       build: {
         // Storybook's prebuilt runtime and axe are indivisible vendor modules; this catalog
         // budget does not change the application's 500 kB limit.

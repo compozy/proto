@@ -1,9 +1,10 @@
+import { protoPresentation } from "@compozy/proto/vite";
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig, mergeConfig } from "vitest/config";
 
-import presentationConfig from "./vite.presentation.ts";
+import presentationConfig from "./vite.shared.ts";
 
 export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
@@ -24,6 +25,7 @@ export default defineConfig({
           presentationConfig,
           defineConfig({
             plugins: [
+              ...protoPresentation(),
               storybookTest({
                 configDir: fileURLToPath(new URL("./.storybook", import.meta.url)),
                 initialGlobals: { theme },

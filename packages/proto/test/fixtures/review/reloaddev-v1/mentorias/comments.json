@@ -1,0 +1,67 @@
+{
+    "version": 1,
+    "slug": "mentorias",
+    "comments": [
+        {
+            "id": "mentorias-1",
+            "slug": "mentorias",
+            "status": "resolved",
+            "createdAt": "2026-10-22T21:56:22.195Z",
+            "updatedAt": "2026-10-22T23:07:06.437Z",
+            "resolvedAt": "2026-10-22T23:07:06.437Z",
+            "context": {
+                "commit": null,
+                "state": "com-proxima",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 2200,
+                    "height": 1535
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "[data-testid=\"mentorship-countdown\"] > ol",
+                "testId": "mentorship-countdown",
+                "tag": "ol",
+                "text": "07 dias 03 horas 17 min 43 seg",
+                "source": "src/designs/mentorias/countdown.tsx:53:7",
+                "sourceChain": [
+                    "src/designs/mentorias/countdown.tsx:53:7",
+                    "src/designs/mentorias/countdown.tsx:41:5",
+                    "src/designs/mentorias/lead.tsx:136:13",
+                    "src/designs/mentorias/lead.tsx:80:9",
+                    "src/designs/mentorias/lead.tsx:57:7",
+                    "src/designs/mentorias/lead.tsx:56:5",
+                    "src/designs/mentorias/index.tsx:125:9",
+                    "src/kit/layout.tsx:23:10"
+                ],
+                "rect": {
+                    "x": 350,
+                    "y": 562.5469,
+                    "width": 804.9219,
+                    "height": 66
+                },
+                "rectNormalized": {
+                    "x": 0.1591,
+                    "y": 0.3665,
+                    "width": 0.3659,
+                    "height": 0.043
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T21:56:22.195Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:06.437Z"
+                }
+            ]
+        }
+    ]
+}

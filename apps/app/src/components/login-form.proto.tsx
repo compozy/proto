@@ -1,4 +1,4 @@
-import { definePrototype, setParam, type PrototypeProps } from "@proto/gallery";
+import { definePrototype, setParam, type PrototypeProps } from "@compozy/proto";
 
 import { LoginForm } from "./login-form";
 

@@ -1,0 +1,132 @@
+/*
+ * Exploration theme for the gallery shell: near-black panels and a pink primary, after the
+ * dark workflow-canvas reference. Scoped to `.proto-shell`; prototypes keep the app theme
+ * because they render in their own iframes.
+ */
+@import "@xyflow/react/dist/style.css";
+
+/* `:root:has(…)` lets portaled popups (combobox, menus) read the shell tokens too. */
+.proto-shell,
+:root:has(.proto-shell) {
+  --background: oklch(0.985 0.002 340);
+  --foreground: oklch(0.18 0.01 330);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.62 0.23 354);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.006 340);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.006 340);
+  --muted-foreground: oklch(0.5 0.015 330);
+  --accent: oklch(0.94 0.008 340);
+  --accent-foreground: var(--foreground);
+  --border: oklch(0.91 0.006 340);
+  --input: oklch(0.91 0.006 340);
+  --ring: var(--primary);
+  --focus: var(--primary);
+  --focus-foreground: var(--primary-foreground);
+  --shell-canvas: oklch(0.97 0.004 340);
+  --shell-dot: oklch(0.82 0.01 340);
+  --shell-panel: oklch(0.995 0.001 340);
+  --shell-rail: oklch(0.975 0.004 340);
+  --shell-edge: oklch(0.72 0.01 330);
+  --shell-primary-soft: color-mix(in oklch, var(--primary) 14%, transparent);
+  --shell-primary-glow: color-mix(in oklch, var(--primary) 28%, transparent);
+  --tone-start: oklch(0.55 0.15 245);
+  --tone-screen: var(--primary);
+  --tone-overlay: oklch(0.55 0.2 295);
+  --tone-redirect: oklch(0.62 0.15 65);
+  --tone-external: oklch(0.55 0.11 185);
+  --tone-end: oklch(0.55 0.14 155);
+  --tone-warning: oklch(0.65 0.15 75);
+
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+.dark .proto-shell,
+.dark:has(.proto-shell) {
+  --background: oklch(0.145 0.004 300);
+  --foreground: oklch(0.96 0.003 340);
+  --card: oklch(0.185 0.005 300);
+  --popover: oklch(0.2 0.006 300);
+  --primary: oklch(0.74 0.19 352);
+  --primary-foreground: oklch(0.17 0.02 352);
+  --secondary: oklch(0.22 0.006 300);
+  --muted: oklch(0.22 0.006 300);
+  --muted-foreground: oklch(0.66 0.012 300);
+  --accent: oklch(0.24 0.007 300);
+  --border: oklch(1 0 0 / 7.5%);
+  --input: oklch(1 0 0 / 10%);
+  --shell-canvas: oklch(0.155 0.004 300);
+  --shell-dot: oklch(1 0 0 / 9%);
+  --shell-panel: oklch(0.17 0.005 300);
+  --shell-rail: oklch(0.14 0.004 300);
+  --shell-edge: oklch(1 0 0 / 22%);
+  --tone-start: oklch(0.72 0.13 245);
+  --tone-overlay: oklch(0.72 0.15 295);
+  --tone-redirect: oklch(0.78 0.14 70);
+  --tone-external: oklch(0.76 0.11 185);
+  --tone-end: oklch(0.76 0.14 155);
+  --tone-warning: oklch(0.8 0.14 80);
+}
+
+.proto-shell .shell-dots {
+  background-color: var(--shell-canvas);
+  background-image: radial-gradient(var(--shell-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.proto-shell .react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--shell-edge);
+  --xy-edge-stroke-width: 1.25;
+  --xy-minimap-background-color: var(--shell-panel);
+  --xy-minimap-mask-background-color: color-mix(in oklch, var(--background) 70%, transparent);
+  --xy-minimap-node-background-color: var(--muted);
+  --xy-minimap-node-stroke-color: transparent;
+}
+
+.proto-shell .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  min-height: 7px;
+  background: var(--shell-panel);
+  border: 1.5px solid var(--shell-edge);
+}
+
+.proto-shell .react-flow__handle.is-lit {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.proto-shell .react-flow__edge-path.is-lit {
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+
+.proto-shell .react-flow__attribution {
+  display: none;
+}
+
+.proto-shell .react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.proto-shell .shell-frame {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 24px 60px -24px oklch(0 0 0 / 55%);
+}
+
+.proto-shell .shell-pin {
+  box-shadow:
+    0 0 0 3px var(--background),
+    0 0 0 6px var(--shell-primary-glow);
+}

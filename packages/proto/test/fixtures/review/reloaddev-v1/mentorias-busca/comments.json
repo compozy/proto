@@ -1,0 +1,67 @@
+{
+    "version": 1,
+    "slug": "mentorias-busca",
+    "comments": [
+        {
+            "id": "mentorias-busca-1",
+            "slug": "mentorias-busca",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:33:51.352Z",
+            "updatedAt": "2026-10-22T23:05:12.520Z",
+            "resolvedAt": "2026-10-22T23:05:12.520Z",
+            "context": {
+                "commit": null,
+                "state": "resultados",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div:nth-of-type(2) > div > section",
+                "testId": null,
+                "tag": "section",
+                "text": "5 mentorias \u00b7 12 trechos Mais relevantes Mais recentes Todos os temas Entrevistas Arquitetura Carreira Front-end Lidera\u2026",
+                "source": "src/designs/mentorias-busca/search.tsx:154:9",
+                "sourceChain": [
+                    "src/designs/mentorias-busca/search.tsx:154:9",
+                    "src/designs/mentorias-busca/search.tsx:106:5",
+                    "src/designs/mentorias-busca/index.tsx:136:13",
+                    "src/designs/mentorias-busca/index.tsx:135:11",
+                    "src/designs/mentorias-busca/index.tsx:113:9",
+                    "src/designs/mentorias-busca/index.tsx:107:7",
+                    "src/designs/mentorias-busca/index.tsx:106:5",
+                    "src/designs/mentorias-busca/index.tsx:82:7"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 85.7969,
+                    "width": 1024,
+                    "height": 1128.2656
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.0665,
+                    "width": 0.7111,
+                    "height": 0.8746
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:33:51.352Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:05:12.520Z"
+                }
+            ]
+        }
+    ]
+}

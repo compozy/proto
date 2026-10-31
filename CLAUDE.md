@@ -16,7 +16,9 @@ Bun + Turborepo monorepo. `CLAUDE.md` is canonical; `AGENTS.md` is a symlink mad
   vendored as is (`packages/ui/README.md`). Theme tokens in `src/styles/theme.css`; icons from
   `@proto/ui/lib/icons`, never `lucide-react`. Add components with `bunx shadcn add` from
   `packages/ui`.
-- `packages/gallery`: the prototype gallery and `proto` CLI (`packages/gallery/CLAUDE.md`).
+- `packages/proto`: the prototype gallery and `proto` CLI (`packages/proto/CLAUDE.md`).
+  Apps adopt it with `proto.config.ts`, `proto.canvas.tsx`, `proto()` in Vite and
+  `protoPresentation()` in Storybook/Vitest. Dev uses shell port 4400 and render port 4401.
 - Auth: Better Auth (email + password) with the Drizzle adapter. Validation: zod 4.
 - React Compiler is on: never write `memo`, `useMemo` or `useCallback`.
 
@@ -27,7 +29,7 @@ Bun + Turborepo monorepo. `CLAUDE.md` is canonical; `AGENTS.md` is a symlink mad
 | `bun run db:up`                      | Start Postgres (docker compose, port from `.env.local`)                           |
 | `bun run db:generate` / `db:migrate` | Create / apply a migration after a schema change                                  |
 | `bun dev`                            | Every app in watch mode                                                           |
-| `bun run proto dev`                  | Prototype gallery on <http://127.0.0.1:4400>                                      |
+| `bun run proto dev`                  | Shell on <http://127.0.0.1:4400>, app render server on port 4401                  |
 | `bun run storybook`                  | Storybook of the UI and app views                                                 |
 | `bun run verify`                     | Format check, lint, codegen check, typecheck, test, build. The definition of done |
 
@@ -57,7 +59,10 @@ Integration tests (`*.it.test.ts`) run only when `TEST_DATABASE_URL` is set; loc
 - Explore and review UI as prototypes before building routes: `*.proto.tsx` beside the view
   they compose, drafts in `src/drafts/<slug>/index.proto.tsx`, journeys in `flows/*.flow.ts`.
   Contract, URLs and the `proto` CLI: `docs/design/prototyping.md`. Answer review comments with
-  `bun run proto comments`, following the `apply-prototype-comments` skill.
+  `bun run proto comments`, following the `apply-prototype-comments` skill. Review files are v3
+  JSON in `apps/app/proto/review/`; agents never approve reviews.
+- The app consumes public `@compozy/proto` entries and its `proto` binary. Configure it with
+  `proto.config.ts`, `proto.canvas.tsx`, `proto()` and `protoPresentation()`; no package source imports.
 - Views take props and callbacks; routes own data and auth. Prototypes and stories never import
   the data layer (the presentation guard and the production boundary enforce it).
 - Stories (`*.stories.tsx`, `docs/design/storybook.md`) run in Chromium in light and dark with

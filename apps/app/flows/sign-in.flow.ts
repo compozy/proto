@@ -1,4 +1,4 @@
-import { defineFlow } from "@proto/gallery/flow";
+import { defineFlow } from "@compozy/proto/flow";
 
 export const flow = defineFlow({
   title: "Sign in",

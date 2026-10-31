@@ -12,6 +12,7 @@
         "codegen:check": "bun scripts/codegen.ts --check"
     },
     "dependencies": {
+        "@compozy/proto": "workspace:*",
         "@hono/zod-openapi": "1.6.3",
         "@proto/db": "workspace:*",
         "better-auth": "1.7.10",

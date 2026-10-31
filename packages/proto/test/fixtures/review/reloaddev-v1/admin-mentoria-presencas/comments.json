@@ -1,0 +1,67 @@
+{
+    "version": 1,
+    "slug": "admin-mentoria-presencas",
+    "comments": [
+        {
+            "id": "admin-mentoria-presencas-1",
+            "slug": "admin-mentoria-presencas",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:51:54.773Z",
+            "updatedAt": "2026-10-22T23:07:22.451Z",
+            "resolvedAt": "2026-10-22T23:07:22.451Z",
+            "context": {
+                "commit": "c04d6d3457b7571a42460cde4b3bf7ca66fd944a",
+                "state": "lista",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "section",
+                "testId": null,
+                "tag": "section",
+                "text": "Resumo das presen\u00e7as",
+                "source": "src/designs/admin-mentoria-presencas/summary.tsx:120:5",
+                "sourceChain": [
+                    "src/designs/admin-mentoria-presencas/summary.tsx:120:5",
+                    "src/designs/admin-mentoria-presencas/index.tsx:250:9",
+                    "src/designs/admin-mentoria-presencas/index.tsx:249:7",
+                    "src/designs/admin-mentoria-presencas/index.tsx:244:5",
+                    "src/designs/admin-mentoria-presencas/index.tsx:437:7",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7",
+                    "src/designs/admin-mentoria-presencas/index.tsx:428:5"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 321.7969,
+                    "width": 1068,
+                    "height": 366.2656
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.2495,
+                    "width": 0.7417,
+                    "height": 0.2839
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:51:54.773Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:22.451Z"
+                }
+            ]
+        }
+    ]
+}

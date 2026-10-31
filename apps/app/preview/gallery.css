@@ -1,4 +1,0 @@
-/* Gallery stylesheet: the app's styles plus the gallery shell as a class source. */
-@import "../src/styles.css";
-
-@source "../../../packages/gallery/src";

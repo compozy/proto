@@ -6,6 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 
+import { reviewReturn } from "./lib/auth-return";
 import { authClient } from "./lib/auth-client";
 import { Home } from "./routes/home";
 import { Login } from "./routes/login";
@@ -29,8 +30,18 @@ const homeRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  beforeLoad: async () => {
-    if (await hasSession()) throw redirect({ to: "/" });
+  validateSearch: (search: Record<string, unknown>): { returnTo?: string } => ({
+    returnTo:
+      typeof search.returnTo === "string" && reviewReturn(search.returnTo)
+        ? search.returnTo
+        : undefined,
+  }),
+  beforeLoad: async ({ search }) => {
+    if (await hasSession()) {
+      const href = reviewReturn(search.returnTo);
+      if (href) throw redirect({ href, reloadDocument: true });
+      throw redirect({ to: "/" });
+    }
   },
   component: Login,
 });

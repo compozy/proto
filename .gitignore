@@ -26,8 +26,15 @@ coverage/
 .claude/plans/
 
 # prototype gallery and Storybook builds
-dist-gallery/
+dist-proto/
 storybook-static/
 
 # Vitest browser artifacts
 .vitest/
+
+.proto-build-*/
+
+.proto-init-test-*/
+
+# Isolated app test fixtures (including interrupted runs)
+apps/*/.proto-*/

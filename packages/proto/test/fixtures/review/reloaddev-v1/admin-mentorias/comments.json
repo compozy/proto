@@ -1,0 +1,67 @@
+{
+    "version": 1,
+    "slug": "admin-mentorias",
+    "comments": [
+        {
+            "id": "admin-mentorias-1",
+            "slug": "admin-mentorias",
+            "status": "resolved",
+            "createdAt": "2026-10-22T22:36:53.373Z",
+            "updatedAt": "2026-10-22T23:07:22.508Z",
+            "resolvedAt": "2026-10-22T23:07:22.508Z",
+            "context": {
+                "commit": null,
+                "state": "com-falha",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1440,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "div:nth-of-type(2) > section > div:nth-of-type(3) > div",
+                "testId": null,
+                "tag": "div",
+                "text": "Data T\u00edtulo Convidados Status Confirmados Grava\u00e7\u00e3o A\u00e7\u00f5es 20/10/2026 ter. 19:30 Monorepo sem dor de cabe\u00e7a Com Rodrigo B\u2026",
+                "source": "src/designs/admin-mentorias/list.tsx:161:7",
+                "sourceChain": [
+                    "src/designs/admin-mentorias/list.tsx:161:7",
+                    "src/designs/admin-mentorias/list.tsx:151:5",
+                    "src/designs/admin-mentorias/index.tsx:317:17",
+                    "src/designs/admin-mentorias/index.tsx:316:15",
+                    "src/designs/admin-mentorias/index.tsx:239:9",
+                    "src/kit/layout.tsx:23:10",
+                    "src/designs/admin-mentorias/index.tsx:208:7",
+                    "src/designs/admin-mentorias/index.tsx:87:9"
+                ],
+                "rect": {
+                    "x": 312,
+                    "y": 874.7969,
+                    "width": 1068,
+                    "height": 137.8125
+                },
+                "rectNormalized": {
+                    "x": 0.2167,
+                    "y": 0.6781,
+                    "width": 0.7417,
+                    "height": 0.1068
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T22:36:53.373Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:22.508Z"
+                }
+            ]
+        }
+    ]
+}

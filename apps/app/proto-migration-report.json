@@ -1,0 +1,78 @@
+{
+    "version": 1,
+    "source": "gallery/comments",
+    "target": "proto/review",
+    "dryRun": false,
+    "verified": true,
+    "keys": [
+        {
+            "sourceKey": "proto-shell",
+            "key": "proto-shell",
+            "sourceVersion": 2,
+            "sourceSha256": "0896d63c6222f31ab9ecc9e1db9bc2001c3acbc6703b4e2de348ced51999a5ec",
+            "comments": 1,
+            "messages": 1,
+            "attachments": [],
+            "sequence": 1,
+            "status": "migrated",
+            "verified": true,
+            "rewrites": [
+                {
+                    "path": "comments/0/target/source",
+                    "from": "apps/app/src/drafts/proto-shell/screen-view.tsx:21:7",
+                    "to": "src/drafts/proto-shell/screen-view.tsx:21:7"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/0",
+                    "from": "apps/app/src/drafts/proto-shell/screen-view.tsx:21:7",
+                    "to": "src/drafts/proto-shell/screen-view.tsx:21:7"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/1",
+                    "from": "apps/app/src/drafts/proto-shell/screen-view.tsx:20:5",
+                    "to": "src/drafts/proto-shell/screen-view.tsx:20:5"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/2",
+                    "from": "apps/app/src/drafts/proto-shell/screen-view.tsx:139:7",
+                    "to": "src/drafts/proto-shell/screen-view.tsx:139:7"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/3",
+                    "from": "apps/app/src/drafts/proto-shell/screen-view.tsx:138:5",
+                    "to": "src/drafts/proto-shell/screen-view.tsx:138:5"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/4",
+                    "from": "apps/app/src/drafts/proto-shell/index.proto.tsx:58:13",
+                    "to": "src/drafts/proto-shell/index.proto.tsx:58:13"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/5",
+                    "from": "apps/app/src/drafts/proto-shell/index.proto.tsx:56:9",
+                    "to": "src/drafts/proto-shell/index.proto.tsx:56:9"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/6",
+                    "from": "apps/app/src/drafts/proto-shell/shell.tsx:228:7",
+                    "to": "src/drafts/proto-shell/shell.tsx:228:7"
+                },
+                {
+                    "path": "comments/0/target/sourceChain/7",
+                    "from": "apps/app/src/drafts/proto-shell/shell.tsx:226:5",
+                    "to": "src/drafts/proto-shell/shell.tsx:226:5"
+                }
+            ],
+            "notes": [
+                "Sequence seeded from retained ids; ids deleted before migration cannot be recovered."
+            ]
+        }
+    ],
+    "errors": [],
+    "config": {
+        "path": "proto.config.ts",
+        "status": "existing"
+    },
+    "deletable": ["gallery/comments"],
+    "notes": []
+}

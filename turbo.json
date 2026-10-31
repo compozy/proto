@@ -4,7 +4,7 @@
     "tasks": {
         "build": {
             "dependsOn": ["^build"],
-            "outputs": ["dist/**", ".output/**", "dist-gallery/**", "storybook-static/**"]
+            "outputs": ["dist/**", ".output/**", "dist-proto/**", "storybook-static/**"]
         },
         "typecheck": {
             "dependsOn": ["^build"],
@@ -32,6 +32,11 @@
         "test:stories": {
             "dependsOn": ["^build"],
             "outputs": []
+        },
+        "@compozy/proto#test": {
+            "dependsOn": ["^build", "build"],
+            "outputs": [],
+            "passThroughEnv": ["TEST_DATABASE_URL"]
         }
     }
 }

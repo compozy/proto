@@ -4,8 +4,8 @@
     "type": "module",
     "scripts": {
         "dev": "vite --host 127.0.0.1 --port 3002 --strictPort",
-        "build": "vite build && bun run build:gallery && bun run build:storybook",
-        "build:gallery": "bun ../../packages/gallery/src/cli/main.ts build",
+        "build": "vite build && bun run build:proto && bun run build:storybook",
+        "build:proto": "proto build",
         "build:storybook": "storybook build --quiet",
         "preview": "vite preview --port 3002",
         "storybook": "storybook dev --host 127.0.0.1 --port 6007 --no-open",
@@ -24,7 +24,7 @@
         "zod": "4.6.7"
     },
     "devDependencies": {
-        "@proto/gallery": "workspace:*",
+        "@compozy/proto": "workspace:*",
         "@storybook/addon-a11y": "10.6.2",
         "@storybook/addon-docs": "10.6.2",
         "@storybook/addon-themes": "10.6.2",
@@ -36,6 +36,7 @@
         "@types/react-dom": "19.2.0",
         "@vitejs/plugin-react": "6.1.2",
         "@vitest/browser-playwright": "5.0.5",
+        "@xyflow/react": "12.12.0",
         "oxc-transform-react": "0.154.0",
         "playwright": "1.64.1",
         "storybook": "10.6.2",

@@ -18,7 +18,7 @@
         "**/.turbo/**",
         "**/routeTree.gen.ts",
         "**/src/generated/**",
-        "**/dist-gallery/**",
+        "**/dist-proto/**",
         "**/storybook-static/**",
         ".agents/skills/**",
         ".claude/skills/**"
@@ -30,7 +30,7 @@
                 "apps/*/preview/**/*.{ts,tsx}",
                 "apps/*/.storybook/**/*.{ts,tsx}",
                 "packages/ui/src/**/*.{ts,tsx}",
-                "packages/gallery/src/**/*.{ts,tsx}"
+                "packages/proto/src/**/*.{ts,tsx}"
             ],
             "plugins": ["react"],
             "rules": {
@@ -74,8 +74,8 @@
                                     "**/*.fixtures.*",
                                     "**/drafts/**",
                                     "**/flows/**",
-                                    "@proto/gallery",
-                                    "@proto/gallery/**",
+                                    "@compozy/proto",
+                                    "@compozy/proto/**",
                                     "**/gallery/**",
                                     "**/*.stories",
                                     "**/*.stories.*",
@@ -113,7 +113,11 @@
             }
         },
         {
-            "files": ["packages/ui/src/components/**/*.tsx", "packages/ui/src/hooks/*.ts"],
+            "files": [
+                "packages/ui/src/components/**/*.tsx",
+                "packages/ui/src/hooks/*.ts",
+                "packages/proto/src/shell/ui/*.tsx"
+            ],
             "rules": {
                 "no-restricted-imports": "off"
             }

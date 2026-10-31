@@ -1,0 +1,250 @@
+{
+    "version": 1,
+    "slug": "mentoria",
+    "comments": [
+        {
+            "id": "mentoria-1",
+            "slug": "mentoria",
+            "status": "resolved",
+            "createdAt": "2026-10-22T21:55:51.489Z",
+            "updatedAt": "2026-10-22T23:07:06.206Z",
+            "resolvedAt": "2026-10-22T23:07:06.206Z",
+            "context": {
+                "commit": null,
+                "state": "aberta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 1848,
+                    "height": 1290
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "[data-testid=\"live-strip\"] > div:nth-of-type(2)",
+                "testId": "live-strip",
+                "tag": "div",
+                "text": "7 dias, 4 horas e 26 minutos 07 DIAS 04 HORAS 26 MIN 51 SEG",
+                "source": "src/designs/mentoria/clock.tsx:107:5",
+                "sourceChain": [
+                    "src/designs/mentoria/clock.tsx:107:5",
+                    "src/designs/mentoria/hero.tsx:311:7",
+                    "src/designs/mentoria/hero.tsx:297:5",
+                    "src/designs/mentoria/index.tsx:153:15",
+                    "src/designs/mentoria/index.tsx:150:13",
+                    "src/designs/mentoria/index.tsx:149:11",
+                    "src/designs/mentoria/index.tsx:148:9",
+                    "src/kit/layout.tsx:23:10"
+                ],
+                "rect": {
+                    "x": 1030,
+                    "y": 424.5156,
+                    "width": 290,
+                    "height": 56
+                },
+                "rectNormalized": {
+                    "x": 0.5574,
+                    "y": 0.3291,
+                    "width": 0.1569,
+                    "height": 0.0434
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T21:55:51.489Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:06.206Z"
+                }
+            ]
+        },
+        {
+            "id": "mentoria-2",
+            "slug": "mentoria",
+            "status": "resolved",
+            "createdAt": "2026-10-22T21:56:51.844Z",
+            "updatedAt": "2026-10-22T23:07:06.263Z",
+            "resolvedAt": "2026-10-22T23:07:06.263Z",
+            "context": {
+                "commit": null,
+                "state": "aberta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 2200,
+                    "height": 1535
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "[data-testid=\"mentorship-guests\"]",
+                "testId": "mentorship-guests",
+                "tag": "section",
+                "text": "Convidados [Nome do convidado] Staff engineer \u00b7 [Empresa] [Resumo real da carreira do convidado, com autoriza\u00e7\u00e3o.] Pass\u2026",
+                "source": "src/designs/mentoria/people.tsx:128:5",
+                "sourceChain": [
+                    "src/designs/mentoria/people.tsx:128:5",
+                    "src/designs/mentoria/index.tsx:159:13",
+                    "src/designs/mentoria/index.tsx:149:11",
+                    "src/designs/mentoria/index.tsx:148:9",
+                    "src/kit/layout.tsx:23:10",
+                    "src/designs/mentoria/index.tsx:147:7",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7"
+                ],
+                "rect": {
+                    "x": 314,
+                    "y": 953.0156,
+                    "width": 1376,
+                    "height": 285.0781
+                },
+                "rectNormalized": {
+                    "x": 0.1427,
+                    "y": 0.6209,
+                    "width": 0.6255,
+                    "height": 0.1857
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T21:56:51.844Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:06.263Z"
+                }
+            ]
+        },
+        {
+            "id": "mentoria-3",
+            "slug": "mentoria",
+            "status": "resolved",
+            "createdAt": "2026-10-22T21:57:02.593Z",
+            "updatedAt": "2026-10-22T23:07:06.322Z",
+            "resolvedAt": "2026-10-22T23:07:06.322Z",
+            "context": {
+                "commit": null,
+                "state": "aberta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 2200,
+                    "height": 1535
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "[data-testid=\"mentorship-attendees\"]",
+                "testId": "mentorship-attendees",
+                "tag": "section",
+                "text": "Quem vai 38 confirmados DL Diego Lacerda LM L\u00edvia Moraes BT Bruno Teixeira CP Camila Prado TR Thiago Rocha AF Ana Ferra\u2026",
+                "source": "src/designs/mentoria/people.tsx:170:5",
+                "sourceChain": [
+                    "src/designs/mentoria/people.tsx:170:5",
+                    "src/designs/mentoria/index.tsx:160:13",
+                    "src/designs/mentoria/index.tsx:149:11",
+                    "src/designs/mentoria/index.tsx:148:9",
+                    "src/kit/layout.tsx:23:10",
+                    "src/designs/mentoria/index.tsx:147:7",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7"
+                ],
+                "rect": {
+                    "x": 314,
+                    "y": 1286.0938,
+                    "width": 1376,
+                    "height": 172.7969
+                },
+                "rectNormalized": {
+                    "x": 0.1427,
+                    "y": 0.8378,
+                    "width": 0.6255,
+                    "height": 0.1126
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T21:57:02.593Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:06.322Z"
+                }
+            ]
+        },
+        {
+            "id": "mentoria-4",
+            "slug": "mentoria",
+            "status": "resolved",
+            "createdAt": "2026-10-22T21:57:13.942Z",
+            "updatedAt": "2026-10-22T23:07:06.381Z",
+            "resolvedAt": "2026-10-22T23:07:06.381Z",
+            "context": {
+                "commit": null,
+                "state": "aberta",
+                "theme": "escuro",
+                "role": null,
+                "viewport": {
+                    "width": 2200,
+                    "height": 1535
+                }
+            },
+            "target": {
+                "kind": "element",
+                "selector": "article > section:nth-of-type(1)",
+                "testId": null,
+                "tag": "section",
+                "text": "Temas Carreira Lideran\u00e7a",
+                "source": "src/designs/mentoria/parts.tsx:96:5",
+                "sourceChain": [
+                    "src/designs/mentoria/parts.tsx:96:5",
+                    "src/designs/mentoria/index.tsx:158:13",
+                    "src/designs/mentoria/index.tsx:149:11",
+                    "src/designs/mentoria/index.tsx:148:9",
+                    "src/kit/layout.tsx:23:10",
+                    "src/designs/mentoria/index.tsx:147:7",
+                    "src/kit/app-shell.tsx:212:9",
+                    "src/kit/app-shell.tsx:192:7"
+                ],
+                "rect": {
+                    "x": 314,
+                    "y": 837.5156,
+                    "width": 1376,
+                    "height": 67.5
+                },
+                "rectNormalized": {
+                    "x": 0.1427,
+                    "y": 0.5456,
+                    "width": 0.6255,
+                    "height": 0.044
+                },
+                "offset": null
+            },
+            "thread": [
+                {
+                    "author": "reviewer",
+                    "body": "Anonymized message 1.",
+                    "at": "2026-10-22T21:57:13.942Z"
+                },
+                {
+                    "author": "agent",
+                    "body": "Anonymized message 2.",
+                    "at": "2026-10-22T23:07:06.381Z"
+                }
+            ]
+        }
+    ]
+}

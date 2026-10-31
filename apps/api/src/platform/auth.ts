@@ -10,7 +10,12 @@ export function createAuth(db: Database, env: ApiEnv) {
     baseURL: env.API_URL,
     basePath: "/auth",
     secret: env.BETTER_AUTH_SECRET,
-    trustedOrigins: [env.APP_URL],
+    trustedOrigins: [env.APP_URL, ...(env.PROTO_PUBLIC_ORIGIN ? [env.PROTO_PUBLIC_ORIGIN] : [])],
+    // Better Auth defaults to host-only cookies; never enable crossSubDomainCookies.
+    advanced: {
+      useSecureCookies: env.NODE_ENV === "production",
+      defaultCookieAttributes: { httpOnly: true, sameSite: "lax" },
+    },
     database: drizzleAdapter(db, { provider: "pg", schema }),
     emailAndPassword: { enabled: true },
   });

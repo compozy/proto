@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in @compozy/proto does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For security issues, use a private advisory instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A minimal prototype, flow or config that shows the problem helps most.
+      placeholder: |
+        1. `bunx proto init`
+        2. Add `src/components/x.proto.tsx` with …
+        3. `bunx proto dev` and …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Gallery shell
+        - Render host / prototypes
+        - CLI
+        - MCP
+        - Vite plugins / guards
+        - Review store / comments
+        - Remote review server
+        - Migration
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Error messages, `--json` output or `--verbose` logs. Remove tokens and private data.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: "@compozy/proto version"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Bun/Node, Vite and React versions, browser.
+    validations:
+      required: true

@@ -1,4 +1,4 @@
-import { definePrototype, type PrototypeProps } from "@proto/gallery";
+import { definePrototype, type PrototypeProps } from "@compozy/proto";
 import { Badge } from "@proto/ui/components/badge";
 import { Button } from "@proto/ui/components/button";
 import {
