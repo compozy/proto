@@ -91,6 +91,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: node packages/proto/scripts/publish.mjs
         env:
+          BOOTSTRAP_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           REQUESTED_VERSION: ${{ steps.plan.outputs.version }}
           CHANNEL: ${{ steps.plan.outputs.channel }}
       - name: Tag and publish GitHub Release after npm succeeds

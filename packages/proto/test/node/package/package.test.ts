@@ -58,7 +58,7 @@ test("release workflow contract isolates publication and finalizes GitHub only a
       "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
     );
   }
-  expect(workflow).not.toMatch(/secrets\.(NPM_TOKEN|NODE_AUTH_TOKEN)/);
+  expect(workflow).toContain("BOOTSTRAP_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}");
   expect(workflow.indexOf("node packages/proto/scripts/publish.mjs")).toBeLessThan(
     workflow.indexOf("bash scripts/release/finalize.sh")
   );
@@ -139,4 +139,18 @@ test("source CLI --version reports the package version", async () => {
   const cli = new URL("../../../src/cli/main.ts", import.meta.url).pathname;
   for (const flag of ["--version", "-v"])
     expect(execFileSync("bun", [cli, flag], { encoding: "utf8" }).trim()).toBe(manifest.version);
+});
+
+// Owner: release authentication boundary; package existence, never version absence, chooses auth.
+test("registry package status permits one bootstrap and refuses token auth thereafter", async () => {
+  // @ts-expect-error Release tooling runs as native ESM.
+  const { publicationAuth } = await import("../../../scripts/publication-auth.mjs");
+  const candidate = { version: "0.1.0", channel: "stable", bootstrapToken: "test-secret" };
+  expect(publicationAuth(404, candidate)).toBe("bootstrap");
+  expect(publicationAuth(200, candidate)).toBe("oidc");
+  expect(() => publicationAuth(200, { ...candidate, token: "test-secret" })).toThrow("refused");
+  for (const status of [401, 403, 429, 500])
+    expect(() => publicationAuth(status, candidate)).toThrow("Registry lookup failed");
+  for (const patch of [{ version: "0.2.0" }, { channel: "beta" }, { bootstrapToken: "" }])
+    expect(() => publicationAuth(404, { ...candidate, ...patch })).toThrow("bootstrap requires");
 });

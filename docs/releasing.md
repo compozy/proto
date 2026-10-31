@@ -34,8 +34,10 @@ open/update `release/v<version>`. The PR contains the manifest and lockfile bump
 and `.release-notes/v<version>.md`. Its title and squash merge subject must be
 `build: release v<version>`. The initial version is `0.1.0`.
 
-Set the repository secret `RELEASE_TOKEN` to a GitHub token with contents and pull-request write
-access. This lets generated PRs trigger CI; it is unrelated to npm authentication. CI remains in
+The `compozy` organization provides `RELEASE_TOKEN` and `NPM_TOKEN` with ALL repository
+visibility, so this repository inherits both. `RELEASE_TOKEN` needs contents and pull-request
+write access so generated PRs trigger CI. `NPM_TOKEN` is used only for first-package bootstrap.
+CI remains in
 `ci.yml`; release PRs additionally run package contract tests, build, dry-run pack and real tarball
 adoption. Never bypass a failed required CI check to merge a release PR.
 
@@ -75,31 +77,28 @@ package page's Settings tab). Under **Trusted Publisher**, select **GitHub Actio
 | Allowed actions      | Enable direct `npm publish` |
 
 The filename has no `.github/workflows/` prefix. The workflow uses GitHub-hosted Ubuntu runners,
-Node 24, npm 11.9.0 and `id-token: write`. Do not add `NPM_TOKEN` or `NODE_AUTH_TOKEN` secrets.
+Node 24, npm 11.9.0 and `id-token: write`. The bootstrap secret is exposed only to the main-only publication step.
 See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) for the authoritative UI
 and minimum runtime requirements.
 
-If npm requires an existing package before attaching a trusted publisher, use this one-time
-bootstrap after the integration PR and validation have completed:
+The first release publishes the real stable `0.1.0` from GitHub Actions, with provenance:
 
-1. In a clean release checkout, set the package version to `0.1.0-beta.0`, refresh `bun.lock`, and
-   commit it. Run the package validation commands above and the orchestrator's full `bun run verify`.
-2. Authenticate locally with `npm login` as an authorized member of the `compozy` npm organization.
-   Browser login alone does not authenticate the CLI.
-3. Run `npm publish ./packages/proto/dist/package --ignore-scripts --access public --tag beta --provenance=false`.
-   This deliberately publishes an initial **unprovenanced beta**, not the stable release. Local
-   publishing cannot produce GitHub Actions provenance. Do not pretend it does or republish it.
-4. Configure the trusted publisher with the fields above. Restore the intended stable `0.1.0`
-   through a normal version-change commit (no history reset), refresh the lockfile, and validate.
-5. Merge the generated `release/v0.1.0` PR using the exact subject `build: release v0.1.0`.
-   For recovery after a failed publication, dispatch `release.yml` on `main` while that release commit is its head, with
-   `version=0.1.0`, `channel=stable`.
-6. Verify npm `latest` is `0.1.0`, inspect its provenance link to `compozy/proto`/`release.yml`,
-   install the public package in a fresh consumer, and verify GitHub tag/release `v0.1.0` targets
-   that commit. The beta bootstrap remains an immutable, clearly identified exception.
-
-No automated bootstrap credential is stored. These are operator steps, not actions performed by
-the worker implementing the release system.
+1. Merge the validated `release/v0.1.0` PR with subject `build: release v0.1.0`, or dispatch
+   `release.yml` on `main` with version `0.1.0` and channel `stable`.
+2. The script checks the package endpoint (not the version endpoint). Only HTTP 404 enables
+   bootstrap, and only for stable `0.1.0`. It maps the inherited `NPM_TOKEN` to `NODE_AUTH_TOKEN`
+   for the npm publish child using a temporary private npmrc, removed afterward. The token must
+   authorize creating a public package in the npm `compozy` organization and unattended publishing.
+   `--provenance` and `id-token: write` remain enabled. No local npm login or beta is needed.
+3. After npm integrity, tag and provenance verification succeeds, the workflow creates the git
+   tag and GitHub Release. Failure withholds both.
+4. Open the npm access URL above and configure the trusted publisher using the exact table values.
+   Once the package exists, its HTTP 200 selects OIDC even though the org bootstrap secret remains
+   available. The secret is stripped before subprocess execution; direct `NPM_TOKEN` or
+   `NODE_AUTH_TOKEN` inputs are refused. A missing new version never re-enables bootstrap.
+5. Verify npm `latest`, provenance and GitHub `v0.1.0`. Subsequent releases and retries require
+   trusted publishing; registry errors other than 404 fail closed. Do not delete the npm package:
+   the bootstrap condition is registry absence, not a separate persistent workflow flag.
 
 ## Runtime boundary
 
