@@ -11,7 +11,12 @@ The CLI is `bun run proto <command> --app app`.
 - `startDev(project, { port, review })` starts shell/API on port 4400 and the consumer render
   server on 4401. `mountReview(handler)` replaces the fetch handler for review API requests;
   `publish("comments" | "review" | "registry", data)` sends SSE events. `close()` stops both servers.
-- The shell is served from `dist/shell`; a missing bundle explains how to build it. The render
+- The shell is served from `dist/shell` (`bun run build:shell`, config `vite.shell.config.ts`); a
+  missing bundle explains how to build it. It is its own React app: it imports only `src/model`
+  and its vendored BnUI in `src/shell/ui` (never `@proto/ui`), learns its environment from
+  `bootstrap.json` and talks to render iframes only through the protocol. Iterate on it with
+  `bun run dev:shell` (fixtures and a fake render host, `test/harness/`); review-slice controls
+  plug into the slots in `src/shell/app/slots.tsx`. The render
   host is compiled by the consumer pipeline at `/__proto/render/<slug>`. `renderPlugins` injects
   `virtual:proto/render-config`, `virtual:proto/prototypes`, and `virtual:proto/canvas`.
 - `proto check` checks registry problems and compiles all prototypes without writing build output.

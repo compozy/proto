@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+  Fake render host for the shell harness and the shell browser tests (never shipped). It speaks
+  the render side of the protocol just enough to drive the shell: `ready` after a short delay,
+  `error` for the state `throws`, nothing for `hangs`, and `context` when "Next state" is clicked.
+  Path form `/__proto/render/<slug>?…` and query form `render.html?slug=<slug>&…` both work.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fake render host</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        min-height: 100vh;
+      }
+      body.light {
+        background: #fafafa;
+        color: #18181b;
+      }
+      body.dark {
+        background: #18181b;
+        color: #fafafa;
+      }
+      main {
+        max-width: 420px;
+        margin: 72px auto;
+        padding: 28px;
+        border-radius: 14px;
+        border: 1px solid #8884;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      p {
+        margin: 0 0 18px;
+        opacity: 0.7;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+      .field {
+        height: 36px;
+        border-radius: 8px;
+        border: 1px solid #8886;
+        margin-bottom: 12px;
+      }
+      button {
+        height: 38px;
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        background: #e5277e;
+        color: white;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title"></h1>
+      <p id="meta"></p>
+      <div class="field"></div>
+      <div class="field"></div>
+      <button id="next" type="button">Next state</button>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const pathSlug = /\/__proto\/render\/([^/]+)$/.exec(location.pathname)?.[1];
+      const slug =
+        pathSlug && pathSlug !== "index.html" ? pathSlug : params.get("slug") || "unknown";
+      const state = params.get("state") || "default";
+      const theme = params.get("theme") === "dark" ? "dark" : "light";
+      const role = params.get("role");
+      const frame = params.get("frame") || "";
+      const states = (params.get("states") || "sign-in,sign-up,error,pending").split(",");
+      document.body.className = theme;
+      document.getElementById("title").textContent = `${slug} · ${state}`;
+      document.getElementById("meta").textContent =
+        `theme=${theme} role=${role ?? "—"} w=${params.get("w") ?? "fit"}`;
+      const post = message => parent.postMessage({ proto: 1, frame, ...message }, "*");
+      document.getElementById("next").addEventListener("click", () => {
+        const next = states[(states.indexOf(state) + 1) % states.length];
+        const url = new URL(location.href);
+        url.searchParams.set("state", next);
+        post({ type: "context", state: next, theme, role, url: url.pathname + url.search });
+        url.searchParams.set("frame", frame);
+        history.replaceState(null, "", url);
+        document.getElementById("title").textContent = `${slug} · ${next}`;
+      });
+      if (state === "throws") {
+        setTimeout(
+          () =>
+            post({
+              type: "error",
+              message: "TypeError: Cannot read properties of undefined (reading 'email')",
+              componentStack:
+                "at LoginForm (src/components/login-form.tsx:42:31)\nat Prototype (src/components/login-form.proto.tsx:24:5)\nat Canvas (proto.canvas.tsx:9:10)",
+            }),
+          120
+        );
+      } else if (state !== "hangs") {
+        setTimeout(() => post({ type: "ready", slug, state }), 120);
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,294 @@
+/*
+ * Shell theme (ADR-006): the production form of the `proto-shell` draft's theme
+ * (apps/app/src/drafts/proto-shell/theme.css) on top of the BnUI style contract
+ * (packages/ui/src/styles/contract.css @ 5e799db, MIT). The prebuilt shell owns its document, so
+ * tokens sit on :root (light) and html.dark; nothing here depends on the consumer's styles.
+ */
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@import "@xyflow/react/dist/style.css";
+
+@source "./";
+
+/* Latin and Latin Extended cover en and pt-BR. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* BnUI contract: default component rules sit in a lower sublayer so utilities override them. */
+@custom-variant defaults {
+  @layer defaults {
+    @slot;
+  }
+}
+@custom-variant dark (&:is(.dark *));
+@custom-variant data-open {
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-checked {
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-unchecked {
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-selected {
+  &:where([data-selected]:not([data-selected="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-active {
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-focus: var(--focus);
+  --color-focus-foreground: var(--focus-foreground);
+}
+
+@theme {
+  --font-sans: initial;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-heading: initial;
+}
+
+@utility font-sans {
+  font-family: var(--font-sans), sans-serif;
+}
+
+/* Light mirror of the dark contract; pink primary in both (ADR-006). */
+:root {
+  --font-sans: "Inter Variable";
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.002 340);
+  --foreground: oklch(0.18 0.01 330);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.57 0.22 354);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.006 340);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.006 340);
+  --muted-foreground: oklch(0.48 0.015 330);
+  --accent: oklch(0.94 0.008 340);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.505 0.213 27.518);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.91 0.006 340);
+  --input: oklch(0.91 0.006 340);
+  --ring: var(--primary);
+  --focus: var(--primary);
+  --focus-foreground: var(--primary-foreground);
+  --shell-canvas: oklch(0.97 0.004 340);
+  --shell-dot: oklch(0.82 0.01 340);
+  --shell-panel: oklch(0.995 0.001 340);
+  --shell-rail: oklch(0.975 0.004 340);
+  --shell-edge: oklch(0.72 0.01 330);
+  --shell-primary-soft: color-mix(in oklch, var(--primary) 14%, transparent);
+  --shell-primary-glow: color-mix(in oklch, var(--primary) 28%, transparent);
+  --tone-start: oklch(0.52 0.15 245);
+  --tone-screen: var(--primary);
+  --tone-overlay: oklch(0.52 0.2 295);
+  --tone-redirect: oklch(0.55 0.15 65);
+  --tone-external: oklch(0.5 0.11 185);
+  --tone-end: oklch(0.5 0.14 155);
+  --tone-warning: oklch(0.5 0.13 70);
+}
+
+.dark {
+  --background: oklch(0.145 0.004 300);
+  --foreground: oklch(0.96 0.003 340);
+  --card: oklch(0.185 0.005 300);
+  --popover: oklch(0.2 0.006 300);
+  --primary: oklch(0.74 0.19 352);
+  --primary-foreground: oklch(0.17 0.02 352);
+  --secondary: oklch(0.22 0.006 300);
+  --muted: oklch(0.22 0.006 300);
+  --muted-foreground: oklch(0.7 0.012 300);
+  --accent: oklch(0.24 0.007 300);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 7.5%);
+  --input: oklch(1 0 0 / 10%);
+  --shell-canvas: oklch(0.155 0.004 300);
+  --shell-dot: oklch(1 0 0 / 9%);
+  --shell-panel: oklch(0.17 0.005 300);
+  --shell-rail: oklch(0.14 0.004 300);
+  --shell-edge: oklch(1 0 0 / 22%);
+  --tone-start: oklch(0.72 0.13 245);
+  --tone-overlay: oklch(0.72 0.15 295);
+  --tone-redirect: oklch(0.78 0.14 70);
+  --tone-external: oklch(0.76 0.11 185);
+  --tone-end: oklch(0.76 0.14 155);
+  --tone-warning: oklch(0.8 0.14 80);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    color: var(--foreground);
+    background: var(--background);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline-color: var(--focus);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.shell-dots {
+  background-color: var(--shell-canvas);
+  background-image: radial-gradient(var(--shell-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.shell-frame {
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 24px 60px -24px oklch(0 0 0 / 55%);
+}
+
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--shell-edge);
+  --xy-edge-stroke-width: 1.25;
+  --xy-minimap-background-color: var(--shell-panel);
+  --xy-minimap-mask-background-color: color-mix(in oklch, var(--background) 70%, transparent);
+  --xy-minimap-node-background-color: var(--muted);
+  --xy-minimap-node-stroke-color: transparent;
+}
+
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  min-height: 7px;
+  background: var(--shell-panel);
+  border: 1.5px solid var(--shell-edge);
+}
+
+.react-flow__handle.is-lit {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.react-flow__edge-path.is-lit {
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}

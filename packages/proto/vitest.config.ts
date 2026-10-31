@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
@@ -24,7 +25,8 @@ export default defineConfig({
         },
       },
       {
-        plugins: [react()],
+        // Tailwind compiles the shell theme the shell suites import (layout drives frame sizing).
+        plugins: [react(), tailwindcss()],
         // The protocol suite embeds the render host from `localhost` in the page on 127.0.0.1:
         // two real origins on one server.
         server: { host: "127.0.0.1" },

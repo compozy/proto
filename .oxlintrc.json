@@ -113,7 +113,11 @@
             }
         },
         {
-            "files": ["packages/ui/src/components/**/*.tsx", "packages/ui/src/hooks/*.ts"],
+            "files": [
+                "packages/ui/src/components/**/*.tsx",
+                "packages/ui/src/hooks/*.ts",
+                "packages/proto/src/shell/ui/*.tsx"
+            ],
             "rules": {
                 "no-restricted-imports": "off"
             }
