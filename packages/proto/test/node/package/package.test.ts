@@ -158,8 +158,8 @@ test("registry package status permits one bootstrap and refuses token auth there
 // Owner: publication boundary; processing is bounded and immutable retries require matching provenance.
 test("publication waits through processing and verifies both new and existing versions", async () => {
   // @ts-expect-error Release tooling runs as native ESM.
-  const { waitForPublication, verifyAttestation } =
-    await import("../../../scripts/verify-publication.mjs");
+  const verification = await import("../../../scripts/verify-publication.mjs");
+  const { waitForPublication, verifyAttestation } = verification;
   const commit = "a".repeat(40);
   const digest = "b".repeat(128);
   const integrity = `sha512-${Buffer.from(digest, "hex").toString("base64")}`;
