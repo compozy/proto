@@ -48,7 +48,7 @@ export default defineCommand({
     mkdirSync(folder, { recursive: true });
     writeFileSync(
       file,
-      `import { definePrototype } from "@proto/gallery";\n\nexport const meta = definePrototype(${JSON.stringify(meta, null, 2)});\n\nexport default function Prototype() {\n  return null;\n}\n`,
+      `import { definePrototype } from "@compozy/proto";\n\nexport const meta = definePrototype(${JSON.stringify(meta, null, 2)});\n\nexport default function Prototype() {\n  return null;\n}\n`,
       { flag: "wx" }
     );
     console.log(`created ${relative(repoRoot, file)}`);

@@ -1,4 +1,4 @@
-import { presentationGuard } from "@proto/gallery/vite";
+import { presentationGuard } from "@compozy/proto/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react, { type Options } from "@vitejs/plugin-react";
 import { createRequire } from "node:module";
@@ -20,7 +20,7 @@ export const reactOptions: Options = {
     sources: [
       `${app}src/`,
       `${app}preview/`,
-      fileURLToPath(new URL("../../packages/gallery/src/", import.meta.url)),
+      fileURLToPath(new URL("../../packages/proto/src/", import.meta.url)),
     ],
   },
 };

@@ -1,4 +1,4 @@
-import { productionBoundary } from "@proto/gallery/vite";
+import { productionBoundary } from "@compozy/proto/vite";
 import { defineConfig, mergeConfig } from "vite";
 
 import presentationConfig from "./vite.presentation.ts";

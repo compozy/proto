@@ -38,7 +38,7 @@ export function prototypeRegistry(app: GalleryApp, repoRoot: string): Plugin {
     load(source) {
       if (source === ids[appModule]) {
         for (const file of [canvas, styles])
-          if (!existsSync(file)) this.error(`Missing ${file}: see packages/gallery/CLAUDE.md`);
+          if (!existsSync(file)) this.error(`Missing ${file}: see packages/proto/CLAUDE.md`);
         return `import ${JSON.stringify(styles)};
 export { PresentationCanvas, PrototypeFrame } from ${JSON.stringify(canvas)};
 export const config = ${JSON.stringify(config)};`;

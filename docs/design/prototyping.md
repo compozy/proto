@@ -21,7 +21,7 @@ verified: 2026-10-28
 
 # Prototyping
 
-The gallery (`packages/gallery`) serves `apps/app`'s prototypes on its own Vite server
+The gallery (`packages/proto`) serves `apps/app`'s prototypes on its own Vite server
 (`bun run proto dev`, port 4400) with `apps/app/vite.presentation.ts`, the base of the SPA's own
 config. Storybook uses the same config.
 
@@ -34,7 +34,7 @@ app build). When several apps have a `gallery.config.ts`, pass `--app <name>` to
   components only (no intrinsic JSX: `proto check` rejects it) with local fixtures. Routes own
   data, auth and navigation; views take props and callbacks (`src/components/login-form.tsx`).
 - Drafts explore freely in `src/drafts/<slug>/index.proto.tsx` and are labeled as drafts.
-- Each file exports a literal `meta = definePrototype({...})` from `@proto/gallery` and a default
+- Each file exports a literal `meta = definePrototype({...})` from `@compozy/proto` and a default
   component receiving `{ state, role }`. `meta` has `title`, `surface`, `route` and `states`;
   optional `spec` (a group of `gallery.config.ts`; the rest are "Unsorted"), `roles` (a subset of
   its roles), `blocks` and `standalone` (skip the app's `PrototypeFrame`). Discovery reads it
@@ -58,7 +58,7 @@ URL. The gallery at `/` gives every level its own link: `?spec=<id>`, `?p=<slug>
 ## Flows
 
 Journeys live in `apps/<app>/flows/<id>.flow.ts` as a literal `flow = defineFlow({...})` from
-`@proto/gallery/flow`, importing nothing else: `title`, optional `spec` and `description`, `start`,
+`@compozy/proto/flow`, importing nothing else: `title`, optional `spec` and `description`, `start`,
 `nodes` (`{ proto, state, role?, end? }` or `{ external: "site" | "auth" | "payment" | "email" |
 "other", label?, url?, end? }`) and `edges` (`[from, to, { on, kind? }]`, kinds `navigate`,
 `overlay`, `redirect`, `external`). External `url`s are absolute HTTPS, or paths when

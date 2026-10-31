@@ -1,4 +1,4 @@
-import type { PrototypeFrameProps } from "@proto/gallery";
+import type { PrototypeFrameProps } from "@compozy/proto";
 import { Toaster } from "@proto/ui/components/toast";
 import {
   createMemoryHistory,

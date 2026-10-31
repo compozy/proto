@@ -1,4 +1,4 @@
-import { defineGalleryConfig } from "@proto/gallery/config";
+import { defineGalleryConfig } from "@compozy/proto/config";
 
 /** Prototype gallery of this app: `bun run proto dev` (see docs/design/prototyping.md). */
 export default defineGalleryConfig({

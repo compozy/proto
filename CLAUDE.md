@@ -16,7 +16,7 @@ Bun + Turborepo monorepo. `CLAUDE.md` is canonical; `AGENTS.md` is a symlink mad
   vendored as is (`packages/ui/README.md`). Theme tokens in `src/styles/theme.css`; icons from
   `@proto/ui/lib/icons`, never `lucide-react`. Add components with `bunx shadcn add` from
   `packages/ui`.
-- `packages/gallery`: the prototype gallery and `proto` CLI (`packages/gallery/CLAUDE.md`).
+- `packages/proto`: the prototype gallery and `proto` CLI (`packages/proto/CLAUDE.md`).
 - Auth: Better Auth (email + password) with the Drizzle adapter. Validation: zod 4.
 - React Compiler is on: never write `memo`, `useMemo` or `useCallback`.
 
