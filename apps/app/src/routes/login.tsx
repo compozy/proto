@@ -1,11 +1,13 @@
-import { useRouter } from "@tanstack/react-router";
+import { useRouter, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { LoginForm, type LoginMode, type LoginValues } from "@/components/login-form";
+import { reviewReturn } from "@/lib/auth-return";
 import { authClient } from "@/lib/auth-client";
 
 export function Login() {
   const router = useRouter();
+  const { returnTo } = useSearch({ from: "/login" });
   const [mode, setMode] = useState<LoginMode>("sign-in");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -19,6 +21,11 @@ export function Login() {
         : await authClient.signUp.email({ email, password, name });
     setPending(false);
     if (result.error) return setError(result.error.message ?? "Something went wrong");
+    const href = reviewReturn(returnTo);
+    if (href) {
+      window.location.assign(href);
+      return;
+    }
     await router.navigate({ to: "/" });
   }
 

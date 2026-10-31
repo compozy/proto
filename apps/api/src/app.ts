@@ -9,7 +9,11 @@ import type { ApiEnv } from "./platform/env";
 import { DomainError } from "./platform/errors";
 import type { HttpEnv } from "./platform/http";
 
-export function createApp(db: Database, env: ApiEnv) {
+export function createApp(
+  db: Database,
+  env: ApiEnv,
+  protoReview?: (request: Request) => Promise<Response>
+) {
   const auth = createAuth(db, env);
   const app = new OpenAPIHono<HttpEnv>({
     defaultHook: (result, c) => {
@@ -17,6 +21,16 @@ export function createApp(db: Database, env: ApiEnv) {
     },
   });
 
+  // Proto owns a runtime-agnostic HTTP contract, separate from application OpenAPI routes.
+  // Dispatch the render host before application auth/CORS can expose ambient session data.
+  if (protoReview) {
+    app.use("*", async (c, next) => {
+      if (new URL(c.req.url).host === new URL(env.PROTO_RENDER_ORIGIN).host)
+        return protoReview(c.req.raw);
+      await next();
+    });
+    app.all("/proto/*", c => protoReview(c.req.raw));
+  }
   app.use("*", secureHeaders());
   app.use(
     "*",

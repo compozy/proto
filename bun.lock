@@ -17,6 +17,7 @@
     "apps/api": {
       "name": "@proto/api",
       "dependencies": {
+        "@compozy/proto": "workspace:*",
         "@hono/zod-openapi": "1.6.3",
         "@proto/db": "workspace:*",
         "better-auth": "1.7.10",
@@ -90,6 +91,7 @@
         "@xyflow/react": "12.12.0",
         "citty": "0.2.2",
         "elkjs": "0.12.0",
+        "tldts": "7.4.19",
         "typescript": "6.0.3",
         "vite": "8.3.4",
         "zod": "4.6.7",
@@ -110,6 +112,7 @@
         "clsx": "2.1.1",
         "oxc-transform-react": "0.154.0",
         "playwright": "1.64.1",
+        "postgres": "3.4.9",
         "react": "19.2.0",
         "react-dom": "19.2.0",
         "reicon-react": "1.2.6",
@@ -1604,6 +1607,10 @@
     "tinyrainbow": ["tinyrainbow@3.2.0", "", {}, "sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A=="],
 
     "tinyspy": ["tinyspy@4.0.6", "", {}, "sha512-u8KszXvGfU68hVcZpRHKG28T0krMuv2G5nDhiHaMLen/gIuFEgIJhaJuO69qjnXg5paSrbPMFfx3brNuN8eVSg=="],
+
+    "tldts": ["tldts@7.4.19", "", { "dependencies": { "tldts-core": "^7.4.19" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-48dH6aSpQnpbzDUc4vIQZ1VjB8tkK+e8c1yx05/SZK+rkssgjEOlxDd/yU8/a4vGYQ9vRgJr9dwMq9TJ0b3X2Q=="],
+
+    "tldts-core": ["tldts-core@7.4.20", "", {}, "sha512-C630TWXZCZmLq0F2bW4QqwnaaxCQ/svpAqvJwnC4JvgEM5ohhBnGsEzTLSOXcN+xjz+kEaHS5uoWIw2klnqd0A=="],
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
 
