@@ -156,7 +156,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     spaOrigin = spa.resolvedUrls!.local[0]!.replace(/\/$/, "");
     const browser = await chromium.launch({
       headless: true,
-      args: ["--no-proxy-server"],
+      args: ["--no-proxy-server", "--log-net-log=/tmp/proto-netlog.json"],
     });
     try {
       const page = await browser.newPage({ ignoreHTTPSErrors: true });
@@ -295,6 +295,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
       });
     } finally {
       await browser.close();
+      if (process.env.CI) {
+        const { readFile } = await import("node:fs/promises");
+        const netlog = JSON.parse(await readFile("/tmp/proto-netlog.json", "utf8"));
+        const names = Object.fromEntries(
+          Object.entries(netlog.constants.logEventTypes).map(([k, v]) => [String(v), k])
+        );
+        console.log(
+          "NETLOG",
+          JSON.stringify(
+            netlog.events.filter((e: { type: number }) =>
+              /TCP_CONNECT|SSL_CONNECT|TRANSPORT_CONNECT_JOB/.test(String(names[e.type]))
+            )
+          )
+        );
+      }
       await spa.close();
       await (await import("node:fs/promises")).rm(spaRoot, { recursive: true, force: true });
       await tls.close();
