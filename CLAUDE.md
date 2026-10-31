@@ -58,9 +58,9 @@ Integration tests (`*.it.test.ts`) run only when `TEST_DATABASE_URL` is set; loc
 
 - Explore and review UI as prototypes before building routes: `*.proto.tsx` beside the view
   they compose, drafts in `src/drafts/<slug>/index.proto.tsx`, journeys in `flows/*.flow.ts`.
-  Contract, URLs and the `proto` CLI: `docs/design/prototyping.md`. Answer review comments with
-  `bun run proto comments`, following the `apply-prototype-comments` skill. Review files are v3
-  JSON in `apps/app/proto/review/`; agents never approve reviews.
+  Contract, URLs and the `proto` CLI: `docs/design/prototyping.md` and the `proto` skill. Answer
+  review comments with `bun run proto comments`, following the `proto-apply-comments` skill.
+  Review files are v3 JSON in `apps/app/proto/review/`; agents never approve reviews.
 - The app consumes public `@compozy/proto` entries and its `proto` binary. Configure it with
   `proto.config.ts`, `proto.canvas.tsx`, `proto()` and `protoPresentation()`; no package source imports.
 - Views take props and callbacks; routes own data and auth. Prototypes and stories never import

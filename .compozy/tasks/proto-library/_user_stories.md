@@ -63,8 +63,8 @@ copying code.
 - AC-1: Given a Vite React app, when I run `bunx proto init`, then `proto.config.ts`, `proto.canvas.tsx`,
   `src/drafts/welcome/index.proto.tsx`, `docs/design/prototyping.md` are created and the command prints the
   next step `proto dev`.
-- AC-2: Given `--skills`, when init runs, then `author-prototype` and `apply-prototype-comments` are copied
-  to `.agents/skills/` and linked to `.claude/skills/`.
+- AC-2: Given `--skills`, when init runs, then `proto` and `proto-apply-comments` are copied to
+  `.agents/skills/` and linked to `.claude/skills/`.
 - AC-3: Given init finished, when I open `proto.config.ts`, then it type-checks with `defineProtoConfig`.
 - EC-1: A file init would write already exists → it is left untouched and listed as `skipped`; `--force`
   overwrites.

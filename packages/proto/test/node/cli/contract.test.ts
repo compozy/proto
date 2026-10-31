@@ -1,6 +1,15 @@
 import { appFixture } from "../app-fixture.ts";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { cpSync, writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import {
+  cpSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve, join, dirname } from "node:path";
 import { runCli } from "../../../src/cli/main.ts";
@@ -337,6 +346,8 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   it("UT-040 UT-041 UT-043 IT-010 init writes the integration and checks it", async () => {
     const fresh = appFixture("proto-init-test-");
     try {
+      // Its own repository: the skills land at this fixture's Git top level, not this checkout's.
+      execFileSync("git", ["init", "-q", fresh]);
       writeFileSync(
         join(fresh, "vite.config.ts"),
         'import react from "@vitejs/plugin-react"; export default {cacheDir:".vite",plugins:[react()]};'
@@ -371,6 +382,83 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       rmSync(fresh, { recursive: true, force: true });
     }
   }, 120000);
+  // Invariant: `init --skills` makes every shipped skill an exact copy under the repository root's
+  // `.agents/skills`, also in an app that is already set up, and reports 0.1.x copies without
+  // deleting them. Owner: CLI contracts (installer).
+  it("US-001 init --skills syncs the shipped skills at the repository root", async () => {
+    const repo = appFixture("proto-skills-test-");
+    try {
+      execFileSync("git", ["init", "-q", repo]);
+      const app = join(repo, "apps/web");
+      mkdirSync(app, { recursive: true });
+      writeFileSync(join(app, "vite.config.ts"), "export default { plugins: [] };");
+      const installed = join(repo, ".agents/skills");
+      mkdirSync(join(installed, "author-prototype"), { recursive: true });
+      writeFileSync(join(installed, "author-prototype/SKILL.md"), "0.1.x copy");
+      mkdirSync(join(installed, "proto/references"), { recursive: true });
+      writeFileSync(join(installed, "proto/SKILL.md"), "stale copy");
+      writeFileSync(join(installed, "proto/references/removed.md"), "stale copy");
+      mkdirSync(join(repo, ".claude/skills"), { recursive: true });
+      symlinkSync(
+        "../../.agents/skills/apply-prototype-comments",
+        join(repo, ".claude/skills/apply-prototype-comments")
+      );
+
+      const first = await runCli(["init", "--skills", "--json"], { cwd: app });
+      expect(first).toMatchObject({ exitCode: 0, data: { skipped: false } });
+      expect(first.data).toMatchObject({
+        skills: [
+          { name: "proto", path: "../../.agents/skills/proto", status: "updated" },
+          {
+            name: "proto-apply-comments",
+            path: "../../.agents/skills/proto-apply-comments",
+            status: "installed",
+          },
+        ],
+        legacySkills: [
+          {
+            name: "author-prototype",
+            path: "../../.agents/skills/author-prototype",
+            replacedBy: "proto",
+          },
+          {
+            name: "apply-prototype-comments",
+            path: "../../.claude/skills/apply-prototype-comments",
+            replacedBy: "proto-apply-comments",
+          },
+        ],
+      });
+      const shipped = resolve(import.meta.dirname, "../../../skills");
+      const files = (dir: string) =>
+        readdirSync(dir, { recursive: true, encoding: "utf8" })
+          .filter(file => statSync(join(dir, file)).isFile())
+          .sort();
+      for (const name of ["proto", "proto-apply-comments"]) {
+        expect(files(join(installed, name))).toEqual(files(join(shipped, name)));
+        for (const file of files(join(shipped, name)))
+          expect(readFileSync(join(installed, name, file))).toEqual(
+            readFileSync(join(shipped, name, file))
+          );
+      }
+      expect(readFileSync(join(installed, "author-prototype/SKILL.md"), "utf8")).toBe("0.1.x copy");
+
+      writeFileSync(join(app, "proto.config.ts"), 'export default { title: "Kept" };\n');
+      const again = await runCli(["init", "--skills", "--json"], { cwd: app });
+      expect(again).toMatchObject({
+        exitCode: 0,
+        data: {
+          skipped: true,
+          files: [],
+          skills: [{ status: "unchanged" }, { status: "unchanged" }],
+        },
+      });
+      expect(readFileSync(join(app, "proto.config.ts"), "utf8")).toBe(
+        'export default { title: "Kept" };\n'
+      );
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
   it("UT-042 init outside a Vite app fails clearly", async () => {
     const empty = appFixture("proto-empty-test-");
     try {

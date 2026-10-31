@@ -1,12 +1,17 @@
 import {
+  cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
-  writeFileSync,
   realpathSync,
-  copyFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
 } from "node:fs";
-import { resolve, dirname, basename, join, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { resolve, dirname, basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { ProtoProject } from "./project.ts";
@@ -92,6 +97,78 @@ export async function scaffold(
   write(project.root, file, content);
   return { file, slug, url: project.url({ slug }) };
 }
+
+/** Agent skills shipped in `skills/`, each with the 0.1.x skill it replaces. */
+const shippedSkills = {
+  proto: "author-prototype",
+  "proto-apply-comments": "apply-prototype-comments",
+};
+
+/** Sorted relative file paths under `dir`, or null when it is not a directory. */
+function tree(dir: string): string[] | null {
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return null;
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter(file => statSync(join(dir, file)).isFile())
+    .sort();
+}
+
+/**
+ * Makes `.agents/skills/<name>` an exact copy of every shipped skill, at the repository root (the
+ * Git top level, where agents look for project skills) or at the app root outside Git. Installed
+ * copies belong to the package, so a differing copy is replaced; project rules live in AGENTS.md.
+ * Copies under the 0.1.x names are reported for the user to delete, never removed.
+ */
+function syncSkills(appRoot: string) {
+  const app = realpathSync(appRoot);
+  let base = app;
+  try {
+    base = realpathSync(
+      execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        cwd: app,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim()
+    );
+  } catch {
+    // Not a Git checkout, or no git: the app root is the project root.
+  }
+  const skills: { name: string; path: string; status: "installed" | "updated" | "unchanged" }[] =
+    [];
+  const legacySkills: { name: string; path: string; replacedBy: string }[] = [];
+  for (const [name, legacy] of Object.entries(shippedSkills)) {
+    const source = fileURLToPath(new URL(`../../skills/${name}/`, import.meta.url));
+    const target = confined(base, `.agents/skills/${name}`);
+    const wanted = tree(source)!;
+    const present = tree(target);
+    const unchanged =
+      present?.length === wanted.length &&
+      wanted.every(
+        (file, index) =>
+          present[index] === file &&
+          readFileSync(join(source, file)).equals(readFileSync(join(target, file)))
+      );
+    if (!unchanged) {
+      rmSync(target, { recursive: true, force: true });
+      cpSync(source, target, { recursive: true });
+    }
+    skills.push({
+      name,
+      path: relative(app, target),
+      status: unchanged ? "unchanged" : present ? "updated" : "installed",
+    });
+    for (const dir of [".agents/skills", ".claude/skills"]) {
+      const path = join(base, dir, legacy);
+      try {
+        lstatSync(path);
+      } catch {
+        continue;
+      }
+      legacySkills.push({ name: legacy, path: relative(app, path), replacedBy: name });
+    }
+  }
+  return { skills, legacySkills };
+}
+
 export function initProject(root: string, options: { force?: boolean; skills?: boolean } = {}) {
   root = resolve(root);
   const vite = ["vite.config.ts", "vite.config.js", "vite.config.mts"].find(f =>
@@ -99,7 +176,7 @@ export function initProject(root: string, options: { force?: boolean; skills?: b
   );
   if (!vite) throw new ProtoError("not_a_vite_app");
   if (existsSync(join(root, "proto.config.ts")) && !options.force)
-    return { skipped: true, files: [] };
+    return { skipped: true, files: [], ...(options.skills ? syncSkills(root) : {}) };
   let code = readFileSync(join(root, vite), "utf8");
   const parsed = ts.createSourceFile(vite, code, ts.ScriptTarget.Latest, true);
   let hasProto = false;
@@ -158,15 +235,9 @@ export function initProject(root: string, options: { force?: boolean; skills?: b
       throw new ProtoError("invalid_config", `${file} exists; use --force`);
   for (const [file, content] of Object.entries(files))
     write(root, file, content, options.force || file === vite);
-  if (options.skills)
-    for (const name of ["author-prototype", "apply-prototype-comments"]) {
-      const target = confined(root, `.agents/skills/${name}/SKILL.md`);
-      mkdirSync(dirname(target), { recursive: true });
-      if (!existsSync(target) || options.force)
-        copyFileSync(
-          fileURLToPath(new URL(`../../skills/${name}/SKILL.md`, import.meta.url)),
-          target
-        );
-    }
-  return { skipped: false, files: Object.keys(files) };
+  return {
+    skipped: false,
+    files: Object.keys(files),
+    ...(options.skills ? syncSkills(root) : {}),
+  };
 }

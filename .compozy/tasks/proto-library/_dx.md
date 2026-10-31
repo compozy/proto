@@ -365,7 +365,7 @@ $ proto migrate remote …        # reloaddev still accepting writes
 ```console
 $ proto dev --port 4410 --open        # shell 4410, render 4411
 $ proto build                         # → dist-proto/ ; exit 1 on any problem
-$ proto init --skills                 # also installs author-prototype and apply-prototype-comments
+$ proto init --skills                 # also installs or updates the proto and proto-apply-comments skills
 $ proto mcp                           # stdio MCP server
 $ proto auth login --remote https://acme.com/proto/
 Open https://acme.com/proto/?settings=credentials&cli=1, create a credential and paste it:
