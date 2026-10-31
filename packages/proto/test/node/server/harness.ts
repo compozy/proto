@@ -343,7 +343,9 @@ export async function browserServer(
       }
     }
   );
-  server.on("connection", socket => trace(`connection ${socket.remoteAddress}`));
+  server.on("connection", socket =>
+    trace(`connection ${(socket as import("node:net").Socket).remoteAddress}`)
+  );
   server.on("secureConnection", socket => trace(`secure ${socket.remoteAddress}`));
   server.on("tlsClientError", error => trace(`tls error ${error.message}`));
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
