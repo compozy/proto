@@ -107,8 +107,10 @@ for reloaddev, the only copy with remote review, once the review server and its 
   `flow-<flow id>`; a comment id is `<key>-<n>`.
 - **States.** Every prototype declares ≥ 1 state; ids are unique within a prototype; the first state is the
   default when `?state=` is absent or unknown.
-- **Specs and roles** come only from `proto.config.ts`. Naming an unknown spec or role is a problem
-  (`unknown_spec`, `unknown_role`).
+- **Specs and roles** come only from `proto.config.ts`: `specs` is a record or a function evaluated in Node
+  (`(root) => Record<string, string> | null`, e.g. CompozyOS reading `.compozy/tasks/`); `null` means the
+  catalog is unavailable (CI) — spec checks are skipped with warning `specs_unavailable`. Spec ids match
+  `^[a-z0-9][a-z0-9_-]*$`. Naming an unknown spec or role is a problem (`unknown_spec`, `unknown_role`).
 - **Component prototypes** may not render intrinsic JSX — problem `markup`; drafts may.
 - **Flows.** 14 problem codes: `flow_outside_root`, `invalid_flow_id`, `missing_flow`, `invalid_flow`,
   `unknown_spec`, `unknown_prototype`, `unknown_state`, `unknown_role`, `duplicate_node`, `invalid_node`,
@@ -123,30 +125,35 @@ for reloaddev, the only copy with remote review, once the review server and its 
   `editedAt`, `attachments`. A new comment records `context.commit` as the full 40-hex SHA (null outside
   git); human output abbreviates to 7.
 - **Authorship.** Locally, a message author is `reviewer` or `agent` (the CLI writes `agent` unless
-  `--author reviewer`). Remotely, the author is the authenticated principal: `authorKind`, `authorId`
-  (stable, opaque) and `authorName` are set by the server, never by the client. A principal edits only its
-  own messages and detaches only its own uploads.
+  `--author reviewer`). Remotely the server derives it: a **browser session** is always `reviewer`; a **bearer
+  credential** is always `agent`, named `<owner name> · <credential name>`. `authorId` is the owner's stable
+  id in both cases, so ownership checks follow the person; the client never supplies author fields. A
+  principal edits only its own messages and detaches only its own uploads.
 - **Attachments.** PNG, JPEG, WebP or GIF; ≤ 5 MB each; ≤ 6 per message; an upload not attached to a sent
   message within 24 h is discarded; a pending upload is claimed once, by its uploader, before expiry.
 - **Approval.** Approve and reopen are transitions recorded in the key's event log. Approving with open
   comments requires confirmation and records the open count computed inside the same mutation. A new
   comment on an approved key moves it to `in_review` in the same mutation and records an `auto_reopened`
-  event. Remotely only principals with scope `review` approve or reopen. **Locally, approval is
+  event. Remotely only browser sessions with scope `review` approve or reopen (credentials are `comment`-only). **Locally, approval is
   trust-based**: anyone running the CLI can approve; agents are instructed (skills) never to approve, and
   this is not a security boundary.
 - **Concurrency.** All mutations of one key (id allocation, comments, messages, attachment claims, review
   state, events) run inside one per-key critical section — a lock with an owner token locally (Safety
   Invariants 1–4), one transaction with a row lock on the key in Postgres.
-- **Permissions (remote).** Anonymous requests reach only the sign-in handoff. Endpoint authority is fixed by
-  § Authorization Matrix. Credentials are created, listed and revoked only through a browser session, can
-  grant at most the creator's scopes, are bound to the creator and stop working when the creator loses
-  access.
-- **Read-only build.** A static `proto build` without a remote shows existing threads and images read-only
-  and has no comment, approval or credential affordances (absent, not disabled).
+- **Permissions (remote).** § Authorization Matrix is the single authority; every other statement (Safety
+  Invariants, stories, UI) restates it. Anonymous requests reach only `bootstrap.json` and the sign-in handoff.
+  Credentials are created, listed and revoked through a browser session (any scope), always carry exactly the
+  `comment` scope, are bound to their creator, and their effective scopes are `comment ∩ owner's current
+  scopes` on every use — a credential stops working when its owner loses comment access.
+- **Read-only build.** A static `proto build` without a remote has no comment, approval or credential
+  affordances (absent, not disabled). Review history is included only with `build.includeReview: true`
+  (default `false`, because a static build is often published); then threads and images show read-only.
 - **Viewport.** Width 320–3840 px; presets desktop 1440, tablet 834, phone 390; `fit` follows the canvas.
 - **Defaults.** Shell + API origin `http://127.0.0.1:4400`, render origin `http://127.0.0.1:4401` (both
   strict; `--port` moves the pair to `<port>`/`<port+1>`); theme `system`; screenshot width 1440, theme
-  `light`; evidence directory `docs/design/<slug>/`.
+  `light`; evidence directory `docs/design/<slug>/` resolved against the **app root**. The dev servers accept
+  only `Host` values `127.0.0.1:<port>` and `localhost:<port>` (plus `dev.allowedHosts`); `localhost` is
+  redirected to `127.0.0.1` so the shell origin is canonical.
 
 ## User Experience
 
@@ -332,14 +339,15 @@ export type ProtoConfig = {
   drafts?: string; // default "src/drafts"
   flows?: string; // default "flows"
   canvas?: string; // default "proto.canvas.tsx"
-  specs?: Readonly<Record<string, string>>;
+  specs?: Readonly<Record<string, string>> | ((root: string) => Record<string, string> | null);
   roles?: Readonly<Record<string, string>>;
   siteUrl?: string;
   locale?: "en" | "pt-BR";
   guards?: { forbidRuntimeImports?: readonly ImportMatcher[]; productionBoundary?: boolean };
   review?: { remote?: { url: string } };
-  evidence?: { dir?: string }; // default "docs/design"; files under <dir>/<slug>/
-  dev?: { port?: number; poll?: boolean }; // default 4400 (render origin = port + 1), poll false
+  evidence?: { dir?: string }; // default "docs/design", relative to the app root; files under <dir>/<slug>/
+  build?: { includeReview?: boolean }; // default false: review history stays out of static builds
+  dev?: { port?: number; poll?: boolean; allowedHosts?: readonly string[] }; // 4400 (render = port + 1)
 };
 
 // @compozy/proto/vite
@@ -404,23 +412,26 @@ export interface ReviewStore {
     author: Author,
     options: { commit: string | null; confirmOpen?: boolean }
   ): Promise<ReviewState>;
+  unlock(
+    key: string,
+    options: { force: true }
+  ): Promise<{ removedOwner: { hostId: string; pid: number } | null }>; // local only
 }
 
 // @compozy/proto/server
-export type Principal = {
-  id: string;
-  kind: "reviewer" | "agent";
-  name: string;
-  scopes: readonly ("review" | "comment")[];
-};
+/** What the project's auth returns for a person; the server derives the request principal from it. */
+export type Identity = { id: string; name: string; scopes: readonly ("review" | "comment")[] };
+/** Server-derived: session → kind "reviewer", scopes = identity scopes; bearer → kind "agent",
+ *  name "<identity name> · <credential name>", scopes = ["comment"] ∩ identity scopes. */
+export type Principal = Identity & { kind: "reviewer" | "agent"; credentialId: string | null };
 export type ReviewServerOptions = {
   storage: ReviewStorage; // fileStorage(dir) | postgresStorage(sql)
-  authorize: (request: Request) => Promise<Principal | null>; // browser session → principal
-  credentialOwner: (ownerId: string) => Promise<Principal | null>; // re-validated on every bearer use
+  authorize: (request: Request) => Promise<Identity | null>; // browser session → identity
+  credentialOwner: (ownerId: string) => Promise<Identity | null>; // current identity, on every bearer use
   signIn: { url: string } | ((request: Request, returnTo: string) => Response | Promise<Response>);
   gallery: { dir: string }; // `proto build` output
-  publicOrigin: string; // "https://proto.acme.com"
-  renderOrigin: string; // "https://render.proto.acme.com"
+  publicOrigin: string; // "https://acme.com" (gallery + API, same origin)
+  renderOrigin: string; // "https://acme-proto.net" — outside every review-cookie scope (ADR-008)
   basePath?: string; // default "/"
   ticketSecret: string; // ≥ 32 bytes, signs render tickets
 };
@@ -486,28 +497,33 @@ file is the unit of review in a PR, and nothing queries inside it locally.
 
 **Readers and upgrades** (pure, total functions in `src/model/upgrade.ts`):
 
-| Source                      | Detected by                     | Mapping to v3                                                                                                                                                                                                                      |
-| --------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| reloaddev v1                | `version: 1`                    | message ids `legacy-<commentId>-<index>` (reloaddev's deterministic rule); `editedAt: null`; `attachments: []`; key and ids `fluxo-<id>` → `flow-<id>`; theme `claro`→`light`, `escuro`→`dark`; role `membro`→`member`; then as v2 |
-| stack / reloaddev v2        | `version: 2`, no `sequence`     | `key = slug`; `sequence = max(n)`; `review = { status: "in_review", updatedAt: null }`; `events = []`                                                                                                                              |
-| CompozyOS v2                | `version: 2` with `sequence`    | as above, keeping `sequence`                                                                                                                                                                                                       |
-| reloaddev approval (remote) | `prototype_reviews.approved_at` | `review.status = "approved"` + one `approved` event (`commit: null`; `openCount` recomputed at migration and marked `estimated` in the report)                                                                                     |
+| Source                      | Detected by                     | Mapping to v3                                                                                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| reloaddev v1                | `version: 1`                    | **only when absent**: message ids `legacy-<commentId>-<index>` (reloaddev's rule), `editedAt: null`, `attachments: []` (populated values and image bytes kept); key and ids `fluxo-<id>` → `flow-<id>`; theme `claro`→`light`, `escuro`→`dark`; role `membro`→`member`; then as v2 |
+| stack / reloaddev v2        | `version: 2`, no `sequence`     | `key = slug`; `sequence = max(n)`; `review = { status: "in_review", updatedAt: null }`; `events = []`                                                                                                                                                                              |
+| CompozyOS v2                | `version: 2` with `sequence`    | as above, keeping `sequence`                                                                                                                                                                                                                                                       |
+| reloaddev approval (remote) | `prototype_reviews.approved_at` | `review.status = "approved"` + one `approved` event (`commit: null`; `openCount` recomputed at migration and marked `estimated` in the report)                                                                                                                                     |
 
-Unknown fields are preserved under `extra` and written back; nothing is dropped. Writers write v3 only.
+Every reader also normalizes `target.source` and `sourceChain` to **app-relative POSIX paths**: a
+repository-relative prefix (`apps/<app>/`) is stripped, `src/designs/<slug>/` (reloaddev legacy) maps to
+`src/drafts/<slug>/`, and each rewrite is listed in the migration report. Unknown fields are preserved under
+`extra` (file) and `extra jsonb` (Postgres) and written back; nothing is dropped. Writers write v3 only.
 
 **Postgres (server)** — DDL shipped as `@compozy/proto/server/migrations/NNNN_*.sql`, applied by
 `postgresStorage(sql).migrate()`, versioned in `proto_schema(version int)`; the server refuses to start when
-the schema is older or newer than expected (`schema_mismatch`). Side tables because the API filters and
+the schema is older or newer than
+expected the server starts but answers every route with 503 `schema_mismatch`; `migrate()` takes
+`pg_advisory_lock` so concurrent deploys apply it once. Side tables because the API filters and
 authorizes on these columns:
 
 | Table               | Columns                                                                                                                                                                                                    |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `proto_keys`        | `key text pk`, `next_comment int not null`, `review_status text not null`, `review_updated_at timestamptz`                                                                                                 |
 | `proto_events`      | `id uuid pk`, `key text fk`, `type text`, `at timestamptz`, `author_kind text`, `author_id text`, `author_name text`, `commit text`, `open_count int`, `comment_id text`                                   |
-| `proto_comments`    | `key text fk`, `number int`, pk `(key, number)`, `status text`, `created_at`, `updated_at`, `resolved_at`, `context jsonb`, `target jsonb`                                                                 |
-| `proto_messages`    | `id text pk` (uuid or `legacy-…`), `key text`, `number int`, fk `(key, number)`, `position int`, `author_kind text`, `author_id text`, `author_name text`, `body text`, `at`, `edited_at`                  |
+| `proto_comments`    | `key text fk`, `number int`, pk `(key, number)`, `status text`, `created_at`, `updated_at`, `resolved_at`, `context jsonb`, `target jsonb`, `extra jsonb`                                                  |
+| `proto_messages`    | `id text pk` (uuid or `legacy-…`), `key text`, `number int`, fk `(key, number)`, `position int`, `author_kind text`, `author_id text`, `author_name text`, `body text`, `at`, `edited_at`, `extra jsonb`   |
 | `proto_attachments` | `id text pk`, `key text`, `message_id text null fk`, `uploader_id text not null`, `name text`, `type text`, `size int`, `width int`, `height int`, `data bytea`, `created_at`, `expires_at` (pending only) |
-| `proto_credentials` | `id text pk`, `owner_id text not null`, `name text`, `scopes text[]`, `hash bytea not null`, `created_at`, `last_used_at`, `revoked_at`                                                                    |
+| `proto_credentials` | `id text pk`, `owner_id text not null`, `name text`, `scopes text[]` (always `{comment}`), `hash bytea not null`, `created_at`, `last_used_at`, `revoked_at`                                               |
 
 `context`/`target` stay JSON: opaque anchors, never filtered server-side. Every mutation runs in one
 transaction that first takes `SELECT … FROM proto_keys WHERE key = $1 FOR UPDATE` (inserting the row if
@@ -519,25 +535,42 @@ message_id IS NULL AND expires_at > now()` must affect exactly one row.
 `PROTO_REMOTE_URL` / `PROTO_REMOTE_TOKEN` override; tokens are never printed.
 
 **Bootstrap** — `GET /__proto/bootstrap.json` (dev shell server, static build file, remote server):
-`{ mode: "dev" | "read-only" | "remote", title, locale, commit, apiBase, eventsUrl | null, renderOrigin,
+`{ mode: "dev" | "read-only" | "remote", title, locale, commit, apiBase, eventsUrl | null, renderUrl,
 registryUrl, reviewSnapshotBase | null, principal | null, signInUrl | null }`. The prebuilt shell reads it
-first; it is the only way the shell learns its environment (no compile-time `import.meta.env`, no Vite
-HMR client).
+first; it is the only way the shell learns its environment (no compile-time `import.meta.env`, no Vite HMR
+client). `review.remote.url` in `proto.config.ts` is only the default `--remote` target for the CLI and MCP;
+a remote server serves its own bootstrap.
 
-**Static build output** (`dist-proto/`): shell assets, `bootstrap.json` (`mode: "read-only"`),
-`registry.json`, `review/<key>.json` (v3 snapshots) and `review/<key>/attachments/*`, `render/` (render host
+**Local review directory hygiene** — `proto init`/`migrate` write `proto/review/.gitignore`
+(`*.lock*`, `*.tmp`, `.pending/`); watchers ignore those names, so heartbeats never emit events.
 
-- prototypes). The read-only adapter reads only these files.
+**Static build output** (`dist-proto/`, deployable on any static host at `/` or a subpath — every URL is
+relative):
+
+```
+dist-proto/index.html                      → /
+dist-proto/assets/*                        → shell assets
+dist-proto/__proto/bootstrap.json          → { mode: "read-only", … }
+dist-proto/__proto/registry.json
+dist-proto/__proto/review/<key>.json       → only with build.includeReview
+dist-proto/__proto/review/<key>/attachments/<id>.<ext>
+dist-proto/__proto/render/index.html       → render host; ?slug=<slug>&state=… (static hosts cannot route
+                                             /__proto/render/<slug>, so the static render URL uses ?slug=)
+dist-proto/__proto/render/assets/*
+```
+
+The read-only adapter reads only these files; the read-only render host is served from the same host
+because it accepts no writes.
 
 ### Vite Integration
 
-| Context                       | Entry                                              | Behavior                                                                                                                                                                       |
-| ----------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `proto dev`, render origin    | internal Vite server with `proto()` in render mode | registry + watch, virtual modules, `data-proto-src` tags, network guard (overlay), render host at `/__proto/render/*`                                                          |
-| `proto dev`, shell origin     | Node HTTP server (no Vite)                         | prebuilt shell, `bootstrap.json`, review router, SSE events                                                                                                                    |
-| `proto build`                 | Vite build with `proto()` in render mode           | render host + prototypes bundle (guards fail the build), shell copy, registry and review snapshots                                                                             |
-| app `vite dev` / `vite build` | `proto()` from `vite.config.ts`                    | **only** the production boundary (fails if a `.proto.tsx`, a prototype fixture or a package gallery module enters the bundle); no transform, no virtual modules, no middleware |
-| Storybook / Vitest            | `protoPresentation()` in `viteFinal` / config      | network guard for graphs rooted at stories and prototypes, optional source tags; replaces today's `vite.presentation.ts` guard                                                 |
+| Context                       | Entry                                              | Behavior                                                                                                                                                                                                          |
+| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proto dev`, render origin    | internal Vite server with `proto()` in render mode | registry + watch, virtual modules, `data-proto-src` tags, network guard (overlay), render host at `/__proto/render/*`                                                                                             |
+| `proto dev`, shell origin     | Node HTTP server (no Vite)                         | prebuilt shell, `bootstrap.json`, review router, SSE events; rejects any `Host` outside the allowlist (403 `host_not_allowed`) — the same rule is applied to the render Vite server through `server.allowedHosts` |
+| `proto build`                 | Vite build with `proto()` in render mode           | render host + prototypes bundle (guards fail the build), shell copy, registry and review snapshots                                                                                                                |
+| app `vite dev` / `vite build` | `proto()` from `vite.config.ts`                    | **only** the production boundary (fails if a `.proto.tsx`, a prototype fixture or a package gallery module enters the bundle); no transform, no virtual modules, no middleware                                    |
+| Storybook / Vitest            | `protoPresentation()` in `viteFinal` / config      | network guard for graphs rooted at stories and prototypes, optional source tags; replaces today's `vite.presentation.ts` guard                                                                                    |
 
 `forbidRuntimeImports` applies only to module graphs rooted at prototypes, drafts and stories, never to
 application routes. Matchers are module ids, globs or RegExp (CompozyOS's `gateway-*` family is a glob).
@@ -546,34 +579,60 @@ application routes. Matchers are module ids, globs or RegExp (CompozyOS's `gatew
 
 Every message is `{ proto: 1, frame: <nonce>, type, … }`. The shell accepts a message only when
 `event.source` is the iframe it created with that nonce and `event.origin` is the render origin; the render
-host accepts only from `window.parent` with the shell origin passed in its URL and pinned at load.
+host accepts only from `window.parent` whose origin equals the **shell origin from its own configuration**
+(injected by `proto dev` into the render server, baked from `publicOrigin` into the remote render build) —
+never from its URL.
 
-| Direction      | Type                         | Payload                                                                                          |
-| -------------- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
-| render → shell | `ready` / `error`            | `{ slug, state }` / `{ message, componentStack }`                                                |
-| render → shell | `context`                    | `{ state, theme, role, url }` after `setParam(s)` or navigation                                  |
-| shell → render | `pick:start` / `pick:cancel` | `{ mode: "element" \| "region" \| "keyboard" }`                                                  |
-| render → shell | `pick:result`                | `ElementTarget` (selector, testId, tag, text, source, sourceChain, rect, rectNormalized, offset) |
-| shell → render | `anchors:watch`              | `{ anchors: [{ id, selector, testId, offset }] }`                                                |
-| render → shell | `anchors`                    | `{ rects: [{ id, rect \| null }] }` on resize, scroll or mutation (`null` = moved marker)        |
-| shell → render | `scroll:to`                  | `{ selector }`                                                                                   |
+**Render-side messages are untrusted input.** The prototype runs in the same realm as the render host and
+can forge any render → shell message. Therefore: every payload is validated with the `src/model` zod schemas;
+`pick:result` is accepted only during an active pick started by the shell; `context.url` is accepted only as
+`/__proto/render/<known slug>?…` (or the static `?slug=` form) and only its `state`, `theme`, `role` and `w`
+parameters are applied; `source`/`sourceChain` are normalized to app-relative POSIX paths and rejected
+(`invalid_source`) when absolute, scheme-prefixed, containing `..`, or outside the registry's source roots
+(the app's `src/`, `flows/` and the canvas file). The router applies the same source rule to every
+`POST comments` from any client, so a forged path never reaches an agent.
+
+| Direction      | Type                         | Payload                                                                                     |
+| -------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
+| render → shell | `ready` / `error`            | `{ slug, state }` / `{ message, componentStack }`                                           |
+| render → shell | `context`                    | `{ state, theme, role, url }` after `setParam(s)` or navigation                             |
+| shell → render | `pick:start` / `pick:cancel` | `{ mode: "element" \| "region" \| "keyboard" }`                                             |
+| render → shell | `pick:result`                | `ElementTarget` (selector, testId, tag, text ≤ 120, source, sourceChain ≤ 8, rects, offset) |
+| shell → render | `anchors:watch`              | `{ anchors: [{ id, selector, testId, offset }] }`                                           |
+| render → shell | `anchors`                    | `{ rects: [{ id, rect \| null }] }` on resize, scroll or mutation (`null` = moved marker)   |
+| shell → render | `scroll:to`                  | `{ selector }`                                                                              |
+| render → shell | `auth:expired`               | `{}` — the render grant expired; the shell fetches a new ticket and reloads the frame       |
 
 ### Authorization Matrix
 
-| Operation                            | Dev (shell origin) | Session `review` | Session `comment` | Bearer `review` | Bearer `comment` |
-| ------------------------------------ | ------------------ | ---------------- | ----------------- | --------------- | ---------------- |
-| read registry, comments, attachments | ✓                  | ✓                | ✓                 | ✓               | ✓                |
-| add, reply, resolve, reopen comment  | ✓                  | ✓                | ✓                 | ✓               | ✓                |
-| edit message, detach upload          | ✓                  | own              | own               | own             | own              |
-| delete comment                       | ✓                  | ✓                | —                 | ✓               | —                |
-| approve / reopen review              | ✓ (trust)          | ✓                | —                 | ✓               | —                |
-| create / list / revoke credentials   | —                  | ✓ (scopes ⊆ own) | ✓ (scopes ⊆ own)  | —               | —                |
+This matrix is the single authority for remote and dev access; Safety Invariants, stories and UI restate it.
 
-Cookie-authenticated writes require `Origin` = `publicOrigin` and the header `X-Proto-Request: 1` (forces a
-CORS preflight the server never grants). A request carrying both a session and a bearer is rejected
-(`ambiguous_credentials`). The dev router accepts writes only when `Origin` equals the configured shell
-origin (not the `Host` header), and Vite `allowedHosts` stays at its default. The render origin never
-receives review cookies (separate host, `SameSite=Strict`, no CORS).
+| Operation                                  | Dev (shell origin) | Session `review` | Session `comment` | Bearer (always `comment`, kind `agent`) | Anonymous             |
+| ------------------------------------------ | ------------------ | ---------------- | ----------------- | --------------------------------------- | --------------------- |
+| `bootstrap.json`                           | ✓                  | ✓                | ✓                 | ✓                                       | ✓ (`principal: null`) |
+| `GET session`, `GET events`                | ✓                  | ✓                | ✓                 | ✓                                       | —                     |
+| `GET render-ticket`                        | — (no tickets)     | ✓                | ✓                 | —                                       | —                     |
+| read registry, comments, attachments       | ✓                  | ✓                | ✓                 | ✓                                       | —                     |
+| add, reply, resolve, reopen comment        | ✓                  | ✓                | ✓                 | ✓                                       | —                     |
+| edit message, detach image, discard upload | ✓                  | own              | own               | own (owner's messages)                  | —                     |
+| delete comment                             | ✓                  | ✓                | —                 | —                                       | —                     |
+| approve / reopen review                    | ✓ (trust)          | ✓                | —                 | —                                       | —                     |
+| create / list / revoke own credentials     | —                  | ✓                | ✓                 | —                                       | —                     |
+
+Request rules: **cookie-authenticated writes** require `Origin` = `publicOrigin` and `X-Proto-Request: 1`
+(forces a CORS preflight the server never grants); **bearer requests** need neither header (they carry no
+ambient credential); a request with both a session and a bearer is rejected (`ambiguous_credentials`). The
+dev router accepts writes only when `Origin` equals the canonical shell origin and every request's `Host` is
+allowlisted. A bearer principal's scopes are `["comment"] ∩ credentialOwner(ownerId).scopes`, evaluated per
+request; empty → 401 `invalid_credential`.
+
+**Deployment precondition (cookie isolation).** The project's review session cookie must be host-only (no
+`Domain` attribute), `Secure` and `HttpOnly`, and `renderOrigin` must be on a registrable domain outside every
+review-cookie scope (e.g. gallery `https://acme.com/proto/`, render `https://acme-proto.net`). The server
+refuses to start when `renderOrigin` shares a registrable domain with `publicOrigin` unless
+`allowSameSiteRender: true` is set with that acknowledgement. The render origin's own grant cookie is
+host-only, `Secure`, `HttpOnly`, `SameSite=None` (it is set inside a cross-site iframe), valid 1 hour for all
+slugs (read-only access to the render bundle), renewed through `auth:expired` → new ticket.
 
 ### API Endpoints
 
@@ -590,35 +649,40 @@ attachment`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: defaul
 remote: `registry`, `comments`, `review` events with the key) · remote only: `GET session`,
 `POST credentials`, `GET credentials`, `DELETE credentials/:id`, `GET render-ticket?slug&state`.
 
-**Auth handoff (remote).** An unauthenticated **document** request is redirected (302) to `signIn` with
-`returnTo` = the requested path (same-origin relative paths only; anything else becomes `/`); an
-unauthenticated **API** request gets 401 `auth_required` with `signInUrl`. Public without a session: only the
-`signIn` handoff and `bootstrap.json` (with `principal: null`). The shell gets a render ticket from
-`GET render-ticket` (HMAC-signed with `ticketSecret`, 60 s, one slug) and loads the iframe with `?ticket=`; the
-render origin exchanges it for its own host-scoped cookie and serves the render assets only with it.
+**Auth handoff (remote).** The server exposes `GET <basePath>sign-in?returnTo=<path>`: with
+`signIn: { url }` it redirects to `url` adding `returnTo`; with a function it calls `signIn(request,
+returnTo)`. `returnTo` is always the **origin-relative `pathname + search` including `basePath`** (e.g.
+`/proto/?p=login-form&state=error`); values that are not same-origin relative paths become `basePath`. An
+unauthenticated **document** request is redirected (302) to that sign-in route; an unauthenticated **API**
+request gets 401 `auth_required` with `signInUrl` set to it. The project's callback forwards `returnTo`
+unchanged. Render tickets: the shell calls `GET render-ticket` (session only), receives an HMAC-signed
+60-second ticket, and loads the iframe with `?ticket=`; the render origin exchanges it for its grant cookie.
 
 ## Capability Catalog
 
 One table in `src/capabilities/catalog.ts` generates CLI verbs, MCP tools and the parity tests.
 
-| Capability                     | Node API                           | HTTP                                 | CLI                                       | MCP                                                                      | Authority     |
-| ------------------------------ | ---------------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------ | ------------- |
-| list registry                  | `registry()`                       | `GET registry`                       | `list`                                    | `proto_list`                                                             | read          |
-| check                          | `registry()` + guard build         | —                                    | `check`                                   | `proto_check`                                                            | read          |
-| url                            | `url()`                            | —                                    | `url`                                     | `proto_url`                                                              | read          |
-| flow show / list / coverage    | `registry().flows`                 | —                                    | `flow show\|list\|coverage`               | `proto_flow_show`, `proto_flow_list`, `proto_flow_coverage`              | read          |
-| scaffold                       | `scaffold()`                       | —                                    | `new`, `flow new`                         | `proto_new`, `proto_flow_new`                                            | write files   |
-| list / show comments           | `store.list/get`                   | `GET comments`                       | `comments list\|show`                     | `proto_comments_list`, `proto_comments_show`                             | read          |
-| add / reply / resolve / reopen | `store.add/reply/setStatus`        | `POST`, `PATCH`                      | `comments add\|reply\|resolve\|reopen`    | `proto_comments_add`, `…_reply`, `…_resolve`, `…_reopen`                 | comment       |
-| edit / attach / detach         | `store.editMessage/upload/discard` | `PATCH`, `POST`/`DELETE attachments` | `comments edit\|attach\|detach`           | `proto_comments_edit`, `…_attach`, `…_detach`                            | comment (own) |
-| download attachments           | `store.readAttachment`             | `GET attachments`                    | `comments attachments --out`              | `proto_comments_attachments` (writes under `.tmp/proto/`, returns paths) | read          |
-| delete comment                 | `store.remove`                     | `DELETE comments/:id`                | `comments delete`                         | `proto_comments_delete`                                                  | review        |
-| review status                  | `store.review`                     | `GET reviews/:key`                   | `review status`                           | `proto_review_status`                                                    | read          |
-| approve / reopen review        | `store.transition`                 | `POST reviews/:key/transitions`      | `review approve\|reopen`                  | — agents never approve                                                   | review        |
-| evidence                       | `screenshot()`, `evidence()`       | —                                    | `screenshot`, `evidence`                  | `proto_screenshot`, `proto_evidence`                                     | write files   |
-| migrate                        | `migrate()`                        | —                                    | `migrate`, `migrate remote`               | — operator action with interactive verification                          | write files   |
-| credentials                    | —                                  | `/credentials`                       | `auth login\|logout\|credentials\|revoke` | — browser session only                                                   | session       |
-| lifecycle                      | —                                  | —                                    | `init`, `dev`, `build`, `mcp`             | — process lifecycle                                                      | —             |
+| Capability                     | Node API                                         | HTTP                                       | CLI                                       | MCP                                                                      | Authority              |
+| ------------------------------ | ------------------------------------------------ | ------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------ | ---------------------- |
+| list registry                  | `registry()`                                     | `GET registry`                             | `list`                                    | `proto_list`                                                             | read                   |
+| check                          | `registry()` + guard build                       | —                                          | `check`                                   | `proto_check`                                                            | read                   |
+| url                            | `url()`                                          | —                                          | `url`                                     | `proto_url`                                                              | read                   |
+| flow show / list / coverage    | `registry().flows`                               | —                                          | `flow show\|list\|coverage`               | `proto_flow_show`, `proto_flow_list`, `proto_flow_coverage`              | read                   |
+| scaffold                       | `scaffold()`                                     | —                                          | `new`, `flow new`                         | `proto_new`, `proto_flow_new`                                            | write files            |
+| list / show comments           | `store.list/get`                                 | `GET comments`                             | `comments list\|show`                     | `proto_comments_list`, `proto_comments_show`                             | read                   |
+| add / reply / resolve / reopen | `store.add/reply/setStatus`                      | `POST`, `PATCH`                            | `comments add\|reply\|resolve\|reopen`    | `proto_comments_add`, `…_reply`, `…_resolve`, `…_reopen`                 | comment                |
+| attach image                   | `store.upload` + `store.editMessage({ attach })` | `POST attachments`, `PATCH …/messages/:id` | `comments attach`                         | `proto_comments_attach`                                                  | comment (own)          |
+| detach image / edit body       | `store.editMessage({ detach }` / `{ body })`     | `PATCH …/messages/:id`                     | `comments detach`, `comments edit`        | `proto_comments_detach`, `proto_comments_edit`                           | comment (own)          |
+| discard pending upload         | `store.discard`                                  | `DELETE attachments/:key/:id`              | — (composer cleanup)                      | —                                                                        | comment (own)          |
+| download attachments           | `store.readAttachment`                           | `GET attachments`                          | `comments attachments --out`              | `proto_comments_attachments` (writes under `.tmp/proto/`, returns paths) | read                   |
+| delete comment                 | `store.remove`                                   | `DELETE comments/:id`                      | `comments delete`                         | `proto_comments_delete` (fails remotely: bearer never deletes)           | review session / local |
+| review status                  | `store.review`                                   | `GET reviews/:key`                         | `review status`                           | `proto_review_status`                                                    | read                   |
+| approve / reopen review        | `store.transition`                               | `POST reviews/:key/transitions`            | `review approve\|reopen`                  | — agents never approve                                                   | review                 |
+| unlock a stuck key             | `store.unlock(key, { force })`                   | —                                          | `review unlock <key> --force`             | — operator recovery for a lock held by another host                      | local only             |
+| evidence                       | `screenshot()`, `evidence()`                     | —                                          | `screenshot`, `evidence`                  | `proto_screenshot`, `proto_evidence`                                     | write files            |
+| migrate                        | `migrate()`                                      | —                                          | `migrate`, `migrate remote`               | — operator action with interactive verification                          | write files            |
+| credentials                    | —                                                | `/credentials`                             | `auth login\|logout\|credentials\|revoke` | — browser session only                                                   | session                |
+| lifecycle                      | —                                                | —                                          | `init`, `dev`, `build`, `mcp`             | — process lifecycle                                                      | —                      |
 
 Every store-backed MCP tool accepts `remote?: boolean`; MCP results equal the CLI `--json` output.
 
@@ -628,30 +692,43 @@ One table in `src/model/errors.ts` (code → CLI exit / HTTP status / message), 
 router; `_dx.md` § Errors is generated from it: `invalid_config` (1), `not_a_vite_app` (1), `app_required`
 (2), `port_in_use` (1), `slug_taken` (1), `comment_not_found` (1/404), `message_not_owned` (1/403),
 `attachment_too_large` (1/413), `attachment_type` (1/415), `attachment_limit` (1/422), `attachment_expired`
-(1/410), `key_busy` (1/409), `lock_lost` (1/409), `cross_origin_write` (—/403), `ambiguous_credentials`
+(1/410), `key_busy` (1/409), `cross_origin_write` (—/403), `ambiguous_credentials`
 (4/400), `auth_required` (4/401), `credential_revoked` (4/401), `invalid_credential` (4/401), `scope_denied`
 (4/403), `insecure_remote` (4), `redirect_refused` (4), `schema_mismatch` (—/503), `playwright_missing`
-(3), `migration_conflict` (1), `migration_unverified` (1). Problem codes: `duplicate_slug`, `reserved_slug`,
+(3), `migration_conflict` (1), `migration_unverified` (1), `migration_source_changed` (1), `source_not_read_only`
+(1), `invalid_source` (1/422), `host_not_allowed` (—/403). Problem codes: `duplicate_slug`, `reserved_slug`,
 `invalid_slug`, `invalid_meta`, `duplicate_state`, `markup`, `unknown_spec`, `unknown_role`, `network_import`,
-`production_boundary`, the 14 flow codes; warnings `canvas_missing`, `uncovered_state`.
+`production_boundary`, the 14 flow codes; warnings `canvas_missing`, `uncovered_state`, `specs_unavailable`.
 
 ## Migration Plan
 
-| Source             | Path today                                                                                             | Target                                    | Mapping                                                                                                                                                                                                                                                                         | Verification                                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| stack template app | `apps/<app>/gallery/comments/<slug>/comments.json` (v2) + attachments                                  | `apps/<app>/proto/review/<key>.json` (v3) | v2 → v3                                                                                                                                                                                                                                                                         | per key: comments, messages, attachments (bytes hashed), statuses, timestamps, anchors equal; a second run is a no-op |
-| CompozyOS `web`    | `web/gallery/comments/<key>/comments.json` (v2 + `sequence`)                                           | `web/proto/review/<key>.json`             | keeps `sequence`                                                                                                                                                                                                                                                                | same                                                                                                                  |
-| reloaddev local    | `apps/platform/gallery/comments/<key>/comments.json` (v1)                                              | `apps/platform/proto/review/<key>.json`   | v1 → v3 (`fluxo-`→`flow-`, theme/role values)                                                                                                                                                                                                                                   | same, plus the key renames listed                                                                                     |
-| reloaddev remote   | `prototype_reviews`, `prototype_comments`, `prototype_messages`, `prototype_credentials` + attachments | `proto_*` tables                          | `user.id`→`author_id`/`uploader_id`/`owner_id`; `user.name`→`author_name`; `next_comment`→`next_comment`; `approved_by/at`→`approved` event; attachment name/type/size/width/height/bytes kept; credential hashes copied only when the scheme matches, else listed for re-issue | row counts per table, every comment round-tripped, report in `proto-migration-report.json`; dry-run first             |
+| Source                | Path today                                                                   | Target                                    | Mapping                                                                                                                                                                  | Verification                                                                                               |
+| --------------------- | ---------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| stack template app    | `apps/<app>/gallery/comments/<slug>/comments.json` (v2) + attachments        | `apps/<app>/proto/review/<key>.json` (v3) | v2 → v3; `source` paths made app-relative                                                                                                                                | per key: comments, messages, attachments (bytes hashed), statuses, timestamps, anchors equal; re-run no-op |
+| CompozyOS `web`       | `web/gallery/comments/<key>/comments.json` (v2 + `sequence`)                 | `web/proto/review/<key>.json`             | keeps `sequence`; specs come from a `specs` function reading `.compozy/tasks/`                                                                                           | same                                                                                                       |
+| reloaddev local       | `apps/platform/gallery/comments/<key>/comments.json` (v1)                    | `apps/platform/proto/review/<key>.json`   | v1 → v3 (missing-field defaults only; `fluxo-`→`flow-`; theme/role maps; `src/designs/`→`src/drafts/`)                                                                   | same, plus every rename listed                                                                             |
+| reloaddev remote      | `prototype_reviews`, `prototype_comments`, `prototype_messages`, attachments | `proto_*` tables                          | as files (same flags) + `user.id`→`author_id`/`uploader_id`, `user.name`→`author_name`, `next_comment`, `approved_by/at`→`approved` event, attachment metadata and bytes | per-table counts, every comment round-tripped, source unchanged during the run                             |
+| reloaddev credentials | `prototype_credentials` (`rpc_` tokens)                                      | none                                      | never copied: the token formats differ; owners re-issue `pcr_` credentials                                                                                               | listed in the report                                                                                       |
 
-`proto migrate --from <dir> [--flow-prefix fluxo-] [--theme-map claro=light,escuro=dark] [--role-map
-membro=member] [--dry-run]` works without `gallery.config.ts` (when present it also writes
-`proto.config.ts` from it). It refuses to overwrite a target key with different content
-(`migration_conflict`), is resumable (verified keys are skipped), never deletes the source, and lists what to
-delete. Consumers delete `vite.presentation.ts` only after switching Storybook and Vitest to
-`protoPresentation()` and passing their own gates. `proto migrate remote --from-database <url>
---to-database <url> [--dry-run]` copies one transaction per key and fails closed on any count mismatch
-(`migration_unverified`).
+**Files.** `proto migrate --from <dir> [--flow-prefix fluxo-] [--theme-map claro=light,escuro=dark]
+[--role-map membro=member] [--dry-run]` works without `gallery.config.ts` (when present it also writes
+`proto.config.ts`). It refuses to overwrite a target key with different content (`migration_conflict`), is
+resumable (verified keys skipped), never deletes the source and lists what to delete; `vite.presentation.ts`
+is listed only after Storybook and Vitest use `protoPresentation()`.
+
+**Remote cutover (reloaddev).** `proto migrate remote --from-database <url> --to-database <url>
+[--flow-prefix …] [--theme-map …] [--role-map …] [--dry-run]` runs inside a maintenance window:
+
+1. The operator switches reloaddev's prototype module to read-only (slice 9 adds `PROTOTYPES_READ_ONLY=1`,
+   which makes every write route return 503) and drains in-flight requests.
+2. The command verifies the source is read-only (a write probe must fail, else `source_not_read_only`) and
+   records per-table counts and `max(updated_at)`.
+3. It copies one transaction per key (idempotent: a key present with equal content is skipped; different
+   content → `migration_conflict`), then re-reads the source fingerprint; any change →
+   `migration_source_changed` and the run stops (resumable after the cause is fixed).
+4. Verification (counts + every comment round-tripped) writes `proto-migration-report.json`; on success the
+   operator points reviewers at the new server; reloaddev's module stays read-only until its deletion
+   (slice 9) and its tables are dropped only after Pedro's sign-off on the report.
 
 ## Integration Points
 
@@ -718,8 +795,8 @@ journeys through `apps/api` with a per-suite Postgres (`TEST_DATABASE_URL`). Cas
 One numbering (= MVP Boundary slices):
 
 1. Skeleton, contract/config, `loadProject`, registry; render origin + render host + protocol
-   (`ready`/`error`/`context`); bootstrap; prebuilt shell pipeline with S1–S7, S13, S19, S20 browsing.
-   Gate: `apps/app` adoption E2E.
+   (`ready`/`error`/`context`); bootstrap; prebuilt shell pipeline with the browsing surfaces S1, S4–S6 and
+   S20. Gate: `apps/app` adoption E2E.
 2. Flows, checks, network guard + production boundary + markup, `protoPresentation()`; `apps/app`
    Storybook/Vitest switched. Gate: guard suites + `bun run verify`.
 3. Model v3 + upgraders, `FileStore` (locks, atomic writes), review state/events, router + SSE, picker and
@@ -727,7 +804,9 @@ One numbering (= MVP Boundary slices):
 4. Capability catalog, MCP, evidence, `proto init`, skills, record. Gate: CLI contract + MCP parity.
 5. `proto migrate` (files), migration of stack and CompozyOS, deletion of their copies. Gate: migration
    suites on real fixtures + each repository's own gates.
-6. Static read-only build (S21), packed-tarball E2E, bundle-size budget. **Milestone 1 exit.**
+6. Static read-only build (S21), packed-tarball E2E, bundle-size budget; the redesign-only surfaces S2, S3,
+   S7, S11 and S13 land in slices 1–6 but never gate slice 5 (migration needs only S1, S4–S6, S8–S10).
+   **Milestone 1 exit.**
 7. Server: DDL + `postgresStorage`, `fileStorage`, auth handoff, credentials, authorization matrix, render
    tickets, S17–S18. Gate: server suites.
 8. `HttpStore`, `--remote`, remote MCP, `proto auth`. Gate: store contract suite over HTTP.
@@ -741,7 +820,8 @@ npm scope `@compozy`; Playwright Chromium and Postgres in CI (both already in th
 ## Monitoring and Observability
 
 `--verbose` and server logs: one line per request `{ route, status, principal_kind, duration_ms }`; lock
-waits > 1 s, takeovers, `key_busy`/`lock_lost`; migration per-key counts and conflicts; credential use,
+waits > 1 s, dead-owner takeovers, `key_busy` with the owner host; rejected render messages (`invalid_source`,
+unexpected `pick:result`) and `host_not_allowed`; migration per-key counts and conflicts; credential use,
 revocations and owner re-validation denials. Comment bodies and tokens are never logged.
 
 ## Technical Considerations
@@ -758,30 +838,41 @@ ADR-008 render origin and protocol · ADR-009 per-key review file, lock protocol
 - **Picker fidelity** across the protocol (source chain, region contents) — ported from today's DOM code
   into the render host, covered by the comment E2E.
 - **Vite major drift** — plugin tested against Vite 7 and 8.
-- **reloaddev credential hashes** may use another scheme — the migration lists credentials to re-issue.
+- **reloaddev credentials** are never copied (`rpc_` vs `pcr_`); owners re-issue them after the cutover.
+- **Render on a separate registrable domain** is an operator burden; the server refuses a same-site render
+  origin unless explicitly acknowledged.
 - **Shell bundle size** — 400 KB gzip budget enforced in slice 6.
 
 ## Safety Invariants
 
 1. Every mutation of a review key happens inside that key's critical section: locally the lock directory
-   `<key>.lock/` holding `owner.json` `{ token, pid, host, heartbeatAt }`; remotely one transaction holding
-   `proto_keys … FOR UPDATE`.
-2. A local lock is acquired with `mkdir`; the holder refreshes `heartbeatAt` every 2 s; a lock is stale only
-   when `heartbeatAt` is older than 10 s **and** (same host) its pid is not alive or (other host) 30 s have
-   passed. Takeover renames the stale directory to `<key>.lock.<token>.stale` (atomic, one winner) and then
-   acquires normally.
-3. Before publishing (renaming its temp file), a writer re-reads `owner.json` and aborts with `lock_lost` if
-   the token is not its own; release removes the lock only when the token matches.
-4. Waiting for a lock is asynchronous (never blocks the event loop) and bounded at 5 s → `key_busy`.
+   `<key>.lock/` holding `owner.json` `{ token, pid, processStartedAt, hostId }`; remotely one transaction
+   holding `proto_keys … FOR UPDATE`.
+2. Local review storage is **single-host**: `hostId` is the machine id (`/etc/machine-id`, `IOPlatformUUID`,
+   Windows `MachineGuid`). A lock is reclaimed **only when its owner is provably dead**: same `hostId` and the
+   pid is not running, or the pid is running with a different `processStartedAt` (pid reuse). A live owner is
+   never evicted, whatever its age; a lock from another `hostId` is never reclaimed automatically
+   (`key_busy` names the host; `proto review unlock <key> --force` is the documented manual recovery).
+3. Reclaimers serialize through `<key>.lock.takeover/` (`mkdir`; held for milliseconds; itself reclaimable
+   after 5 s because it guards no data): while holding it, a reclaimer re-reads `<key>.lock/owner.json` and
+   renames the directory to a tombstone only if the token still equals the dead owner's token observed
+   before. Because only dead owners are reclaimed, no evicted writer can publish afterwards.
+4. Release removes the lock only when `owner.json` holds the releaser's token. Waiting is asynchronous and
+   bounded at 5 s → `key_busy`.
 5. Files are written via temp file + rename in the same directory; a crash never leaves a partial file.
 6. Comment numbers per key strictly increase and are never reused (`sequence` / `next_comment`).
-7. The shell accepts protocol messages only from the iframe it created (source window + frame nonce) and the
-   render origin; the render host only from its parent with the pinned shell origin.
-8. Prototype code runs on the render origin, which never holds review credentials or cookies; review writes
-   require the shell origin (dev) or `publicOrigin` + `X-Proto-Request` (remote).
-9. Remote authorship and ownership come from the authenticated principal, never from the request body.
-10. Credentials are created only through a browser session, grant ⊆ the creator's scopes, are re-validated
-    against `credentialOwner` on every use; `comment` scope never approves, deletes or manages credentials.
+7. Render-side messages are untrusted: the shell accepts only messages from its own iframe, render origin and
+   frame nonce, validates every payload, accepts `pick:result` only during a pick it started, and stores only
+   normalized source paths inside the registry's source roots; the render host trusts only its configured
+   shell origin.
+8. Prototype code runs on the render origin, which holds no review credentials (deployment precondition in
+   § Authorization Matrix); cookie writes require `publicOrigin` + `X-Proto-Request`; dev requests require an
+   allowlisted `Host` and, for writes, the canonical shell `Origin`.
+9. Remote authorship and ownership are derived by the server (session → reviewer, bearer → agent, `authorId`
+   = owner id), never taken from the request body.
+10. Credential management follows § Authorization Matrix: browser sessions only, credentials carry exactly
+    `comment`, effective scopes are re-evaluated against the owner on every request; bearers never approve,
+    delete comments or manage credentials.
 11. Discovery never imports or evaluates a prototype or flow module in Node.
 12. Remote URLs are HTTPS except loopback; credential-bearing requests never follow redirects.
 
@@ -834,7 +925,11 @@ ADR-008 render origin and protocol · ADR-009 per-key review file, lock protocol
 - Shell/API origin `127.0.0.1:4400`, render origin `127.0.0.1:4401`.
 - `forbidRuntimeImports` default none; `productionBoundary: true`.
 - Shell locales `en` (default) and `pt-BR`; URL values locale-independent.
-- Remote: sign-in owned by the project; bearer credentials for CLI/MCP only.
+- Remote: sign-in owned by the project; bearer credentials for CLI/MCP only, always `comment` scope, author
+  kind `agent`; approval only from a browser session.
+- Remote deployment: gallery and API on `publicOrigin` (+ `basePath`), render on a separate registrable
+  domain; host-only `Secure` `HttpOnly` session cookie.
+- Local review storage is single-host (no network filesystems, no shared checkouts across machines).
 
 ## Architecture Decision Records
 

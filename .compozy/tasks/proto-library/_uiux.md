@@ -142,8 +142,8 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 
 - **Sections**: Project (title, paths, specs, roles from config — read-only with "edit proto.config.ts");
   Review (mode dev/read-only/remote from bootstrap, remote URL, signed-in principal); Credentials (remote
-  session only: list own, create with scopes limited to the principal's, token shown once with the
-  `proto auth login` hint, revoke); Health (problems and warnings); About (package version, Vite, commit).
+  session only: list own, create — always scope `comment`, labeled "for CLI and agents" — token shown once with
+  the `proto auth login` hint, revoke); Health (problems and warnings); About (package version, Vite, commit).
   In dev and read-only modes the Credentials section is absent.
 
 ### S18. Remote sign-in
@@ -161,7 +161,8 @@ Companions: `_spec.md` Part I (behavior authority), `_user_stories.md` (states c
 
 ### S21. Read-only build — "Read-only" pill instead of open count; no Approve, no comment tool, no
 
-Credentials; threads and images visible from the build's review snapshots (`review/<key>.json`).
+Credentials; threads and images visible only when built with `build.includeReview: true` (otherwise an empty
+state says comments are not included in this build).
 
 ## Component plan (design → production mapping)
 

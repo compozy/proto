@@ -70,7 +70,7 @@ export default defineProtoConfig({
   drafts: "src/drafts", // default; drafts may use free markup
   flows: "flows", // default; *.flow.ts files
   canvas: "proto.canvas.tsx", // default
-  specs: { auth: "Authentication", billing: "Billing" },
+  specs: { auth: "Authentication", billing: "Billing" }, // or (root) => Record<string, string> | null
   roles: { member: "Member", admin: "Admin" },
   siteUrl: "https://acme.com", // resolves `site` nodes in flows
   locale: "en", // shell copy: "en" | "pt-BR"
@@ -84,9 +84,10 @@ export default defineProtoConfig({
     ],
     productionBoundary: true, // default
   },
-  review: { remote: { url: "https://proto.acme.com" } }, // optional; builds talk to this server
-  evidence: { dir: "docs/design" }, // default; files under docs/design/<slug>/
-  dev: { port: 4400, poll: false }, // render origin = port + 1
+  review: { remote: { url: "https://acme.com/proto/" } }, // optional; default `--remote` target for CLI/MCP
+  evidence: { dir: "docs/design" }, // default, relative to the app root; files under docs/design/<slug>/
+  build: { includeReview: false }, // default; true ships review history in static builds
+  dev: { port: 4400, poll: false, allowedHosts: [] }, // render origin = port + 1; Host allowlist extras
 });
 ```
 
@@ -293,13 +294,16 @@ $ proto review approve login-form --confirm-open
 ✓ login-form approved at a41c9e2 (2 open comments recorded)
 $ proto review reopen login-form
 ✓ login-form back in review
-$ proto review approve login-form --remote     # with a comment-scope credential
-✗ This credential cannot approve. (scope_denied)
+$ proto review approve login-form --remote     # credentials are always comment-scope
+✗ Approval happens in the browser; credentials cannot approve. (scope_denied)
 $ echo $?
 4
+$ proto review unlock login-form --force        # manual recovery: a lock left by another machine
+✓ Removed lock held by host 4c1e…a9 (pid 81233)
 ```
 
-Local approval is trust-based: anyone with the repository can run it. Agents never approve (skills).
+Local approval is trust-based: anyone with the repository can run it. Agents never approve (skills). Local
+review storage is single-host; `unlock` is only for a lock left by another machine or a crashed container.
 
 ### proto screenshot / evidence
 
@@ -336,13 +340,24 @@ Switch Storybook and Vitest to protoPresentation(), then delete: vite.presentati
 $ proto migrate --from apps/app/gallery/comments
 ✓ 1 key already verified, nothing to do
 
-$ proto migrate remote --from-database "$RELOAD_DATABASE_URL" --to-database "$PROTO_DATABASE_URL" --dry-run
+# maintenance window: reloaddev running with PROTOTYPES_READ_ONLY=1, in-flight requests drained
+$ proto migrate remote --from-database "$RELOAD_DATABASE_URL" --to-database "$PROTO_DATABASE_URL" \
+    --flow-prefix fluxo- --theme-map claro=light,escuro=dark --role-map membro=member --dry-run
+source read-only: yes
 table                 source  target  status
-prototype_reviews     14      14      ok
+prototype_reviews     14      14      ok (2 keys renamed fluxo- → flow-)
 prototype_comments    57      57      ok
 prototype_messages    143     143     ok
 attachments           22      22      ok (bytes hashed)
-credentials           3       0       re-issue (hash scheme differs)
+credentials           3       0       not copied — owners re-issue (rpc_ → pcr_)
+
+$ proto migrate remote --from-database "$RELOAD_DATABASE_URL" --to-database "$PROTO_DATABASE_URL" \
+    --flow-prefix fluxo- --theme-map claro=light,escuro=dark --role-map membro=member
+✓ 14 keys copied and verified; source unchanged during the run
+✓ proto-migration-report.json
+
+$ proto migrate remote …        # reloaddev still accepting writes
+✗ The source accepted a write probe. Set PROTOTYPES_READ_ONLY=1 and drain requests first. (source_not_read_only)
 ```
 
 ### proto dev / build / init / mcp / auth
@@ -352,17 +367,17 @@ $ proto dev --port 4410 --open        # shell 4410, render 4411
 $ proto build                         # → dist-proto/ ; exit 1 on any problem
 $ proto init --skills                 # also installs author-prototype and apply-prototype-comments
 $ proto mcp                           # stdio MCP server
-$ proto auth login --remote https://proto.acme.com
-Open https://proto.acme.com/?settings=credentials&cli=1, create a credential and paste it:
-✓ Saved credential "pedro-laptop" for https://proto.acme.com (scopes: comment)
-$ proto auth login --remote http://proto.acme.com
+$ proto auth login --remote https://acme.com/proto/
+Open https://acme.com/proto/?settings=credentials&cli=1, create a credential and paste it:
+✓ Saved credential "pedro-laptop" for https://acme.com/proto/ (scope: comment)
+$ proto auth login --remote http://acme.com/proto/
 ✗ Remote URLs must use HTTPS (loopback excepted). (insecure_remote)
 $ proto auth credentials --json      # credentials stored on this machine (no network call)
-{"credentials":[{"origin":"https://proto.acme.com","id":"cr_8f2","name":"pedro-laptop","scopes":["comment"]}]}
-$ proto auth revoke cr_8f2 --remote https://proto.acme.com
-✗ Credentials are managed from a browser session: https://proto.acme.com/?settings=credentials
-$ proto auth logout --remote https://proto.acme.com
-✓ Removed the local credential for https://proto.acme.com
+{"credentials":[{"remote":"https://acme.com/proto/","id":"cr_8f2","name":"pedro-laptop","scopes":["comment"]}]}
+$ proto auth revoke cr_8f2 --remote https://acme.com/proto/
+✗ Credentials are managed from a browser session: https://acme.com/proto/?settings=credentials
+$ proto auth logout --remote https://acme.com/proto/
+✓ Removed the local credential for https://acme.com/proto/
 ```
 
 `auth credentials` lists what is stored locally (tokens never printed); creating, listing and revoking
@@ -384,87 +399,90 @@ await project.screenshot({ slug: "login-form", state: "error", theme: "dark", wi
 
 ## HTTP API
 
-Dev: `http://127.0.0.1:4400/__proto/api/…` (writes only with `Origin: http://127.0.0.1:4400`). Remote:
-`https://proto.acme.com/api/…` with a session cookie (writes need `Origin: https://proto.acme.com` and
-`X-Proto-Request: 1`) or `Authorization: Bearer pcr_…` — never both.
+Dev: `http://127.0.0.1:4400/__proto/api/…` — every request needs an allowlisted `Host`; writes need
+`Origin: http://127.0.0.1:4400` (`http://localhost:4400` redirects there). Remote (the deployment from
+§ Server): `https://acme.com/proto/api/…` with either a session cookie — writes also need
+`Origin: https://acme.com` and `X-Proto-Request: 1` — or `Authorization: Bearer pcr_…` (no extra headers),
+never both.
 
 ```http
-GET /api/comments?key=login-form&status=open
+GET /proto/api/comments?key=login-form&status=open
 200 {"comments":[{"id":"login-form-7","status":"open", …}]}
 
-POST /api/comments
+POST /proto/api/comments          (session, reviewer)
 {"key":"login-form","target":{…},"context":{…},"body":"Spacing too tight","attachments":["at_01"]}
-201 {"comment":{"id":"login-form-8", "thread":[{"author":"reviewer","authorId":"usr_4f2","authorName":"Pedro Nauck", …}]}}
+201 {"comment":{"id":"login-form-8","thread":[{"author":"reviewer","authorId":"usr_4f2","authorName":"Pedro Nauck", …}]}}
 
-PATCH /api/comments/login-form-7/status   {"status":"resolved","note":"Fixed."}
+POST /proto/api/comments/login-form-7/replies      (bearer)
+{"body":"Moved it into the Field description."}
+201 {"comment":{"id":"login-form-7","thread":[…,{"author":"agent","authorId":"usr_4f2","authorName":"Pedro Nauck · codex-ci", …}]}}
+
+POST /proto/api/comments          (target.source = "../../.github/workflows/ci.yml:1:1")
+422 {"error":{"code":"invalid_source","message":"Source paths must stay inside the app's source roots."}}
+
+PATCH /proto/api/comments/login-form-7/status   {"status":"resolved","note":"Fixed."}
 200 {"comment":{"id":"login-form-7","status":"resolved", …}}
 
-PATCH /api/comments/login-form-7/messages/6f1c…   {"body":"edited"}
+PATCH /proto/api/comments/login-form-7/messages/6f1c…   {"body":"edited"}
 403 {"error":{"code":"message_not_owned","message":"Only the author can edit this message."}}
 
-POST /api/attachments?key=login-form   (multipart: file)
+POST /proto/api/attachments?key=login-form   (multipart: file)
 201 {"attachment":{"id":"at_01","name":"shot.png","type":"image/png","size":184220,"width":1440,"height":900,"expiresAt":"2026-10-31T22:41:00Z"}}
 413 {"error":{"code":"attachment_too_large","message":"Images are limited to 5 MB."}}
 
-POST /api/reviews/login-form/transitions   {"to":"approved","confirmOpen":true}
+POST /proto/api/reviews/login-form/transitions   {"to":"approved","confirmOpen":true}    (session, review)
 200 {"review":{"status":"approved","events":[{"type":"approved","authorName":"Pedro Nauck","commit":"a41c9e2f…","openCount":2}]}}
-403 {"error":{"code":"scope_denied","message":"This credential cannot approve."}}
+403 {"error":{"code":"scope_denied","message":"Approval happens in the browser; credentials cannot approve."}}   (bearer)
 
-POST /api/credentials   {"name":"codex-ci","scopes":["comment"]}     (session only)
+POST /proto/api/credentials   {"name":"codex-ci"}     (session only; scope is always comment)
 201 {"credential":{"id":"cr_9a1","name":"codex-ci","scopes":["comment"],"token":"pcr_3b1f9e07…(64 hex)"}}
 
-GET /api/comments   (no session, no bearer)
-401 {"error":{"code":"auth_required","message":"Sign in to review.","signInUrl":"https://proto.acme.com/sign-in?returnTo=%2F"}}
+GET /proto/api/comments   (no session, no bearer)
+401 {"error":{"code":"auth_required","message":"Sign in to review.","signInUrl":"https://acme.com/proto/sign-in?returnTo=%2Fproto%2F"}}
 
-GET /api/events   (text/event-stream, dev and remote)
+GET /proto/?p=login-form&state=error     (document, no session)
+302 Location: /proto/sign-in?returnTo=%2Fproto%2F%3Fp%3Dlogin-form%26state%3Derror
+
+GET /proto/api/events   (text/event-stream, dev and remote)
 event: comments   data: {"key":"login-form"}
 ```
 
 ## Server
 
 ```ts
-// apps/api/src/proto.ts
+// apps/api/src/proto.ts — gallery and API at https://acme.com/proto/, render at https://acme-proto.net
 import { createReviewServer, postgresStorage } from "@compozy/proto/server";
 import { sql } from "./db";
-import { auth } from "./auth";
+import { auth } from "./auth"; // better-auth; session cookie is host-only, Secure, HttpOnly
 
 const storage = postgresStorage(sql);
-await storage.migrate(); // applies the package's shipped DDL
+await storage.migrate(); // shipped DDL; pg_advisory_lock makes concurrent deploys safe
+
+const identity = (user: { id: string; name: string; isAdmin: boolean } | null) =>
+  user?.isAdmin ? { id: user.id, name: user.name, scopes: ["review", "comment"] as const } : null;
 
 export const protoReview = createReviewServer({
   storage,
   basePath: "/proto/",
   publicOrigin: "https://acme.com",
-  renderOrigin: "https://render.acme.com",
+  renderOrigin: "https://acme-proto.net",
   ticketSecret: process.env.PROTO_TICKET_SECRET!,
   gallery: { dir: "../app/dist-proto" },
-  signIn: (request, returnTo) =>
-    Response.redirect(
-      `https://acme.com/login?next=${encodeURIComponent(`/proto${returnTo}`)}`,
-      302
-    ),
-  authorize: async request => {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session || !session.user.isAdmin) return null;
-    return {
-      id: session.user.id,
-      kind: "reviewer",
-      name: session.user.name,
-      scopes: ["review", "comment"],
-    };
-  },
-  credentialOwner: async ownerId => {
-    const user = await auth.api.getUser({ id: ownerId });
-    return user?.isAdmin
-      ? { id: user.id, kind: "reviewer", name: user.name, scopes: ["review", "comment"] }
-      : null;
-  },
+  // returnTo arrives as "/proto/?p=login-form&state=error" — forward it unchanged.
+  signIn: (_request, returnTo) =>
+    Response.redirect(`https://acme.com/login?next=${encodeURIComponent(returnTo)}`, 302),
+  authorize: async request =>
+    identity((await auth.api.getSession({ headers: request.headers }))?.user ?? null),
+  credentialOwner: async ownerId => identity(await auth.api.getUser({ id: ownerId })),
 });
-// Hono: app.all("/proto/*", c => protoReview(c.req.raw));
-// render host: serve https://render.acme.com/* with the same handler (it dispatches on Host).
+// Hono on acme.com:        app.all("/proto/*", c => protoReview(c.req.raw));
+// Hono on acme-proto.net:  app.all("*", c => protoReview(c.req.raw));   // the handler dispatches on Host
 ```
 
-The gallery and the API share `publicOrigin`; no CORS is offered.
+Requirements: the gallery and the API share `publicOrigin` (no CORS is offered); `renderOrigin` is a
+different registrable domain (the server refuses `render.acme.com` unless `allowSameSiteRender: true`); the
+session cookie has no `Domain` attribute. Sessions become `reviewer` principals; bearer credentials become
+`agent` principals named `<owner> · <credential>` with scope `comment ∩ owner scopes`.
 
 ## MCP
 
@@ -493,23 +511,27 @@ lifecycle).
 
 Generated from `src/model/errors.ts`:
 
-| Code                                                                                   | CLI exit         | HTTP                  | Message points to                       |
-| -------------------------------------------------------------------------------------- | ---------------- | --------------------- | --------------------------------------- |
-| `invalid_config`                                                                       | 1                | —                     | the key path in `proto.config.ts`       |
-| `not_a_vite_app`                                                                       | 1                | —                     | `--app <dir>`                           |
-| `app_required`                                                                         | 2                | —                     | `--app`                                 |
-| `port_in_use`                                                                          | 1                | —                     | `--port` (moves shell and render ports) |
-| `slug_taken`                                                                           | 1                | —                     | another slug                            |
-| `comment_not_found`                                                                    | 1                | 404                   | `proto comments list`                   |
-| `message_not_owned`                                                                    | 1                | 403                   | only the author edits                   |
-| `attachment_too_large` / `attachment_type` / `attachment_limit` / `attachment_expired` | 1                | 413 / 415 / 422 / 410 | limits                                  |
-| `key_busy` / `lock_lost`                                                               | 1                | 409                   | retry                                   |
-| `cross_origin_write`                                                                   | —                | 403                   | open the gallery from its origin        |
-| `ambiguous_credentials`                                                                | 4                | 400                   | send a session or a bearer, not both    |
-| `auth_required` / `invalid_credential` / `credential_revoked`                          | 4                | 401                   | `proto auth login` / sign in            |
-| `scope_denied`                                                                         | 4                | 403                   | a reviewer approves                     |
-| `insecure_remote` / `redirect_refused`                                                 | 4                | —                     | HTTPS URL without redirects             |
-| `schema_mismatch`                                                                      | —                | 503                   | `postgresStorage(sql).migrate()`        |
-| `playwright_missing`                                                                   | 3                | —                     | `bunx playwright install chromium`      |
-| `migration_conflict` / `migration_unverified`                                          | 1                | —                     | the report                              |
-| problem codes (`markup`, `unknown_state`, `network_import`, …)                         | 1 in check/build | —                     | `proto check`                           |
+| Code                                                                                   | CLI exit         | HTTP                  | Message points to                                       |
+| -------------------------------------------------------------------------------------- | ---------------- | --------------------- | ------------------------------------------------------- |
+| `invalid_config`                                                                       | 1                | —                     | the key path in `proto.config.ts`                       |
+| `not_a_vite_app`                                                                       | 1                | —                     | `--app <dir>`                                           |
+| `app_required`                                                                         | 2                | —                     | `--app`                                                 |
+| `port_in_use`                                                                          | 1                | —                     | `--port` (moves shell and render ports)                 |
+| `slug_taken`                                                                           | 1                | —                     | another slug                                            |
+| `comment_not_found`                                                                    | 1                | 404                   | `proto comments list`                                   |
+| `message_not_owned`                                                                    | 1                | 403                   | only the author edits                                   |
+| `attachment_too_large` / `attachment_type` / `attachment_limit` / `attachment_expired` | 1                | 413 / 415 / 422 / 410 | limits                                                  |
+| `key_busy`                                                                             | 1                | 409                   | retry                                                   |
+| `cross_origin_write`                                                                   | —                | 403                   | open the gallery from its origin                        |
+| `ambiguous_credentials`                                                                | 4                | 400                   | send a session or a bearer, not both                    |
+| `auth_required` / `invalid_credential` / `credential_revoked`                          | 4                | 401                   | `proto auth login` / sign in                            |
+| `scope_denied`                                                                         | 4                | 403                   | a reviewer approves                                     |
+| `insecure_remote` / `redirect_refused`                                                 | 4                | —                     | HTTPS URL without redirects                             |
+| `schema_mismatch`                                                                      | —                | 503                   | `postgresStorage(sql).migrate()`                        |
+| `playwright_missing`                                                                   | 3                | —                     | `bunx playwright install chromium`                      |
+| `migration_conflict` / `migration_unverified`                                          | 1                | —                     | the report                                              |
+| `migration_source_changed` / `source_not_read_only`                                    | 1                | —                     | put the source in read-only mode, then re-run           |
+| `invalid_source`                                                                       | 1                | 422                   | source paths inside the app's source roots              |
+| `host_not_allowed`                                                                     | —                | 403                   | open the gallery at 127.0.0.1 or add `dev.allowedHosts` |
+| warning `specs_unavailable`                                                            | 0                | —                     | the `specs` function returned null (e.g. in CI)         |
+| problem codes (`markup`, `unknown_state`, `network_import`, …)                         | 1 in check/build | —                     | `proto check`                                           |

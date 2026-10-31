@@ -91,8 +91,9 @@ copying code.
 
 - AC-1: Given a valid project, when I run `proto build`, then `dist-proto/` holds the shell and render host
   and works from any static host.
-- AC-2: Given no remote configured, when I open the built gallery, then existing threads and their images are
-  visible read-only from the build's snapshots, and comment, approve and credential affordances are absent.
+- AC-2: Given no remote configured, when I open the built gallery, then comment, approve and credential
+  affordances are absent; review history is not included unless `build.includeReview: true`, in which case
+  threads and images show read-only.
 - EC-1: Any discovery, flow, guard or boundary problem → build fails with the problem list, exit 1.
 
 ### US-004: Canvas providers and chrome
@@ -214,6 +215,8 @@ knows exactly what I mean.
 - EC-3: Keyboard-only: Tab to the canvas, arrows move a crosshair, Enter pins.
 - EC-4: A prototype that calls the review API from its own code → rejected (`cross_origin_write` in dev; the
   render origin holds no review cookies remotely); nothing is written.
+- EC-6: A prototype forges a `pick:result` whose source is `../../.github/workflows/ci.yml` → the comment is
+  refused with `invalid_source`; forged messages outside an active pick are ignored.
 - EC-5: The prototype changes its state with `setParam` while picking → the comment records the new state from
   the render host's `context` message.
 
@@ -263,7 +266,8 @@ knows exactly what I mean.
 ### US-023: Answer comments from the CLI
 
 - AC-1: `proto comments list --status open --json` lists threads with `sourceChain` and context.
-- AC-2: `proto comments reply <id> --note …` posts as `agent`; `resolve <id> --note …` resolves with a note.
+- AC-2: `proto comments reply <id> --note …` posts as `agent` (locally by default; remotely because every bearer
+  credential is an agent principal named `<owner> · <credential>`); `resolve <id> --note …` resolves with a note.
 - AC-3: `proto comments attachments <id> --out dir` downloads images.
 - EC-1: Unknown key/id → exit 1 `comment_not_found`.
 
@@ -291,8 +295,13 @@ knows exactly what I mean.
 
 ### US-027: Deploy remote review
 
-- AC-1: Mounting `createReviewServer({ storage, authorize, gallery })` serves the built gallery and the API.
-- AC-2: `review.remote.url` in config makes the built shell talk to it.
+- AC-1: Mounting `createReviewServer({ storage, authorize, credentialOwner, signIn, gallery, publicOrigin,
+  renderOrigin, basePath, ticketSecret })` serves the built gallery, the API and the render origin.
+- AC-2: `review.remote.url` in config is the default `--remote` target for the CLI and MCP.
+- EC-1: `renderOrigin` on the same registrable domain as `publicOrigin` → the server refuses to start unless
+  `allowSameSiteRender: true` acknowledges the cookie-isolation precondition.
+- EC-2: Database schema older or newer than the package → every route answers 503 `schema_mismatch` until
+  `migrate()` runs.
 
 ### US-028: Sign in
 
@@ -305,12 +314,12 @@ knows exactly what I mean.
 
 ### US-029: Credentials
 
-- AC-1: In a browser session, Settings → Credentials creates a named credential with scopes limited to the
-  principal's own, shows the token once, lists own credentials with last use, and revokes immediately.
-- AC-2: A credential stops working when its owner loses access (re-validated on every use).
+- AC-1: In a browser session (any scope), Settings → Credentials creates a named credential — always scope
+  `comment` — shows the token once, lists own credentials with last use, and revokes immediately.
+- AC-2: A credential's effective scope is re-evaluated against its owner on every request; it stops working
+  when the owner loses comment access.
 - EC-1: Revoked credential → 401 `credential_revoked`.
-- EC-2: A bearer calling `POST /api/credentials`, or a `comment` session minting a `review` credential → 403
-  `scope_denied`.
+- EC-2: A bearer calling `POST /api/credentials` → 403 `scope_denied`; a bearer approving or deleting → 403.
 
 ### US-030: Remote CLI
 
@@ -360,8 +369,12 @@ knows exactly what I mean.
 **As an** Operator, **I want** to move reloaddev's `prototype_*` rows to the review server's tables, **so that** no
 remote comment, approval or image is lost when its copy is deleted.
 
-- AC-1: `proto migrate remote --dry-run` reports per-table source/target counts without writing.
+- AC-1: `proto migrate remote --dry-run` confirms the source is read-only and reports per-table source/target
+  counts and key renames without writing.
 - AC-2: The real run copies one transaction per key, keeping authors (id and name), approvals (as events),
   attachment names, sizes, dimensions and bytes, and `next_comment`.
 - EC-1: Any count mismatch → `migration_unverified`; the key's transaction rolls back.
-- EC-2: Credential hashes in another scheme → listed for re-issue, not copied.
+- EC-3: The source still accepts writes → `source_not_read_only`, nothing copied; a write lands during the run →
+  `migration_source_changed`, the run stops and resumes after the source is read-only again.
+- EC-4: `fluxo-` keys and localized theme/role values → renamed with the same flags as the file migration.
+- EC-2: Credentials are never copied (`rpc_` vs `pcr_`); the report lists owners to re-issue.

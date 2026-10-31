@@ -1,0 +1,6 @@
+?? .compozy/tasks/proto-library/qa/peer-review-findings-round2-astra.md
+?? .compozy/tasks/proto-library/qa/peer-review-findings-round2-opus.md
+?? .compozy/tasks/proto-library/qa/peer-review-prompt-round2-astra.md
+?? .compozy/tasks/proto-library/qa/peer-review-prompt-round2-opus.md
+?? .compozy/tasks/proto-library/qa/peer-review-status-after-round2.txt
+?? .compozy/tasks/proto-library/qa/peer-review-status-before-round2.txt
