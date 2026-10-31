@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2
+
+### Maintenance
+
+- pin the browser project's localhost to its own server (#7)
+- wait for the frame's ready handshake in the comment mode suite (#9)
+- missings skills
+
 ## v0.1.1
 
 ### Fixes
