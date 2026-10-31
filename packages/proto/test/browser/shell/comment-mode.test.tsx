@@ -29,11 +29,20 @@ import { installBackend, type Backend } from "./review-harness.ts";
 
 let backend: Backend;
 const cleanups: (() => void)[] = [];
+/** Nonces of the render frames that reported `ready`, recorded from before any frame loads. */
+const ready = new Set<string>();
+const recordReady = (event: MessageEvent) => {
+  const data = event.data as { type?: unknown; frame?: unknown } | null;
+  if (data?.type === "ready" && typeof data.frame === "string") ready.add(data.frame);
+};
 beforeEach(() => {
   backend = installBackend();
+  ready.clear();
+  window.addEventListener("message", recordReady);
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  window.removeEventListener("message", recordReady);
   backend.restore();
 });
 
@@ -102,14 +111,26 @@ function Focused() {
   return <output data-testid="focused">{mode.focused ?? ""}</output>;
 }
 
-/** Playwright's handle on the render frame of this shell (by its nonce). */
+/**
+ * Playwright's handle on the render frame of this shell (by its nonce), once the render host
+ * reported `ready`: the prototype committed and the shell mounted the comment overlay. A frame
+ * load is a cross-origin document load, so it gets the protocol suite's load budget rather than
+ * an assertion's.
+ */
 async function renderFrame(container: HTMLElement) {
   const iframe = await vi.waitFor(() => {
     const found = container.querySelector("iframe");
     if (!found) throw new Error("no frame yet");
     return found;
   });
-  const match = `frame=${new URL(iframe.src).searchParams.get("frame")}`;
+  const nonce = new URL(iframe.src).searchParams.get("frame")!;
+  await vi.waitFor(
+    () => {
+      if (!ready.has(nonce)) throw new Error("The render frame has not reported ready yet");
+    },
+    { timeout: 8000, interval: 50 }
+  );
+  const match = `frame=${nonce}`;
   return {
     iframe,
     eval: <T,>(expression: string) => commands.renderFrameEval(match, expression) as Promise<T>,
@@ -211,9 +232,7 @@ describe("IT-027: comment mode drives the render host's picker", () => {
   test("C starts a keyboard pick in the focused frame; arrows and Enter pick; Esc cancels the composer", async () => {
     const container = mount(<Screen slug="card" />);
     const frame = await renderFrame(container);
-    await vi.waitFor(async () =>
-      expect(await frame.eval("Boolean(document.querySelector('[data-testid=card]'))")).toBe(true)
-    );
+    expect(await frame.eval("Boolean(document.querySelector('[data-testid=card]'))")).toBe(true);
     await userEvent.keyboard("c");
     await vi.waitFor(async () => expect(await frame.picker()).toBe("keyboard"));
     await vi.waitFor(() =>
@@ -247,9 +266,7 @@ describe("IT-027: comment mode drives the render host's picker", () => {
   test("US-016.EC-5: a state change while picking keeps the pick and the comment records the new state", async () => {
     const container = mount(<Screen slug="card" />);
     const frame = await renderFrame(container);
-    await vi.waitFor(async () =>
-      expect(await frame.eval("Boolean(document.querySelector('[data-testid=later]'))")).toBe(true)
-    );
+    expect(await frame.eval("Boolean(document.querySelector('[data-testid=later]'))")).toBe(true);
     await frame.click(180, 376); // setParam("state", "b") after 300 ms
     await userEvent.click(page.getByTestId("comment-tool"));
     await expect.element(page.getByTestId("state")).toHaveTextContent("b");
@@ -285,10 +302,8 @@ describe("E2E-014 (shell half): render messages are untrusted", () => {
   test("a forged pick:result outside a pick is ignored; during a pick a ../ source is refused and nothing is written", async () => {
     const container = mount(<Screen slug="forge" />);
     const frame = await renderFrame(container);
-    await vi.waitFor(async () =>
-      expect(await frame.eval("Boolean(document.querySelector('[data-testid=forge-now]'))")).toBe(
-        true
-      )
+    expect(await frame.eval("Boolean(document.querySelector('[data-testid=forge-now]'))")).toBe(
+      true
     );
 
     // A probe registered after the shell's frame listener sees the forged result only once the
