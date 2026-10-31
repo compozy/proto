@@ -1,6 +1,6 @@
 name: Release
 # pr-release (github.com/compozy/releasepr) owns versioning: a push to main opens or updates the
-# `build: release vX.Y.Z` pull request, and merging it publishes npm, then the tag and GitHub
+# `build: release vX.Y.Z` pull request (commit `build: prepare release vX.Y.Z`), and merging it publishes npm, then the tag and GitHub
 # Release. See docs/releasing.md.
 on:
   push:
@@ -24,12 +24,12 @@ env:
   GIT_CLIFF_VERSION: 2.7.0
 concurrency:
   group: >-
-    release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build: release v')) && '-publish' || '' }}
+    release-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}${{ (github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'build: release v') || startsWith(github.event.head_commit.message, 'build: prepare release v'))) && '-publish' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   release-pr:
     if: >-
-      github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'build: release v')
+      github.event_name == 'push' && !(startsWith(github.event.head_commit.message, 'build: release v') || startsWith(github.event.head_commit.message, 'build: prepare release v'))
       && github.event.head_commit.author.name != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -58,7 +58,7 @@ jobs:
         run: go run "$PR_RELEASE_MODULE" pr-release --force --enable-rollback --ci-output
   package:
     if: >-
-      github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build: release v')))
+      github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (startsWith(github.event.head_commit.message, 'build: release v') || startsWith(github.event.head_commit.message, 'build: prepare release v'))))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -101,7 +101,10 @@ jobs:
             echo "Dispatch version $RELEASE_VERSION does not match committed package $version" >&2
             exit 1
           fi
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "${HEAD_SUBJECT%%$'\n'*}" != "build: release v$version"* ]]; then
+          subject=${HEAD_SUBJECT%%$'\n'*}
+          # pr-release titles the PR `build: release vX` and its commit `build: prepare release vX`;
+          # a squash merge of that single commit keeps the commit subject.
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$subject" != "build: release v$version"* && "$subject" != "build: prepare release v$version"* ]]; then
             echo "Release merge subject does not match package version $version" >&2
             exit 1
           fi

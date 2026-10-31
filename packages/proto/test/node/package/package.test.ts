@@ -69,10 +69,10 @@ test("release workflow contract isolates publication and finalizes GitHub only a
     "utf8"
   );
   expect(workflow).toContain(
-    "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'build: release v')"
+    "github.event_name == 'push' && !(startsWith(github.event.head_commit.message, 'build: release v') || startsWith(github.event.head_commit.message, 'build: prepare release v'))"
   );
   expect(workflow).toContain(
-    "github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build: release v')))"
+    "github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (startsWith(github.event.head_commit.message, 'build: release v') || startsWith(github.event.head_commit.message, 'build: prepare release v'))))"
   );
   expect(workflow).toContain("&& '-publish' || ''");
   expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
