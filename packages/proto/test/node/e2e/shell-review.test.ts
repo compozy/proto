@@ -123,8 +123,13 @@ describe("review journeys against proto dev", () => {
 
   it("E2E-009 / US-021: Waiting lists the agent-replied thread; selecting opens it in context, also for flows", async () => {
     const added = await dev.store.add("welcome", comment("default", "Steps need icons"), reviewer);
+    // The dev store is shared by the suite: earlier journeys may leave agent-answered threads.
+    const waiting = (await dev.store.list({ status: "open" })).filter(
+      item => item.thread.at(-1)?.author === "agent"
+    ).length;
     const page = await open("/?comments=waiting");
-    await page.getByRole("tab", { name: /Waiting · 0/ }).waitFor({ timeout: 20_000 });
+    await page.getByRole("tab", { name: `Waiting · ${waiting}` }).waitFor({ timeout: 20_000 });
+    expect(await page.getByRole("button", { name: /Steps need icons/ }).count()).toBe(0);
 
     const replied = await runCli([
       "comments",
@@ -137,6 +142,7 @@ describe("review journeys against proto dev", () => {
       "--json",
     ]);
     expect(replied.code, replied.stderr).toBe(0);
+    await page.getByRole("tab", { name: `Waiting · ${waiting + 1}` }).waitFor({ timeout: 15_000 });
     const item = page.getByRole("button", { name: /Steps need icons/ });
     await item.getByText("Agent replied · waiting for you").waitFor({ timeout: 15_000 });
     await item.click();
