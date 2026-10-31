@@ -1,3 +1,6 @@
+import { beforeAll as prepareApp, afterAll as disposeApp } from "vitest";
+import { appFixture, appFiles } from "../app-fixture.ts";
+import { rmSync } from "node:fs";
 import { parseArgs } from "citty";
 import { expect, it } from "vitest";
 import { resolve } from "node:path";
@@ -20,7 +23,7 @@ it("IT-015 every catalog operation has CLI and MCP or an explicit exclusion", ()
   expect(mcpTools).toHaveLength(22);
 });
 it("IT-015 MCP results equal CLI JSON through the actual SDK transport", async () => {
-  const project = await loadProject(resolve(import.meta.dirname, "../../../../../apps/app"));
+  const project = await loadProject(fixtureApp);
   const server = await createMcpServer(project);
   const client = new Client({ name: "proto-test", version: "1" });
   const [left, right] = InMemoryTransport.createLinkedPair();
@@ -51,12 +54,7 @@ it("IT-015 proto mcp serves the catalog over real stdio", async () => {
   const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
   const transport = new StdioClientTransport({
     command: "bun",
-    args: [
-      resolve(import.meta.dirname, "../../../src/cli/main.ts"),
-      "mcp",
-      "--app",
-      resolve(import.meta.dirname, "../../../../../apps/app"),
-    ],
+    args: [resolve(import.meta.dirname, "../../../src/cli/main.ts"), "mcp", "--app", fixtureApp],
     stderr: "pipe",
   });
   const client = new Client({ name: "proto-stdio-test", version: "1" });
@@ -78,4 +76,12 @@ it("IT-015 proto mcp serves the catalog over real stdio", async () => {
 it("UT-050: dev --open is a boolean CLI option", () => {
   const command = commandDefinition(catalog.find(c => c.cli === "dev")!);
   expect(parseArgs(["--open"], command.args)).toMatchObject({ open: true });
+});
+
+let fixtureApp: string;
+prepareApp(() => {
+  fixtureApp = appFixture("proto-transport-", appFiles);
+});
+disposeApp(() => {
+  if (fixtureApp) rmSync(fixtureApp, { recursive: true, force: true });
 });

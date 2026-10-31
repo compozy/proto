@@ -1,3 +1,4 @@
+import { appFixture, appFiles } from "../app-fixture.ts";
 async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const collected = (async () => {
@@ -23,21 +24,22 @@ async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expect
 }
 import { createServer } from "node:net";
 import { request } from "node:http";
-import { resolve } from "node:path";
 import { beforeAll, afterAll, expect, it } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
 import { startDev, hostAllowed } from "../../../src/node/dev.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
-const app = resolve(import.meta.dirname, "../../../../../apps/app");
+let app: string;
 import { freePortPair as port } from "../ports.ts";
 import { chromium, type Browser } from "playwright";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 let sharedBrowser: Browser | undefined;
 beforeAll(async () => {
+  app = appFixture("proto-dev-app-", appFiles);
   if (existsSync(chromium.executablePath())) sharedBrowser = await chromium.launch();
 }, 60000);
 afterAll(async () => {
   await sharedBrowser?.close();
+  rmSync(app, { recursive: true, force: true });
 }, 30000);
 function hostRequest(port: number, host: string) {
   return new Promise<{ status: number; location?: string; body: string }>((resolve, reject) => {
@@ -229,10 +231,9 @@ it("Render integration: DOM carries app-relative source tags and configured sour
     context.skip();
     return;
   }
-  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { join } = await import("node:path");
-  mkdirSync(join(app, ".tmp"), { recursive: true });
-  const root = mkdtempSync(join(app, ".tmp", ".proto-render-tags-"));
+  const root = appFixture("proto-render-tags-");
   mkdirSync(join(root, "src/drafts/tagged"), { recursive: true });
   writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Tags"};');
   writeFileSync(
@@ -282,15 +283,14 @@ it("Render integration: DOM carries app-relative source tags and configured sour
 }, 120000);
 it("Presentation integration: protoPresentation source tags survive the consumer React Compiler", async context => {
   const { chromium } = await import("playwright");
-  const { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { existsSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   if (!existsSync(chromium.executablePath())) {
     context.skip();
     return;
   }
   const { join } = await import("node:path");
   const { createServer } = await import("vite");
-  mkdirSync(join(app, ".tmp"), { recursive: true });
-  const root = mkdtempSync(join(app, ".tmp", ".proto-tags-test-"));
+  const root = appFixture("proto-tags-test-");
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Awaited<ReturnType<Browser["newContext"]>> | undefined;
   try {

@@ -1,15 +1,16 @@
 /**
  * Browsing journeys of the shell (`_tests.md` E2E-002 to E2E-006, E2E-013) against the real
- * `proto dev`: `apps/app` (its review store swapped for a temporary one) and a small fixture
+ * `proto dev`: an isolated copy of `apps/app` (with a temporary review store) and a small fixture
  * with roles, a framed component, a draft, a flow problem and a prototype that throws. The shell
  * is built from source; Playwright Chromium drives it. Assertions own the journeys.
  */
+import { appFixture, appFiles } from "../app-fixture.ts";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
-  appRoot,
   buildShell,
   devWithTempStore,
   renderFrame,
@@ -101,6 +102,7 @@ export const flow = defineFlow({
 };
 
 const work = workDir("shell-browse");
+let appCopy: string;
 let app: Awaited<ReturnType<typeof devWithTempStore>>;
 let local: Awaited<ReturnType<typeof startProtoDev>>;
 let browser: Browser;
@@ -108,7 +110,8 @@ let browser: Browser;
 beforeAll(async () => {
   const shellDir = await buildShell(join(work.dir, "shell"));
   writeApp(join(work.dir, "fixture"), fixture);
-  app = await devWithTempStore(appRoot, shellDir);
+  appCopy = appFixture("proto-browse-app-", appFiles);
+  app = await devWithTempStore(appCopy, shellDir);
   local = await startProtoDev(join(work.dir, "fixture"), shellDir);
   browser = await chromium.launch();
 }, 240_000);
@@ -118,6 +121,7 @@ afterAll(async () => {
   await app?.close();
   await local?.close();
   work.remove();
+  if (appCopy) rmSync(appCopy, { recursive: true, force: true });
 });
 
 async function open(origin: string, path: string) {

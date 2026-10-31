@@ -1,3 +1,6 @@
+import { beforeAll as prepareApp, afterAll as disposeApp } from "vitest";
+import { appFixture, appFiles } from "../app-fixture.ts";
+import { rmSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -91,7 +94,7 @@ it("IT-025: login/logout persist mode 0600 and never print a token", async () =>
     expect(JSON.stringify([login, listed, ...output])).not.toContain(h.harness.credential.token);
     vi.stubEnv("PROTO_REMOTE_URL", url);
     vi.stubEnv("PROTO_REMOTE_TOKEN", undefined);
-    const project = await loadProject(resolve(import.meta.dirname, "../../../../../apps/app"));
+    const project = await loadProject(fixtureApp);
     expect(await project.store({ remote: true }).list()).toEqual([]);
     expect(
       (await runCli(["auth", "revoke", h.harness.credential.credential.id, "--remote", url]))
@@ -121,7 +124,7 @@ it("IT-022 / E2E-012: real CLI and MCP use bearer authority and equal JSON", asy
           resolve(import.meta.dirname, "../../../src/cli/main.ts"),
           ...args,
           "--app",
-          resolve(import.meta.dirname, "../../../../../apps/app"),
+          fixtureApp,
           "--json",
         ],
         { env }
@@ -149,7 +152,7 @@ it("IT-022 / E2E-012: real CLI and MCP use bearer authority and equal JSON", asy
     });
     vi.stubEnv("PROTO_REMOTE_URL", h.client.url.href);
     vi.stubEnv("PROTO_REMOTE_TOKEN", h.harness.credential.token);
-    const project = await loadProject(resolve(import.meta.dirname, "../../../../../apps/app"));
+    const project = await loadProject(fixtureApp);
     expect(await executeTool("proto_comments_list", { remote: true }, project)).toEqual(
       JSON.parse((await cli(["comments", "list", "--remote"])).stdout)
     );
@@ -163,3 +166,11 @@ it("IT-022 / E2E-012: real CLI and MCP use bearer authority and equal JSON", asy
     await h.dispose();
   }
 }, 30_000);
+
+let fixtureApp: string;
+prepareApp(() => {
+  fixtureApp = appFixture("proto-transport-", appFiles);
+});
+disposeApp(() => {
+  if (fixtureApp) rmSync(fixtureApp, { recursive: true, force: true });
+});

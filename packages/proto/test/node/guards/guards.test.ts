@@ -1,3 +1,4 @@
+import { appFixture } from "../app-fixture.ts";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,8 +138,7 @@ it("IT-017 app copy rejects a prototype leak and allows route data imports", asy
   const { cpSync } = await import("node:fs");
   const { resolve } = await import("node:path");
   const app = resolve(import.meta.dirname, "../../../../../apps/app");
-  mkdirSync(join(app, ".tmp"), { recursive: true });
-  const root = mkdtempSync(join(app, ".tmp", ".proto-build-test-"));
+  const root = appFixture("proto-build-test-");
   try {
     for (const file of ["vite.config.ts", "vite.shared.ts", "proto.config.ts", "index.html", "src"])
       cpSync(join(app, file), join(root, file), { recursive: true });
@@ -215,8 +215,7 @@ it.each([
     const { promisify } = await import("node:util");
     const run = promisify(execFile);
     const app = resolve(import.meta.dirname, "../../../../../apps/app");
-    mkdirSync(join(app, ".tmp"), { recursive: true });
-    const root = mkdtempSync(join(app, ".tmp", ".proto-story-guard-"));
+    const root = appFixture("proto-story-guard-");
     try {
       for (const file of [
         ".storybook",

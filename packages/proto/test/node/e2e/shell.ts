@@ -24,7 +24,6 @@ import {
 import { FileStore } from "../../../src/store/index.ts";
 
 export const packageRoot = resolve(import.meta.dirname, "../../..");
-export const appRoot = resolve(packageRoot, "../../apps/app");
 
 /** A work directory inside the package (so fixture apps resolve the package's React). */
 export function workDir(name: string) {
@@ -62,7 +61,7 @@ export async function startProtoDev(root: string, shellDir: string) {
 }
 
 /**
- * `proto dev` of an app whose own review files must stay untouched (`apps/app`): the review
+ * `proto dev` of an isolated app fixture whose seeded review files must stay untouched: the review
  * router runs over a store in a temporary directory, wired to SSE as in `proto dev`.
  */
 export async function devWithTempStore(root: string, shellDir: string) {

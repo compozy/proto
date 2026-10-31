@@ -1,15 +1,6 @@
-import { tmpdir } from "node:os";
+import { appFixture } from "../app-fixture.ts";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  realpathSync,
-  symlinkSync,
-  cpSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  readFileSync,
-} from "node:fs";
+import { cpSync, writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve, join, dirname } from "node:path";
 import { runCli } from "../../../src/cli/main.ts";
@@ -39,8 +30,7 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   }, 30000);
   beforeEach(async () => {
     uuid = 0;
-    mkdirSync(join(app, ".tmp"), { recursive: true });
-    root = mkdtempSync(join(app, ".tmp", ".proto-cli-test-"));
+    root = appFixture("proto-cli-test-");
     for (const path of [
       "proto.config.ts",
       "proto.canvas.tsx",
@@ -345,9 +335,8 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     });
   });
   it("UT-040 UT-041 UT-043 IT-010 init writes the integration and checks it", async () => {
-    const fresh = realpathSync(mkdtempSync(join(tmpdir(), "proto-init-test-")));
+    const fresh = appFixture("proto-init-test-");
     try {
-      symlinkSync(join(app, "node_modules"), join(fresh, "node_modules"), "dir");
       writeFileSync(
         join(fresh, "vite.config.ts"),
         'import react from "@vitejs/plugin-react"; export default {cacheDir:".vite",plugins:[react()]};'
@@ -383,8 +372,7 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     }
   }, 120000);
   it("UT-042 init outside a Vite app fails clearly", async () => {
-    mkdirSync(join(app, ".tmp"), { recursive: true });
-    const empty = mkdtempSync(join(app, ".tmp", ".proto-empty-test-"));
+    const empty = appFixture("proto-empty-test-");
     try {
       expect(
         await runCli(["init", "--json"], { cwd: empty, project: { ...project, root: empty } })
@@ -552,8 +540,7 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   }, 120000);
 
   it("IT-014 migrate dispatches through the catalog without requiring proto.config", async () => {
-    mkdirSync(join(app, ".tmp"), { recursive: true });
-    const target = mkdtempSync(join(app, ".tmp", ".proto-migrate-cli-"));
+    const target = appFixture("proto-migrate-cli-");
     try {
       const source = join(target, "gallery/comments/proto-shell");
       mkdirSync(source, { recursive: true });

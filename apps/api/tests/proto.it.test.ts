@@ -140,14 +140,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     await database.db
       .$client`update "user" set email_verified=true where email='deployed@example.com'`;
     await buildRemoteGallery(h);
+    const { appFixture, appFiles } =
+      await import("../../../packages/proto/test/node/app-fixture.ts");
+    const spaRoot = appFixture("proto-api-spa-", appFiles);
     const spa = await createServer({
-      root: resolve(import.meta.dirname, "../../app"),
+      root: spaRoot,
       cacheDir: join(h.root, "vite-cache"),
       define: { "import.meta.env.VITE_API_URL": JSON.stringify(env.API_URL) },
-      server: { host: "127.0.0.1", port: 0 },
+      server: { host: "127.0.0.1", port: 0, warmup: { clientFiles: ["./src/main.tsx"] } },
       logLevel: "silent",
     });
     await spa.listen();
+    await spa.environments.client?.depsOptimizer?.scanProcessing;
+    await spa.waitForRequestsIdle();
     spaOrigin = spa.resolvedUrls!.local[0]!.replace(/\/$/, "");
     const browser = await chromium.launch({
       headless: true,
@@ -208,7 +213,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
             resolve(import.meta.dirname, "../../../packages/proto/dist/package/src/cli/main.js"),
             ...args,
             "--app",
-            resolve(import.meta.dirname, "../../app"),
+            spaRoot,
             "--json",
           ],
           {
@@ -277,6 +282,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
     } finally {
       await browser.close();
       await spa.close();
+      await (await import("node:fs/promises")).rm(spaRoot, { recursive: true, force: true });
       await tls.close();
       await h.dispose();
     }
