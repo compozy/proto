@@ -1,38 +1,50 @@
 import { createContext, use, useEffect, useSyncExternalStore, type ReactNode } from "react";
 
-import { setParam, useSearch } from "../contract";
+import { setParam, useSearch } from "./url-state.ts";
 
 export type ThemePreference = "system" | "light" | "dark";
 
 type ThemeContextValue = {
   preference: ThemePreference;
+  /** What renders now: the preference, or the system scheme when it is "system". */
+  theme: "light" | "dark";
   setPreference: (value: ThemePreference) => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-/** Gallery stand-in for an app ThemeProvider: `?theme=light|dark`; no param means "system". */
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const search = useSearch();
+const darkQuery = "(prefers-color-scheme: dark)";
+
+function subscribeScheme(listener: () => void) {
+  const media = window.matchMedia(darkQuery);
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+const systemDark = () => window.matchMedia(darkQuery).matches;
+
+/** `?theme=light|dark`; no parameter means "system". */
+export function themePreference(search: string): ThemePreference {
   const param = new URLSearchParams(search).get("theme");
-  const preference: ThemePreference = param === "light" || param === "dark" ? param : "system";
+  return param === "light" || param === "dark" ? param : "system";
+}
+
+/** Applies `?theme=` to the page root (`.dark` and `color-scheme`) and provides it. */
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const preference = themePreference(useSearch());
+  const dark = useSyncExternalStore(subscribeScheme, systemDark);
+  const theme = preference === "system" ? (dark ? "dark" : "light") : preference;
 
   useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const dark = preference === "dark" || (preference === "system" && media.matches);
-      document.documentElement.classList.toggle("dark", dark);
-      document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    };
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [preference]);
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
 
-  const value = (() => ({
+  const value: ThemeContextValue = {
     preference,
-    setPreference: (next: ThemePreference) => setParam("theme", next === "system" ? null : next),
-  }))();
+    theme,
+    setPreference: next => setParam("theme", next === "system" ? null : next),
+  };
 
   return <ThemeContext value={value}>{children}</ThemeContext>;
 }

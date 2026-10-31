@@ -63,6 +63,8 @@ export const renderMessageSchema = z.discriminatedUnion("type", [
     url: z.string().max(4000),
   }),
   z.object({ ...envelope, type: z.literal("pick:result"), target: elementTargetSchema }),
+  /** Escape inside the frame ended the pick the shell started (focus is in the iframe then). */
+  z.object({ ...envelope, type: z.literal("pick:cancel") }),
   z.object({
     ...envelope,
     type: z.literal("anchors"),

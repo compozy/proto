@@ -9,6 +9,7 @@ import type { ComponentType } from "react";
 import type { CanvasProps, FrameProps, PrototypeProps } from "../contract.ts";
 import type { Bootstrap } from "./bootstrap.ts";
 import type { RegistryPrototype } from "./registry.ts";
+import type { SourceRoots } from "./source.ts";
 
 /** `virtual:proto/render-config` — injected by `proto dev`/`proto build`, never from the URL. */
 export const renderConfigModule = "virtual:proto/render-config";
@@ -18,6 +19,8 @@ export type RenderConfig = {
   shellOrigin: string;
   /** Render URL form: `path` (`/__proto/render/<slug>`) or `query` (static `?slug=`). */
   form: "path" | "query";
+  /** Roots `data-proto-src` paths are confined to before posting; default `sourceRoots()`. */
+  sourceRoots?: SourceRoots;
 };
 
 /** `virtual:proto/prototypes` — every discovered prototype with a lazy loader. */
