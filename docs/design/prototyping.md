@@ -129,12 +129,16 @@ start and stop temporary dev servers when needed. PNGs are saved under the app-r
 as static DOM without scripts.
 
 `proto build` validates and writes `apps/app/dist-proto/`, using the prebuilt shell. Failures remove
-stale output. Deploy it at `/` or a subpath such as `/gallery/` with a plain static server, without
-rewrites. Bootstrap has mode `read-only`, null API/events/auth endpoints and relative URLs. Static
+stale output. Without `review.remote.url`, this is an offline build. Deploy it at `/` or a subpath
+such as `/gallery/` with a plain static server, without rewrites. Bootstrap has mode `read-only`, null API/events/auth endpoints and relative URLs. Static
 render URLs use `__proto/render/index.html?slug=<slug>&state=<state>`.
 
-Review history is excluded by default. Set `build: { includeReview: true }` to publish snapshots
-at `__proto/review/<key>.json` and their referenced images. No pending or orphaned uploads are
+With `review.remote.url` configured, `proto build` instead emits a remote gallery with path-form
+render URLs and the public shell origin. Serve it through `createReviewServer` on separate public
+and render domains; see [remote deployment](../proto/deployment.md).
+
+Offline review history is excluded by default. Set `build: { includeReview: true }` to publish
+snapshots at `__proto/review/<key>.json` and their referenced images. No pending or orphaned uploads are
 included. A later default build removes exported history while preserving the local store.
 
 ## MCP and setup
@@ -142,8 +146,8 @@ included. A later default build removes exported history while preserving the lo
 `bun run proto mcp --app app` serves the catalog's 22 tools over stdio through the optional
 `@modelcontextprotocol/sdk` peer. CLI JSON and MCP results share execution and error contracts.
 Stdout belongs to MCP. Review transitions, unlock, credentials, migration and process lifecycle
-are excluded from agent tools. Store tools expose `remote`, but remote CLI transport is still a
-separate integration; remote approval/deletion is denied.
+are excluded from agent tools. Store tools expose `remote: true`, matching CLI `--remote` through
+HttpStore and the configured bearer credential; remote approval/deletion is denied to bearers.
 
 `proto init --skills` writes config, canvas, welcome draft, Vite integration, design record and
 review ignore rules, and installs authoring/review skills. Existing configuration is preserved

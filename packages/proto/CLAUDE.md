@@ -20,14 +20,18 @@ The CLI is `bun run proto <command> --app app`.
   host is compiled by the consumer pipeline at `/__proto/render/<slug>`. `renderPlugins` injects
   `virtual:proto/render-config`, `virtual:proto/prototypes`, and `virtual:proto/canvas`.
 - `proto check` checks registry problems and compiles all prototypes without writing build output.
-  `proto build` / `buildProject(project)` writes a read-only `dist-proto` with relative bootstrap,
-  registry and query-form render assets. Review snapshots are opt-in with `build.includeReview`.
+  `proto build` / `buildProject(project)` writes `dist-proto`: offline builds have read-only bootstrap
+  and query-form render assets; configuring `review.remote.url` emits a remote build with path-form
+  render URLs and the public shell origin. `buildProject(project, { remote: publicOrigin })` also
+  selects remote mode. Offline review snapshots are opt-in with `build.includeReview`.
   Invalid registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
-  `store` returns FileStore; `migrate` delegates to the local migration implementation.
+  `store()` returns FileStore; `store({ remote: true })` returns HttpStore using the configured URL
+  and credential. `migrate` delegates to local file migration; the Node entry also exports
+  `migrateRemote` for the database cutover.
 - Runtime imports from configured data modules fail only graphs rooted in stories or prototypes.
   Production builds reject prototype-only modules. Source tags use app-relative paths.
 - Keep `src/node` out of browser modules. The shell and render host communicate across origins.
-  Existing `apps/app/gallery` review history is preserved for the migration slice.
+  Migrated review history lives in `apps/app/proto/review`; the legacy source remains preserved.
 
 ## Capability delivery
 
@@ -39,10 +43,11 @@ implementation is shared by CLI, MCP and the dev review router.
 
 `proto init --skills` installs the package's `author-prototype` and `apply-prototype-comments` skills.
 Agents never approve reviews. MCP excludes review transitions, unlock, credentials, migrations and
-process lifecycle. `--remote` is accepted on store commands and reports the pending remote transport;
-remote approval/deletion is denied. Capture uses the optional Playwright peer, starts a temporary
-server when necessary, and saves app-relative evidence under `docs/design/<slug>/`.
+process lifecycle. Store commands accept `--remote`, and store-backed MCP tools accept `remote: true`,
+using HttpStore with bearer credentials. Remote approval/deletion is denied to bearers. Capture uses
+the optional Playwright peer, starts a temporary server when necessary, and saves app-relative
+evidence under `docs/design/<slug>/`.
 
 `proto mcp` uses the optional `@modelcontextprotocol/sdk` peer over stdio; stdout is reserved for MCP.
-Tests cover parity through the SDK transport and real Chromium screenshots and inert HTML. Static
-packaging and its UT-044 contract remain owned by slice 6.
+Tests cover parity through the SDK transport, real Chromium screenshots and inert HTML, static
+packaging, and fresh-tarball consumer adoption.
