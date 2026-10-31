@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { waitForPublication } from "./verify-publication.mjs";
 import { publicationAuth } from "./publication-auth.mjs";
 if (process.env.GITHUB_REF !== "refs/heads/main")
   throw new Error("Publication is restricted to refs/heads/main");
@@ -35,10 +36,7 @@ const packageResponse = await fetch(endpoint);
 const auth = publicationAuth(packageResponse.status, { version, channel, bootstrapToken });
 const response = await fetch(`${endpoint}/${version}`);
 if (response.ok) {
-  const published = await response.json();
-  if (published.dist?.integrity !== integrity)
-    throw new Error("Existing immutable version differs from the candidate tarball");
-  console.log(`${name}@${version} already published with matching integrity`);
+  console.log(`${name}@${version} already published; verifying registry provenance`);
 } else {
   if (response.status !== 404) throw new Error(`Registry lookup failed: ${response.status}`);
   const authDir = auth === "bootstrap" ? await mkdtemp(join(tmpdir(), "proto-npm-auth-")) : null;
@@ -61,24 +59,12 @@ if (response.ok) {
     if (authDir) await rm(authDir, { recursive: true, force: true });
   }
 }
-// Verify the registry before creating a tag or announcing success on GitHub.
-let verified = false;
-for (let attempt = 0; attempt < 12; attempt++) {
-  const result = await fetch(endpoint);
-  if (!result.ok) throw new Error(`Registry verification failed: ${result.status}`);
-  const published = await result.json();
-  const entry = published.versions?.[version];
-  if (
-    published["dist-tags"]?.[tag] === version &&
-    entry?.dist?.integrity === integrity &&
-    entry.dist.attestations?.provenance
-  ) {
-    verified = true;
-    break;
-  }
-  await new Promise(resolve => setTimeout(resolve, 5000));
-}
-if (!verified)
-  throw new Error(
-    "Registry version, dist-tag, integrity or provenance did not match; GitHub release withheld"
-  );
+// Existing immutable versions are identified by provenance, not a rebuilt tarball.
+await waitForPublication({
+  endpoint,
+  version,
+  tag,
+  integrity: response.ok ? undefined : integrity,
+  commit: process.env.GITHUB_SHA,
+  timeoutMs: Number(process.env.NPM_VERIFY_TIMEOUT_MS ?? 600000),
+});

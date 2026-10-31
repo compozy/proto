@@ -154,3 +154,102 @@ test("registry package status permits one bootstrap and refuses token auth there
   for (const patch of [{ version: "0.2.0" }, { channel: "beta" }, { bootstrapToken: "" }])
     expect(() => publicationAuth(404, { ...candidate, ...patch })).toThrow("bootstrap requires");
 });
+
+// Owner: publication boundary; processing is bounded and immutable retries require matching provenance.
+test("publication waits through processing and verifies both new and existing versions", async () => {
+  // @ts-expect-error Release tooling runs as native ESM.
+  const verification = await import("../../../scripts/verify-publication.mjs");
+  const { waitForPublication, verifyAttestation } = verification;
+  const commit = "a".repeat(40);
+  const digest = "b".repeat(128);
+  const integrity = `sha512-${Buffer.from(digest, "hex").toString("base64")}`;
+  const entry = { dist: { integrity, attestations: { provenance: {} } } };
+  const statement = {
+    predicateType: "https://slsa.dev/provenance/v1",
+    subject: [{ digest: { sha512: digest } }],
+    predicate: {
+      buildDefinition: {
+        externalParameters: {
+          workflow: {
+            repository: "https://github.com/compozy/proto",
+            path: ".github/workflows/release.yml",
+            ref: "refs/heads/main",
+          },
+        },
+        resolvedDependencies: [
+          {
+            uri: "git+https://github.com/compozy/proto@refs/heads/main",
+            digest: { gitCommit: commit },
+          },
+        ],
+      },
+    },
+  };
+  const document = () => ({
+    attestations: [
+      {
+        predicateType: statement.predicateType,
+        bundle: {
+          dsseEnvelope: { payload: Buffer.from(JSON.stringify(statement)).toString("base64") },
+        },
+      },
+    ],
+  });
+  for (const candidate of [integrity, undefined]) {
+    let clock = 0;
+    const waits: number[] = [];
+    await waitForPublication({
+      endpoint: "registry",
+      version: "0.1.0",
+      tag: "latest",
+      integrity: candidate,
+      commit,
+      now: () => clock,
+      log: () => {},
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        clock += ms;
+      },
+      fetcher: async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url === "registry"
+              ? clock < 160000
+                ? {}
+                : { versions: { "0.1.0": entry }, "dist-tags": { latest: "0.1.0" } }
+              : document()
+          )
+        ),
+    });
+    expect(clock).toBeGreaterThanOrEqual(160000);
+    expect(clock).toBeLessThanOrEqual(600000);
+    expect(waits.slice(0, 4)).toEqual([5000, 10000, 20000, 40000]);
+  }
+  expect(() => verifyAttestation(document(), entry, "c".repeat(40))).toThrow("provenance");
+  expect(() => verifyAttestation(document(), { dist: { integrity: "wrong" } }, commit)).toThrow(
+    "provenance"
+  );
+  for (const field of ["repository", "path", "ref"] as const) {
+    const original = statement.predicate.buildDefinition.externalParameters.workflow[field];
+    statement.predicate.buildDefinition.externalParameters.workflow[field] = "wrong";
+    expect(() => verifyAttestation(document(), entry, commit)).toThrow("provenance");
+    statement.predicate.buildDefinition.externalParameters.workflow[field] = original;
+  }
+  let clock = 0;
+  await expect(
+    waitForPublication({
+      endpoint: "registry",
+      version: "0.1.0",
+      tag: "latest",
+      commit,
+      timeoutMs: 12000,
+      now: () => clock,
+      log: () => {},
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+      fetcher: async () => new Response("{}"),
+    })
+  ).rejects.toThrow("deadline");
+  expect(clock).toBe(12000);
+});
