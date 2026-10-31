@@ -302,31 +302,39 @@ export async function browserServer(
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
     async (req, res) => {
-      seen.push({ host: req.headers.host ?? "", cookie: req.headers.cookie ?? "" });
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const body = Buffer.concat(chunks);
-      const response = await (dispatch ?? h.handler)(
-        new Request(`https://${req.headers.host}${req.url}`, {
-          method: req.method,
-          headers: req.headers as Record<string, string>,
-          ...(body.length ? { body } : {}),
-        })
-      );
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.headers.get("content-type")?.includes("text/event-stream")) {
-        res.flushHeaders();
-        const reader = response.body!.getReader();
-        res.once("close", () => {
-          void reader.cancel();
-        });
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          res.write(Buffer.from(chunk.value));
-        }
-        res.end();
-      } else res.end(Buffer.from(await response.arrayBuffer()));
+      try {
+        seen.push({ host: req.headers.host ?? "", cookie: req.headers.cookie ?? "" });
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        const body = Buffer.concat(chunks);
+        const response = await (dispatch ?? h.handler)(
+          new Request(`https://${req.headers.host}${req.url}`, {
+            method: req.method,
+            headers: req.headers as Record<string, string>,
+            ...(body.length ? { body } : {}),
+          })
+        );
+        res.writeHead(response.status, Object.fromEntries(response.headers));
+        if (response.headers.get("content-type")?.includes("text/event-stream")) {
+          res.flushHeaders();
+          const reader = response.body!.getReader();
+          res.once("close", () => {
+            void reader.cancel();
+          });
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            res.write(Buffer.from(chunk.value));
+          }
+          res.end();
+        } else res.end(Buffer.from(await response.arrayBuffer()));
+      } catch (error) {
+        // An upstream Vite/dispatch failure must end the HTTP request, not hang navigation.
+        if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end(
+          "Test upstream failed: " + (error instanceof Error ? error.message : String(error))
+        );
+      }
     }
   );
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
