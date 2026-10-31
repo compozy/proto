@@ -1,5 +1,15 @@
+import { tmpdir } from "node:os";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, cpSync, writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  realpathSync,
+  symlinkSync,
+  cpSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve, join, dirname } from "node:path";
 import { runCli } from "../../../src/cli/main.ts";
@@ -194,8 +204,9 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     });
   });
   it("UT-040 UT-041 UT-043 IT-010 init writes the integration and checks it", async () => {
-    const fresh = mkdtempSync(join(app, ".proto-init-test-"));
+    const fresh = realpathSync(mkdtempSync(join(tmpdir(), "proto-init-test-")));
     try {
+      symlinkSync(join(app, "node_modules"), join(fresh, "node_modules"), "dir");
       writeFileSync(
         join(fresh, "vite.config.ts"),
         'import react from "@vitejs/plugin-react"; export default {cacheDir:".vite",plugins:[react()]};'

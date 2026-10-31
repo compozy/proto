@@ -5,7 +5,8 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { chromium } from "playwright";
+import { execFileSync, spawnSync } from "node:child_process";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: "utf8", timeout: 180000 });
 
@@ -31,19 +32,25 @@ test(
           type: "module",
           dependencies: {
             "@compozy/proto": `file:${join(temp, packed.filename)}`,
-            react: manifest.peerDependencies.react,
-            "react-dom": manifest.peerDependencies["react-dom"],
-            vite: manifest.dependencies.vite,
+            react: "~19.2.0",
+            "react-dom": "~19.2.0",
+            vite: manifest.devDependencies.vite,
             "@vitejs/plugin-react": manifest.devDependencies["@vitejs/plugin-react"],
           },
         })
       );
+      run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], app);
+      const installed = join(app, "node_modules/@compozy/proto");
+      run("npm", ["ls", "react", "react-dom", "vite", "--all"], app);
       run(
-        "npm",
-        ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"],
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          `import assert from "node:assert/strict"; import {createRequire} from "node:module"; const app=createRequire(import.meta.url); const proto=createRequire(app.resolve("@compozy/proto/node")); assert.equal(app.resolve("vite"),proto.resolve("vite"));`,
+        ],
         app
       );
-      const installed = join(app, "node_modules/@compozy/proto");
       await t.test(
         "public exports and Node/Bun bin resolve without workspace packages",
         async () => {
@@ -58,6 +65,8 @@ test(
             app
           );
           const bin = join(app, "node_modules/.bin/proto");
+          assert.equal(run("node", [bin, "--version"], app).trim(), manifest.version);
+          assert.equal(run("bun", [bin, "--version"], app).trim(), manifest.version);
           const packedManifest = JSON.parse(
             await readFile(join(installed, "package.json"), "utf8")
           );
@@ -178,11 +187,60 @@ try {
           }
           assert.equal(response?.status, 200);
           assert.equal((await response.json()).title, "Tarball consumer");
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const page = await browser.newPage();
+            page.on("pageerror", error => console.error("Gallery page error:", error.message));
+            await page.goto("http://127.0.0.1:24320/?p=welcome");
+            await page
+              .frameLocator("iframe")
+              .first()
+              .getByText("Welcome to Proto", { exact: true })
+              .waitFor()
+              .catch(async error => {
+                console.error("Gallery DOM:", await page.locator("body").innerText());
+                for (const frame of page.frames())
+                  console.error("Frame:", frame.url(), await frame.locator("body").innerText());
+                throw error;
+              });
+            const render = page
+              .frames()
+              .find(frame => frame.url().includes("/__proto/render/welcome"));
+            assert.ok(render, "Welcome must render in the installed gallery iframe");
+            assert.equal(new URL(render.url()).origin, "http://127.0.0.1:24321");
+          } finally {
+            await browser.close();
+          }
         } finally {
           child.kill("SIGTERM");
           await exited;
         }
       });
+      await t.test(
+        "production imports of package runtime helpers fail the Vite build",
+        async () => {
+          await writeFile(
+            join(app, "src/main.ts"),
+            'import { setParam } from "@compozy/proto"; setParam("production", "forbidden");'
+          );
+          await writeFile(
+            join(app, "index.html"),
+            '<div id="root"></div><script type="module" src="/src/main.ts"></script>'
+          );
+          const result = spawnSync("node", [join(app, "node_modules/vite/bin/vite.js"), "build"], {
+            cwd: app,
+            encoding: "utf8",
+            timeout: 180000,
+          });
+          assert.equal(result.error, undefined);
+          assert.equal(
+            result.status,
+            1,
+            "Production build must reject @compozy/proto runtime helpers"
+          );
+          assert.match(result.stdout + result.stderr, /production_boundary/);
+        }
+      );
     } finally {
       await rm(temp, { recursive: true, force: true });
     }

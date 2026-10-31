@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
   package:
     if: >-
-      github.event_name != 'push' || startsWith(github.event.head_commit.message, 'build: release v')
+      github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build: release v')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -79,20 +79,22 @@ jobs:
       - run: bun run --cwd packages/proto build
       - run: npm pack ./dist/package --dry-run --ignore-scripts
         working-directory: packages/proto
+      - run: bunx playwright install --with-deps chromium
+        working-directory: packages/proto
       - run: bun run --cwd packages/proto test:tarball
       - name: Require integrated slices before publication
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           test -f packages/proto/dist/package/dist/shell/index.html
           node packages/proto/dist/package/src/cli/main.js --help | grep -w init
       - name: Publish npm with trusted identity
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: node packages/proto/scripts/publish.mjs
         env:
           REQUESTED_VERSION: ${{ steps.plan.outputs.version }}
           CHANNEL: ${{ steps.plan.outputs.channel }}
       - name: Tag and publish GitHub Release after npm succeeds
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.plan.outputs.tag }}

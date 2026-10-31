@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { version } from "../../package.json";
 import { defineCommand, parseArgs, type ArgsDef } from "citty";
 import { existsSync, readdirSync } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
@@ -64,6 +65,8 @@ export async function runCli(
   options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string> } = {}
 ): Promise<CliResult> {
   try {
+    if (argv.length === 1 && ["--version", "-v"].includes(argv[0]!))
+      return { exitCode: 0, data: { version } };
     if (argv[0] === "auth") {
       const command = `auth ${argv[1] ?? ""}`;
       if (!catalog.some(c => c.cli === command)) throw new UsageError("Unknown auth command");
@@ -193,7 +196,7 @@ export async function runCli(
   }
 }
 export const main = defineCommand({
-  meta: { name: "proto" },
+  meta: { name: "proto", version },
   subCommands: Object.fromEntries(
     catalog.filter(c => !c.cli.includes(" ")).map(c => [c.cli, commandDefinition(c)])
   ),
@@ -201,7 +204,9 @@ export const main = defineCommand({
 if (import.meta.main) {
   const started = Date.now();
   const result = await runCli(process.argv.slice(2));
-  if (result.data !== undefined) {
+  if (process.argv.length === 3 && ["--version", "-v"].includes(process.argv[2]!))
+    console.log(version);
+  else if (result.data !== undefined) {
     const data = result.data as {
       saved?: boolean;
       removed?: boolean;

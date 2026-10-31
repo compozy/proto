@@ -33,3 +33,5 @@ storybook-static/
 .vitest/
 
 .proto-build-*/
+
+.proto-init-test-*/

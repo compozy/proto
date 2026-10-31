@@ -47,7 +47,6 @@ await writeFile(
   cliFile,
   (await readFile(cliFile, "utf8"))
     .replace(/^#!.*\n/, "")
-    .replace(/version: ["']0\.0\.0["']/, `version: ${JSON.stringify(manifest.version)}`)
     .replaceAll(
       "import.meta.main",
       '(import.meta.main || (await import("node:fs")).realpathSync((await import("node:url")).fileURLToPath(import.meta.url)) === (await import("node:fs")).realpathSync(process.argv[1]))'

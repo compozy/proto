@@ -43,11 +43,15 @@ Merging the release PR selects publication rather than creating another PR. The 
 the committed version against the merge subject, builds, validates the tarball, publishes to npm
 with OIDC and provenance, then creates the tag and GitHub Release. No GitHub Release claims a
 publication before npm succeeds. Publication runs are serialized and non-cancellable; ordinary
-pushes use a separate group. Failed publication can be retried by dispatching the same source ref,
-version and channel; registry failures other than 404 fail closed.
+pushes use a separate group. Failed publication can be retried by dispatching `main` while it
+still contains the same release version and channel; registry failures other than 404 fail closed.
 
-For an explicit release, commit the intended version and matching lockfile on the selected ref,
-then dispatch `release.yml` with `version` and `channel`. Stable versions are `X.Y.Z` and use npm
+For an explicit release, land the intended version and matching lockfile on `main`, then dispatch
+`release.yml` with the branch selector set to `main`, plus `version` and `channel`. Both stable and
+beta publication require `refs/heads/main`: the job/steps and the publication script reject other
+branches and tags. PRs retain dry-run validation. No environment is added, so the npm trusted
+publisher environment field remains blank. Protect `main` and workflow changes with required PR
+reviews; npm's workflow identity alone does not restrict the source branch. Stable versions are `X.Y.Z` and use npm
 `latest`; beta versions are `X.Y.Z-beta.N` and use npm `beta` with a GitHub prerelease. Dispatch
 never silently changes the selected commit's version. Do not dispatch an older stable version after
 a newer release; dist-tags are part of the release identity.
@@ -88,7 +92,7 @@ bootstrap after the integration PR and validation have completed:
 4. Configure the trusted publisher with the fields above. Restore the intended stable `0.1.0`
    through a normal version-change commit (no history reset), refresh the lockfile, and validate.
 5. Merge the generated `release/v0.1.0` PR using the exact subject `build: release v0.1.0`.
-   For recovery after a failed publication, dispatch `release.yml` on that merge commit with
+   For recovery after a failed publication, dispatch `release.yml` on `main` while that release commit is its head, with
    `version=0.1.0`, `channel=stable`.
 6. Verify npm `latest` is `0.1.0`, inspect its provenance link to `compozy/proto`/`release.yml`,
    install the public package in a fresh consumer, and verify GitHub tag/release `v0.1.0` targets

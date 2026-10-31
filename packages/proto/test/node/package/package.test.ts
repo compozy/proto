@@ -45,11 +45,19 @@ test("release workflow contract isolates publication and finalizes GitHub only a
     "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'build: release v')"
   );
   expect(workflow).toContain(
-    "github.event_name != 'push' || startsWith(github.event.head_commit.message, 'build: release v')"
+    "github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build: release v')))"
   );
   expect(workflow).toContain("&& '-publish' || ''");
   expect(workflow).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
   expect(workflow).toContain("id-token: write");
+  for (const step of [
+    "Publish npm with trusted identity",
+    "Tag and publish GitHub Release after npm succeeds",
+  ]) {
+    expect(workflow.split(`- name: ${step}`)[1]?.split("- name:")[0]).toContain(
+      "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
+    );
+  }
   expect(workflow).not.toMatch(/secrets\.(NPM_TOKEN|NODE_AUTH_TOKEN)/);
   expect(workflow.indexOf("node packages/proto/scripts/publish.mjs")).toBeLessThan(
     workflow.indexOf("bash scripts/release/finalize.sh")
@@ -108,4 +116,27 @@ test("release planner validates the actual Git commit and refuses conflicting ta
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// Owner: executable package/release boundary; denied refs cannot reach registry I/O.
+test("publication rejects non-main refs before reading the package or contacting npm", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const script = new URL("../../../scripts/publish.mjs", import.meta.url);
+  for (const ref of ["refs/heads/feature", "refs/heads/release/v0.1.0", "refs/tags/v0.1.0", ""]) {
+    const result = spawnSync("node", [script.pathname], {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_REF: ref },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Publication is restricted to refs/heads/main");
+  }
+});
+test("source CLI --version reports the package version", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const manifest = JSON.parse(
+    await readFile(new URL("../../../package.json", import.meta.url), "utf8")
+  );
+  const cli = new URL("../../../src/cli/main.ts", import.meta.url).pathname;
+  for (const flag of ["--version", "-v"])
+    expect(execFileSync("bun", [cli, flag], { encoding: "utf8" }).trim()).toBe(manifest.version);
 });

@@ -65,24 +65,27 @@ through the CLI or MCP. Agents never approve; people do.
 
 ## Quick start
 
-Requires a React + Vite app.
+Requires a React 19 + Vite 8 app. Proto uses the app's Vite installation; install React and Vite
+in the consumer before adding Proto.
 
-```console
-$ bun add -d @compozy/proto
-$ bunx proto init
-✓ proto.config.ts
-✓ proto.canvas.tsx
-✓ src/drafts/welcome/index.proto.tsx
-✓ vite.config.ts (added proto())
-✓ docs/design/prototyping.md
-Next: bunx proto dev
-
-$ bunx proto dev
-proto  ready in 412 ms
-  ➜  Gallery  http://127.0.0.1:4400/
-  ➜  Render   http://127.0.0.1:4401/  (prototypes run here)
-  1 prototype · 0 flows · 0 problems
+```sh
+bun add -d @compozy/proto
+bunx proto init
+bunx proto dev --open
 ```
+
+`init` writes the config, canvas, welcome draft and Vite plugin integration. `proto --help` lists
+the commands; `proto --version` prints the installed package version.
+
+Install these optional peers only for the features you use:
+
+| Feature                  | Optional peer                           | Setup                                                           |
+| ------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| Screenshots and evidence | `playwright` (`^1.64.0`)                | `bun add -d playwright` then `bunx playwright install chromium` |
+| MCP server (`proto mcp`) | `@modelcontextprotocol/sdk` (`^1.32.2`) | `bun add -d @modelcontextprotocol/sdk`                          |
+| Postgres review storage  | `postgres` (`^3.4.0`)                   | `bun add postgres` in the backend that mounts the review server |
+
+The gallery, local reviews and static builds do not require these optional integrations.
 
 ## Write a prototype
 
@@ -207,11 +210,16 @@ your code), written under a per-key lock so the CLI, MCP and the dev server can 
 
 ## Remote review
 
+Remote deployment uses `proto build --remote <publicOrigin>` to prepare the gallery for its public
+origin; serve that output through the review server. The default `proto build` remains an offline,
+read-only export. The remote build target is being integrated with the server implementation.
+
 To review on a deployed gallery, mount the self-hosted server in your own backend:
 
 ```ts
 import { createReviewServer, postgresStorage } from "@compozy/proto/server";
 
+// sql is your postgres.js connection; install the optional postgres peer in this backend.
 const storage = postgresStorage(sql);
 await storage.migrate(); // shipped DDL
 

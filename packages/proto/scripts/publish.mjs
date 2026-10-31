@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+if (process.env.GITHUB_REF !== "refs/heads/main")
+  throw new Error("Publication is restricted to refs/heads/main");
 const stage = fileURLToPath(new URL("../dist/package/", import.meta.url));
 const { name, version } = JSON.parse(
   await readFile(new URL("../dist/package/package.json", import.meta.url), "utf8")
