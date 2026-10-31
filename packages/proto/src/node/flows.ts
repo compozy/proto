@@ -29,7 +29,7 @@ export type {
 const ignored = new Set([
   "node_modules",
   "dist",
-  "dist-gallery",
+  "dist-proto",
   "storybook-static",
   "coverage",
   "test-results",

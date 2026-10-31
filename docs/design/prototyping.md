@@ -25,8 +25,25 @@ The gallery (`packages/proto`) serves a prebuilt shell on port 4400 and compiles
 prototypes through the consumer Vite pipeline on port 4401. Storybook uses `vite.shared.ts`
 and `protoPresentation()`. When several apps have `proto.config.ts`, pass `--app <name>`.
 
-`proto build` validates registry and render compilation before producing the existing legacy
-`dist-gallery` output. The new isolated static packaging is supplied by slice 6.
+`proto build` validates the registry and builds the consumer Vite graph in render mode, then
+publishes `dist-proto/`. A registry problem, forbidden import or build failure exits 1 and leaves
+no `dist-proto`, including an old output. Build the package shell first (`build:shell`); a missing
+prebuilt shell fails explicitly. The Node entry exports `buildProject(project)` for integrations.
+
+The output deploys at `/` or any subpath such as `/gallery/` using a plain static server with no
+rewrites. Shell assets live at the root; `__proto/bootstrap.json` sets `mode: "read-only"`, null
+API/events/auth endpoints and document-relative URLs. The consumer render entry is
+`__proto/render/index.html?slug=<slug>&state=<state>` and derives its trusted shell origin from
+the current location. Its assets and lazy prototype chunks are relative to that entry.
+
+Review history is excluded by default. Opt in with `build: { includeReview: true }` in
+`proto.config.ts` to emit `__proto/review/<key>.json` and referenced images under
+`__proto/review/<key>/attachments/`. Each snapshot is `{ key, comments, review }`, where `comments`
+contains v3 threads and `review` is the store's `ReviewState` (including events). Attachment `url`
+values are relative to the shell document, like `__proto/review/<key>/attachments/<id>.png`.
+No pending uploads or unreferenced attachment files are copied. Without opt-in,
+`reviewSnapshotBase` is null and no review directory is emitted. A subsequent default build removes
+previously exported history while preserving the source review store.
 
 ## Authoring
 

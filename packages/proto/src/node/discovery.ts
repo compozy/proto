@@ -130,7 +130,9 @@ export function findPrototypes(
         { cwd: appRoot }
       ).map(file => resolve(appRoot, file))
     : files(join(appRoot, "src"));
-  for (const path of paths.filter(path => !/(?:\.pending\/|\.lock|\.tmp)/.test(path)).sort()) {
+  for (const path of paths
+    .filter(path => !/(?:\.pending\/|\.lock|\.tmp)/.test(relative(appRoot, path)))
+    .sort()) {
     const local = relative(appRoot, path);
     const file = relative(repoRoot, path);
     const parts = local.split("/");

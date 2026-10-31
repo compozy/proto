@@ -5,3 +5,4 @@ export { migrateFiles, type MigrateOptions, type MigrationReport } from "../migr
 export { scaffold, initProject } from "./scaffold.ts";
 export { capture, type CaptureTarget } from "./capture.ts";
 export type { ReviewState, Author, CommentFilter, NewMessage } from "../store/index.ts";
+export { buildProject, type BuildOptions } from "./build.ts";

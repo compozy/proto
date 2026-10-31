@@ -4,8 +4,8 @@
     "type": "module",
     "scripts": {
         "dev": "vite --host 127.0.0.1 --port 3002 --strictPort",
-        "build": "vite build && bun run build:gallery && bun run build:storybook",
-        "build:gallery": "bun ../../packages/proto/src/cli/main.ts build",
+        "build": "vite build && bun run build:proto && bun run build:storybook",
+        "build:proto": "bun ../../packages/proto/src/cli/main.ts build",
         "build:storybook": "storybook build --quiet",
         "preview": "vite preview --port 3002",
         "storybook": "storybook dev --host 127.0.0.1 --port 6007 --no-open",

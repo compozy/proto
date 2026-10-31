@@ -4,7 +4,7 @@
     "tasks": {
         "build": {
             "dependsOn": ["^build"],
-            "outputs": ["dist/**", ".output/**", "dist-gallery/**", "storybook-static/**"]
+            "outputs": ["dist/**", ".output/**", "dist-proto/**", "storybook-static/**"]
         },
         "typecheck": {
             "dependsOn": ["^build"],

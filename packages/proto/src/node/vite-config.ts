@@ -28,7 +28,7 @@ function buildCommit() {
 /**
  * The gallery's Vite config: the app's `vite.shared.ts` (aliases, Tailwind, React Compiler,
  * presentation boundary; the same config Storybook uses) plus the gallery root, discovery,
- * source tags and the local comments API. Port 4400, output `apps/<app>/dist-gallery`.
+ * source tags and the local comments API. Port 4400, output `apps/<app>/dist-proto`.
  */
 export async function galleryViteConfig(command: "serve" | "build"): Promise<InlineConfig> {
   const app = currentApp();
@@ -60,7 +60,7 @@ export async function galleryViteConfig(command: "serve" | "build"): Promise<Inl
     server: { ...serverOptions, host: "127.0.0.1", port: 4400, strictPort: true },
     // The ELK layout worker (1.6 MB) is one vendor module; this budget is the gallery's only.
     build: {
-      outDir: resolve(app.appRoot, "dist-gallery"),
+      outDir: resolve(app.appRoot, "dist-proto"),
       emptyOutDir: true,
       chunkSizeWarningLimit: 1700,
     },

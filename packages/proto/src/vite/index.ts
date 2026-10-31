@@ -95,7 +95,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
       },
       async load(id) {
         if (id === `\0${ids[0]}`)
-          return `export default ${JSON.stringify(renderConfig)}; export const config = ${JSON.stringify(renderConfig)}; export const renderConfig = config;`;
+          return `export const config = { ...${JSON.stringify(renderConfig)}${renderConfig.mode === "read-only" ? ", shellOrigin: window.location.origin" : ""} }; export default config; export const renderConfig = config;`;
         if (id === `\0${ids[1]}`) {
           const registry = await project.registry();
           return `export const prototypes = [${registry.prototypes.map(p => `({...${JSON.stringify(p)}, load: () => import(${JSON.stringify(resolve(project.root, p.file))})})`).join(",")}]; export default prototypes;`;

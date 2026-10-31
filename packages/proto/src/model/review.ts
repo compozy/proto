@@ -124,6 +124,8 @@ export type ReviewState = {
   open: number;
   events: ReviewEvent[];
 };
+/** Static read-only export at __proto/review/<key>.json; attachment URLs are document-relative. */
+export type ReviewSnapshot = { key: string; comments: ReviewComment[]; review: ReviewState };
 const body = z.string().trim().min(1).max(10000);
 const ids = z
   .array(z.string().uuid())

@@ -20,9 +20,10 @@ The CLI is `bun run proto <command> --app app`.
   host is compiled by the consumer pipeline at `/__proto/render/<slug>`. `renderPlugins` injects
   `virtual:proto/render-config`, `virtual:proto/prototypes`, and `virtual:proto/canvas`.
 - `proto check` checks registry problems and compiles all prototypes without writing build output.
-  The existing legacy static output remains available; new static packaging is a later slice.
-  `screenshot` and `evidence` use the capture implementation. `store` returns FileStore;
-  `migrate` delegates to the local migration implementation.
+  `proto build` / `buildProject(project)` writes a read-only `dist-proto` with relative bootstrap,
+  registry and query-form render assets. Review snapshots are opt-in with `build.includeReview`.
+  Invalid registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
+  `store` returns FileStore; `migrate` delegates to the local migration implementation.
 - Runtime imports from configured data modules fail only graphs rooted in stories or prototypes.
   Production builds reject prototype-only modules. Source tags use app-relative paths.
 - Keep `src/node` out of browser modules. The shell and render host communicate across origins.
