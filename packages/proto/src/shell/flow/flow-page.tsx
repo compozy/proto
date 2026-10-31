@@ -38,10 +38,13 @@ import { FlowCanvas } from "./flow-canvas";
 export function FlowPage({
   flow,
   node,
+  comment = null,
   theme,
 }: {
   flow: RegistryFlow;
   node: string | null;
+  /** A comment focused from the URL (inbox, search): opens the Comments tab. */
+  comment?: string | null;
   theme: "light" | "dark";
 }) {
   const t = useT();
@@ -50,7 +53,12 @@ export function FlowPage({
   const slots = useSlots();
   const inspector = useInspector();
   const badge = useStepBadge(flow.id);
-  const [tab, setTab] = useState("step");
+  const [tab, setTab] = useState(comment ? "comments" : "step");
+  const [seenComment, setSeenComment] = useState(comment);
+  if (comment !== seenComment) {
+    setSeenComment(comment);
+    if (comment) setTab("comments");
+  }
   const selected = flow.nodes.find(item => item.id === node) ?? null;
   const target: ReviewTarget = {
     kind: "flow",
@@ -68,8 +76,12 @@ export function FlowPage({
       prototype?.states.find(state => state.id === warning.state)?.label ?? warning.state;
     uncovered.set(warning.proto, [...(uncovered.get(warning.proto) ?? []), label]);
   }
+  // Re-selecting the step on screen keeps its focused comment; another step drops it.
   const select = (id: string | null) =>
-    go({ area: "flow", flow: flow.id, node: id }, { replace: true });
+    go(
+      { area: "flow", flow: flow.id, node: id, comment: id === node ? comment : null },
+      { replace: true }
+    );
   const screenNode =
     selected?.kind === "prototype"
       ? selected

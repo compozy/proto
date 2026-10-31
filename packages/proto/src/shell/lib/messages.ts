@@ -100,6 +100,8 @@ export const en = {
   "flow.zoomIn": "Zoom in",
   "flow.zoomOut": "Zoom out",
   "flows.none": "No flows yet. Describe a journey in flows/*.flow.ts:",
+  "frame.authLoop":
+    "The render origin keeps rejecting this frame's access. Reload the state or sign in again.",
   "frame.copyError": "Copy error",
   "frame.failed": "{title} failed to render",
   "frame.loading": "Loading the prototype",
@@ -331,6 +333,18 @@ export const en = {
   "thread.thisState": "This state",
   "thread.thisStep": "This step",
   "thread.wholeFlow": "Whole flow",
+  "history.approved": "Approved by {name}",
+  "history.autoReopened": "Back in review: new comment #{number}",
+  "history.autoReopenedPlain": "Back in review after a new comment",
+  "history.reopened": "Reopened by {name}",
+  "history.system": "the gallery",
+  "history.title": "Review history",
+  "overview.needsReview": "Needs review",
+  "overview.noReplies": "No replies yet",
+  "overview.replies.one": "{count} reply",
+  "overview.replies.other": "{count} replies",
+  "overview.updated": "Updated {when}",
+  "overview.waiting": "Agent replied · waiting for you",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -436,6 +450,8 @@ export const ptBR: Record<MessageKey, string> = {
   "flow.zoomIn": "Aproximar",
   "flow.zoomOut": "Afastar",
   "flows.none": "Nenhum fluxo ainda. Descreva uma jornada em flows/*.flow.ts:",
+  "frame.authLoop":
+    "A origem de render continua recusando o acesso deste frame. Recarregue o estado ou entre novamente.",
   "frame.copyError": "Copiar erro",
   "frame.failed": "{title} falhou ao renderizar",
   "frame.loading": "Carregando o protótipo",
@@ -668,4 +684,16 @@ export const ptBR: Record<MessageKey, string> = {
   "thread.thisState": "Este estado",
   "thread.thisStep": "Este passo",
   "thread.wholeFlow": "Fluxo inteiro",
+  "history.approved": "Aprovado por {name}",
+  "history.autoReopened": "De volta à revisão: novo comentário #{number}",
+  "history.autoReopenedPlain": "De volta à revisão após um novo comentário",
+  "history.reopened": "Reaberto por {name}",
+  "history.system": "a galeria",
+  "history.title": "Histórico de revisão",
+  "overview.needsReview": "Precisa de revisão",
+  "overview.noReplies": "Sem respostas ainda",
+  "overview.replies.one": "{count} resposta",
+  "overview.replies.other": "{count} respostas",
+  "overview.updated": "Atualizado {when}",
+  "overview.waiting": "Agente respondeu · aguardando você",
 };

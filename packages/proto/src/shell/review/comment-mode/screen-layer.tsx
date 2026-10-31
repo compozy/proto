@@ -13,7 +13,7 @@ import type { FrameGeometry } from "../../frames/screen-frame";
 import type { RenderFrameHandle } from "../../frames/use-render-frame";
 import { useT } from "../../lib/i18n";
 import { useLocation } from "../../lib/navigation";
-import { resolveRole } from "../../lib/registry-model";
+import { registrySourceRoots, resolveRole } from "../../lib/registry-model";
 import { useRegistry } from "../../lib/shell-data";
 import { useShortcuts } from "../../lib/shortcuts";
 import { useResolvedTheme } from "../../lib/theme";
@@ -127,7 +127,7 @@ export function ScreenCommentLayer({
     session.current = null;
     // The prototype can post a result while the real picker is still running: end it either way.
     frame.send({ type: "pick:cancel" });
-    const confined = confinePick(message.target);
+    const confined = confinePick(message.target, registrySourceRoots(registry));
     if (!confined.ok) {
       setRefused(true);
       mode.setTool("select");

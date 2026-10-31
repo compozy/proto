@@ -17,12 +17,16 @@ const query = new URLSearchParams({
 });
 iframe.src = `/test/browser/render/__proto/render/index.html?${query}&foreign=1`;
 iframe.style.cssText = "width: 600px; height: 500px; border: 0";
-iframe.addEventListener("load", () => {
-  const send = () =>
-    iframe.contentWindow?.postMessage(
-      { proto: 1, frame, type: "pick:start", mode: "element" },
-      "*"
-    );
-  for (const delay of [200, 500, 1000]) setTimeout(send, delay);
+/** Valid `pick:start` messages from this untrusted parent; the suite calls it once the host runs. */
+Object.assign(window, {
+  forge: () => {
+    for (let index = 0; index < 3; index += 1) {
+      iframe.contentWindow?.postMessage(
+        { proto: 1, frame, type: "pick:start", mode: "element" },
+        "*"
+      );
+    }
+    return true;
+  },
 });
 document.body.append(iframe);

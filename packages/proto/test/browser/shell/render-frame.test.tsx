@@ -18,6 +18,7 @@ import type { FrameContext } from "../../../src/shell/frames/use-render-frame.ts
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
 import { acceptRenderMessage } from "../../../src/shell/lib/render-channel.ts";
 import { ShellDataProvider, type ShellEnv } from "../../../src/shell/lib/shell-data.tsx";
+import { ReviewProvider } from "../../../src/shell/review/data.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
 
 const renderOrigin = window.location.origin.replace("127.0.0.1", "localhost");
@@ -39,7 +40,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-function mount(node: ReactNode) {
+function mount(node: ReactNode, shellEnv: ShellEnv = env) {
   const container = document.createElement("div");
   container.style.cssText = "position: fixed; inset: 0; display: flex;";
   document.body.append(container);
@@ -47,7 +48,7 @@ function mount(node: ReactNode) {
   act(() =>
     root.render(
       <LocaleProvider locale="en">
-        <ShellDataProvider env={env}>{node}</ShellDataProvider>
+        <ShellDataProvider env={shellEnv}>{node}</ShellDataProvider>
       </LocaleProvider>
     )
   );
@@ -154,7 +155,7 @@ describe("ScreenFrame", () => {
       });
       deliver(errorMessage("stale-nonce"), { source: iframe.contentWindow, origin: renderOrigin });
     });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Synthetic dispatch runs the shell's listener synchronously inside act(): nothing to wait for.
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(frameOf(container)).toBe(iframe);
 
@@ -187,7 +188,7 @@ describe("ScreenFrame", () => {
     await vi.waitFor(() => expect(nonceOf(frameOf(container))).not.toBe(first));
     const iframe = frameOf(container);
     act(() => deliver(errorMessage(first), { source: iframe.contentWindow, origin: renderOrigin }));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Synthetic dispatch runs the shell's listener synchronously inside act(): nothing to wait for.
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
@@ -259,7 +260,70 @@ describe("ScreenFrame", () => {
         { source: iframe.contentWindow, origin: renderOrigin }
       )
     );
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Synthetic dispatch runs the shell's listener synchronously inside act(): nothing to wait for.
     expect(contexts.every(context => context.slug === "card")).toBe(true);
+  });
+
+  test("F4 / Safety Invariant 7: a forged auth:expired re-tickets at most twice per window, then S16", async () => {
+    let tickets = 0;
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input), window.location.href).pathname === "/api/render-ticket") {
+        tickets += 1;
+        return Response.json({ ticket: `ticket-${tickets}`, url: "", expiresAt: "" });
+      }
+      return real(input, init);
+    });
+    cleanups.push(() => vi.unstubAllGlobals());
+    const remote: ShellEnv = {
+      ...env,
+      bootstrap: {
+        ...env.bootstrap,
+        mode: "remote",
+        apiBase: "/api/",
+        principal: {
+          id: "usr_1",
+          name: "Pedro Nauck",
+          kind: "reviewer",
+          scopes: ["review", "comment"],
+          credentialId: null,
+        },
+      },
+    };
+    const container = mount(
+      <ReviewProvider keys={["card"]}>
+        <ScreenFrame
+          target={{ slug: "card", state: "default", theme: "light", role: null }}
+          width="fit"
+          title="Card"
+          slugs={slugs}
+          className="flex-1"
+        />
+      </ReviewProvider>,
+      remote
+    );
+    const expire = async (round: number) => {
+      const iframe = await vi.waitFor(() => {
+        const found = frameOf(container);
+        if (!found.src.includes(`ticket=ticket-${round}`)) throw new Error("No ticketed load yet");
+        return found;
+      });
+      act(() =>
+        deliver(
+          { proto: protocolVersion, frame: nonceOf(iframe), type: "auth:expired" },
+          { source: iframe.contentWindow, origin: renderOrigin }
+        )
+      );
+    };
+    await expire(1);
+    await expire(2);
+    await expire(3);
+    const alert = await vi.waitFor(() => {
+      const found = container.querySelector('[role="alert"]');
+      if (!found) throw new Error("No render failure yet");
+      return found;
+    });
+    expect(alert.textContent).toContain("keeps rejecting");
+    expect(tickets).toBe(3);
   });
 });

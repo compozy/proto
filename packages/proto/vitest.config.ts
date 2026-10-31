@@ -22,6 +22,19 @@ export default defineConfig({
           name: "node",
           environment: "node",
           include: ["test/node/**/*.test.ts"],
+          exclude: ["test/node/e2e/**"],
+        },
+      },
+      {
+        // Shell journeys against the real `proto dev` (Chromium + paired Vite servers each): one
+        // file at a time so a 2-core runner keeps headroom; part of `vitest run` and CI.
+        test: {
+          name: "e2e",
+          environment: "node",
+          include: ["test/node/e2e/**/*.test.ts"],
+          fileParallelism: false,
+          testTimeout: 120_000,
+          hookTimeout: 240_000,
         },
       },
       {

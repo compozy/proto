@@ -8,13 +8,14 @@ import { useState } from "react";
 
 import type { ReviewEvent } from "../../../model/review";
 import { ShellModal } from "../../app/chrome";
-import { useT } from "../../lib/i18n";
+import { useLocale, useT } from "../../lib/i18n";
 import { useShellData } from "../../lib/shell-data";
 import { Button } from "../../ui/button";
 import { Check, Ellipsis, RotateCcw, TriangleAlert } from "../../ui/icons";
 import { cn } from "../../ui/utils";
 import { isReviewApiError } from "../api";
 import { useAllComments, useReviewData, useReviewMutation, useReviewState } from "../data";
+import { relativeTime } from "../format";
 
 /** The last approval event, for "Approved by … · commit". */
 export function lastApproval(events: readonly ReviewEvent[]) {
@@ -281,5 +282,79 @@ export function ReviewMenu({ reviewKey }: { reviewKey: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The key's review history (US-020): approvals with their commit and recorded open count,
+ * manual reopenings and automatic ones caused by a new comment (linked to that thread),
+ * newest first.
+ */
+export function ReviewHistory({
+  reviewKey,
+  onComment,
+}: {
+  reviewKey: string;
+  onComment: (id: string) => void;
+}) {
+  const t = useT();
+  const locale = useLocale();
+  const state = useReviewState(reviewKey).data;
+  if (!state?.events.length) return null;
+  const who = (event: ReviewEvent) =>
+    event.authorName ??
+    (event.author === "system" ? t("history.system") : t(`review.${event.author}`));
+  return (
+    <section aria-label={t("history.title")} className="mt-2 border-t border-border pt-4">
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">{t("history.title")}</h3>
+      <ol className="flex flex-col gap-2">
+        {[...state.events].reverse().map(event => (
+          <li key={event.id} className="flex items-start gap-2 text-[12.5px]">
+            <span
+              aria-hidden="true"
+              className={cn(
+                "mt-1.5 size-1.5 shrink-0 rounded-full",
+                event.type === "approved" ? "bg-[var(--tone-end)]" : "bg-primary"
+              )}
+            />
+            <span className="min-w-0 flex-1">
+              {event.type === "approved" && (
+                <span>
+                  {t("history.approved", { name: who(event) })}
+                  {event.openCount > 0 && (
+                    <span className="text-muted-foreground">
+                      {" · "}
+                      {t("approval.recorded", { count: event.openCount })}
+                    </span>
+                  )}
+                </span>
+              )}
+              {event.type === "reopened" && (
+                <span>{t("history.reopened", { name: who(event) })}</span>
+              )}
+              {event.type === "auto_reopened" &&
+                (event.commentId ? (
+                  <button
+                    type="button"
+                    onClick={() => event.commentId && onComment(event.commentId)}
+                    className="text-left underline-offset-2 hover:underline"
+                  >
+                    {t("history.autoReopened", {
+                      number: event.commentId.slice(event.commentId.lastIndexOf("-") + 1),
+                    })}
+                  </button>
+                ) : (
+                  <span>{t("history.autoReopenedPlain")}</span>
+                ))}
+              <span className="block font-mono text-[10.5px] text-muted-foreground">
+                {[relativeTime(event.at, locale), event.commit?.slice(0, 7)]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

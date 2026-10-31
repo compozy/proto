@@ -2,6 +2,7 @@
  * What the shell derives from a registry snapshot: spec groups, flow kinds and occurrences,
  * coverage and problems per item. Pure: no DOM.
  */
+import { sourceRoots, type SourceRoots } from "../../model/source";
 import type {
   Registry,
   RegistryFlow,
@@ -162,4 +163,14 @@ export function displayUrl(url: string) {
 
 export function padNumber(value: number) {
   return String(value).padStart(2, "0");
+}
+
+/**
+ * The app's source roots (src, its `flows` dir and its canvas file) from the registry snapshot,
+ * so picks from custom `flows`/`canvas` paths are not refused; older snapshots fall back to the
+ * defaults.
+ */
+export function registrySourceRoots(registry: Registry): SourceRoots {
+  const own = (registry as Registry & { sourceRoots?: SourceRoots }).sourceRoots;
+  return own ?? sourceRoots();
 }

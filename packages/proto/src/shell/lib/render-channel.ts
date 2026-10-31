@@ -34,7 +34,27 @@ export function acceptRenderMessage(
 export type FrameStatus =
   | { kind: "loading"; slow: boolean }
   | { kind: "ready" }
-  | { kind: "error"; message: string; componentStack: string | null };
+  | {
+      kind: "error";
+      message: string;
+      componentStack: string | null;
+      /** Shell-side failure with its own copy (the render grant keeps expiring). */
+      reason?: "auth_loop";
+    };
+
+/**
+ * `auth:expired` re-tickets a frame at most this many times per window: the prototype shares
+ * the render host's realm and can forge the message on every load, which must not turn into an
+ * endless reload loop against `render-ticket` (Safety Invariant 7).
+ */
+export const maxRetickets = 2;
+export const reticketWindowMs = 30_000;
+
+/** Whether one more re-ticket fits the budget; returns the attempts still inside the window. */
+export function allowReticket(attempts: readonly number[], now: number) {
+  const recent = attempts.filter(at => now - at < reticketWindowMs);
+  return { allowed: recent.length < maxRetickets, recent };
+}
 
 export const initialStatus: FrameStatus = { kind: "loading", slow: false };
 

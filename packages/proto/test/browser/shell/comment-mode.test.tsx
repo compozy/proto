@@ -291,8 +291,17 @@ describe("E2E-014 (shell half): render messages are untrusted", () => {
       )
     );
 
+    // A probe registered after the shell's frame listener sees the forged result only once the
+    // shell's listener has handled it (listeners of one dispatch run in registration order).
+    let forged = 0;
+    const probe = (event: MessageEvent) => {
+      if ((event.data as { type?: string } | null)?.type === "pick:result") forged += 1;
+    };
+    window.addEventListener("message", probe);
     await frame.click(100, 56); // posts a pick:result with a valid source, no pick running
-    await new Promise(resolve => setTimeout(resolve, 600));
+    await vi.waitFor(() => expect(forged).toBe(1));
+    window.removeEventListener("message", probe);
+    await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
     expect(page.getByTestId("comment-composer").query()).toBeNull();
 
     await frame.click(260, 56); // posts a pick:result with ../../.github/… in 1.5 s

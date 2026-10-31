@@ -9,6 +9,7 @@ import { loadProject } from "../../../src/node/project.ts";
 import { buildProject } from "../../../src/node/build.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
 import { png, input, reviewer } from "../store/contract.ts";
+import { buildShell } from "../e2e/shell.ts";
 const pkg = resolve(import.meta.dirname, "../../..");
 const roots: string[] = [];
 const shell = join(pkg, "dist/shell");
@@ -193,7 +194,9 @@ it("E2E-010: static data, image and query-form render work under /gallery/ witho
   }
 }, 30000);
 it("E2E-010 shell UI: read-only hides mutations and default build explains absent review", async () => {
-  const { root, project, options } = await fixture(true);
+  const { root, project } = await fixture(true);
+  // Shell behavior is asserted against the shell built from this checkout, never a fallback page.
+  const options = { shellDir: await buildShell(join(root, "built-shell")) };
   await seed(project);
   await buildProject(project, options);
   const server = await serve(join(root, "dist-proto"));
@@ -233,4 +236,4 @@ it("E2E-010 shell UI: read-only hides mutations and default build explains absen
     await browser.close();
     await server.close();
   }
-}, 30000);
+}, 120_000);

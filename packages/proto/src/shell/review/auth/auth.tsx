@@ -10,13 +10,18 @@ import { Button } from "../../ui/button";
 import { Layers, Lock, Terminal } from "../../ui/icons";
 import { useReviewData } from "../data";
 
-/** The sign-in URL with `returnTo` = this page (origin-relative path + search). */
-export function signInHref(signInUrl: string) {
+/**
+ * The sign-in link: the server's sign-in route with `returnTo` always set to this gallery
+ * document (origin-relative `pathname + search`, base path included). A `returnTo` the server
+ * put there (on a 401 it names the API request) is replaced, so sign-in lands on this screen.
+ */
+export function signInHref(
+  signInUrl: string,
+  location: Pick<Location, "pathname" | "search" | "origin"> = window.location
+) {
   const url = new URL(signInUrl, document.baseURI);
-  if (!url.searchParams.has("returnTo")) {
-    url.searchParams.set("returnTo", `${window.location.pathname}${window.location.search}`);
-  }
-  return url.origin === window.location.origin ? `${url.pathname}${url.search}` : url.href;
+  url.searchParams.set("returnTo", `${location.pathname}${location.search}`);
+  return url.origin === location.origin ? `${url.pathname}${url.search}` : url.href;
 }
 
 export function SignInPage() {

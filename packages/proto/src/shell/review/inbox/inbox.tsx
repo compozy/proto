@@ -45,6 +45,7 @@ export function commentView(registry: Registry, comment: ReviewComment): View {
       area: "flow",
       flow,
       node: comment.target.kind === "node" ? comment.target.node : null,
+      comment: comment.id,
     };
   return screenView(comment.slug, comment.context.state, {
     comment: comment.id,

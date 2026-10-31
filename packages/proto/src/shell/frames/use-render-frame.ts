@@ -14,6 +14,7 @@ import {
 } from "../../model/protocol";
 import {
   acceptRenderMessage,
+  allowReticket,
   frameNonce,
   initialStatus,
   nextStatus,
@@ -118,6 +119,8 @@ export function useRenderFrame(
   };
 
   const reloadRef = useRef(reload);
+  /** Times this frame re-ticketed after `auth:expired` (see `allowReticket`). */
+  const retickets = useRef<number[]>([]);
   useEffect(() => {
     reloadRef.current = reload;
   });
@@ -154,7 +157,26 @@ export function useRenderFrame(
         return;
       }
       if (message.type === "auth:expired" && tickets) {
-        // The render grant expired: a fresh ticket and a fresh load.
+        // The render grant expired: a fresh ticket and a fresh load, within a budget.
+        const budget = allowReticket(retickets.current, Date.now());
+        if (!budget.allowed) {
+          retickets.current = budget.recent;
+          setFrame(current =>
+            current.nonce === nonce
+              ? {
+                  ...current,
+                  status: {
+                    kind: "error",
+                    message: "auth_loop",
+                    componentStack: null,
+                    reason: "auth_loop",
+                  },
+                }
+              : current
+          );
+          return;
+        }
+        retickets.current = [...budget.recent, Date.now()];
         tickets.invalidate();
         reloadRef.current();
         return;

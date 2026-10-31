@@ -96,8 +96,6 @@ function mount(params: Record<string, string>, size = { width: 600, height: 500 
   };
 }
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 function expectConfined(target: ElementTarget) {
   for (const source of target.sourceChain) {
     expect(source).toMatch(/^src\/[^:]+:\d+:\d+$/);
@@ -188,7 +186,13 @@ describe("protocol trust", () => {
       { proto: 1, frame: host.frame, type: "pick:start", mode: "lasso" },
       renderOrigin
     );
-    await wait(500);
+    // Positive control: a valid message sent after the forgeries is answered, so the host has
+    // handled everything posted before it (messages to one window are dispatched in order).
+    host.send({
+      type: "anchors:watch",
+      anchors: [{ id: "control", selector: '[data-testid="card"]', testId: null, offset: null }],
+    });
+    await host.waitFor("anchors", message => message.rects.some(item => item.id === "control"));
     expect(await host.pickerShown()).toBe(false);
 
     host.send({ type: "pick:start", mode: "element" });
@@ -214,11 +218,23 @@ describe("protocol trust", () => {
         ).toBe(true),
       { timeout: 8000 }
     );
-    await wait(1500);
+    // The forgeries start only now that the host runs, and a probe listener registered after the
+    // host's own proves the host's listener received all three before the absence is asserted.
+    await commands.renderFrameEval(
+      match,
+      `(window.__seen = 0, window.addEventListener("message", () => window.__seen++), true)`
+    );
+    await commands.renderFrameEval("harness/foreign.html", "window.forge()");
+    await vi.waitFor(
+      async () =>
+        expect(await commands.renderFrameEval(match, "window.__seen")).toBeGreaterThanOrEqual(3),
+      { timeout: 8000 }
+    );
     expect(
       await commands.renderFrameEval(
         match,
-        `Boolean(document.querySelector('[data-testid="proto-picker"]'))`
+        `new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() =>
+          done(Boolean(document.querySelector('[data-testid="proto-picker"]'))))))`
       )
     ).toBe(false);
     expect(await commands.renderFrameEval("harness/foreign.html", "window.received.length")).toBe(

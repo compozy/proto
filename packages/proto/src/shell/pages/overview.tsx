@@ -1,6 +1,6 @@
 /** S2 Overview, S14 first run, and the Flows / Screens / Drafts indexes (S12). */
 import { flowKey, type RegistryPrototype } from "../../model/registry";
-import { KeysStatus } from "../review/review-ui";
+import { KeysStatus, KeysUpdated, NeedsReview } from "../review/review-ui";
 import { CommandLine, JourneyRow, ScreenCard, SectionTitle } from "../app/cards";
 import { Eyebrow } from "../app/chrome";
 import { Link } from "../app/link";
@@ -16,10 +16,13 @@ import {
 import { useRegistry, useShellData } from "../lib/shell-data";
 import { Plus, Sparkles } from "../ui/icons";
 
-function Page({ children }: { children: React.ReactNode }) {
+function Page({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return (
-    <div className="shell-dots min-h-0 flex-1 overflow-y-auto px-5 py-6 xl:px-8 xl:py-7">
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-9">{children}</div>
+    <div className="flex min-h-0 flex-1">
+      <div className="shell-dots min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6 xl:px-8 xl:py-7">
+        <div className="mx-auto flex max-w-[1180px] flex-col gap-9">{children}</div>
+      </div>
+      {aside}
     </div>
   );
 }
@@ -52,7 +55,7 @@ export function Overview({ theme }: { theme: "light" | "dark" }) {
   const groups = groupRegistry(registry);
   const specs = groups.specs.filter(group => group.prototypes.length || group.flows.length);
   return (
-    <Page>
+    <Page aside={<NeedsReview />}>
       <PageHeading
         eyebrow={t("overview.eyebrow")}
         title={t("overview.summary", {
@@ -153,6 +156,12 @@ function SpecCard({
             t("count.states", { count: stateCount(group.prototypes) }),
           ].join(" · ")}
         </div>
+        <KeysUpdated
+          keys={[
+            ...group.prototypes.map(item => item.slug),
+            ...group.flows.map(flow => flowKey(flow.id)),
+          ]}
+        />
       </div>
     </article>
   );

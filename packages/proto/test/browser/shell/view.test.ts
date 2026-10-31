@@ -36,7 +36,7 @@ describe("parseView", () => {
 
   test("UT-024 spec and flow together open the flow and drop spec", () => {
     const parsed = parseView("?spec=auth&flow=sign-in&node=error");
-    expect(parsed.view).toEqual({ area: "flow", flow: "sign-in", node: "error" });
+    expect(parsed.view).toEqual({ area: "flow", flow: "sign-in", node: "error", comment: null });
     expect(parsed.canonical).toBe("?flow=sign-in&node=error");
   });
 });

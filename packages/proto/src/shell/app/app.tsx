@@ -300,7 +300,15 @@ function pageFor(
         ],
         target: { kind: "flow", key: `flow-${flow.id}`, flow: flow.id, node: view.node },
         share: true,
-        body: <FlowPage key={flow.id} flow={flow} node={view.node} theme={theme} />,
+        body: (
+          <FlowPage
+            key={flow.id}
+            flow={flow}
+            node={view.node}
+            comment={view.comment ?? null}
+            theme={theme}
+          />
+        ),
       };
     }
     case "screen": {

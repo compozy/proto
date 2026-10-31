@@ -6,7 +6,6 @@
  * React resolves) and removed afterwards.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { chromium, type Browser, type Frame, type Page } from "playwright";
 import { build } from "vite";
@@ -14,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { startDev } from "../../../src/node/dev.ts";
 import { loadProject, type ProtoProject } from "../../../src/node/project.ts";
+import { onFreePorts, runCli } from "../e2e/shell.ts";
 
 const packageRoot = resolve(import.meta.dirname, "../../..");
 const work = join(packageRoot, ".tmp", `comment-review-${process.pid}`);
@@ -114,8 +114,12 @@ export default function Hostile() {
       () => add("simple:sent"),
       () => add("simple:blocked")
     );
-    const post = (source: string) =>
+    let forged = 0;
+    const post = (source: string) => {
       window.parent.postMessage({ proto: 1, frame, type: "pick:result", target: target(source) }, "*");
+      forged += 1;
+      add("forged:" + forged);
+    };
     post("src/drafts/hostile/index.proto.tsx:1:1");
     const timer = setInterval(() => post("../../.github/workflows/ci.yml:1:1"), 300);
     return () => clearInterval(timer);
@@ -138,21 +142,6 @@ export const flow = defineFlow({
 `,
 };
 
-async function freePair() {
-  for (;;) {
-    const server = createServer();
-    await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
-    const port = (server.address() as { port: number }).port;
-    await new Promise<void>(done => server.close(() => done()));
-    const next = createServer();
-    const free = await new Promise<boolean>(done => {
-      next.once("error", () => done(false));
-      next.listen(port + 1, "127.0.0.1", () => next.close(() => done(true)));
-    });
-    if (free && port < 65534) return port;
-  }
-}
-
 let project: ProtoProject;
 let server: Awaited<ReturnType<typeof startDev>>;
 let browser: Browser;
@@ -169,7 +158,8 @@ beforeAll(async () => {
     build: { outDir: shellDir, emptyOutDir: true },
   });
   project = await loadProject(app);
-  server = await startDev(project, { port: await freePair(), shellDir });
+  // The bind is the check: a pair taken meanwhile is retried, never raced.
+  server = await onFreePorts(port => startDev(project, { port, shellDir }));
   browser = await chromium.launch();
 }, 120_000);
 
@@ -263,12 +253,19 @@ describe("comment mode against proto dev", () => {
     await thread.waitFor();
     expect(await thread.textContent()).toContain("login-form.tsx");
 
-    // An agent answers from outside the browser (CLI / Node API): the reply arrives over SSE.
-    await store.reply(
+    // An agent answers from its own process (the real CLI): the reply arrives over SSE.
+    const reply = await runCli([
+      "comments",
+      "reply",
       comment!.id,
-      { body: "Moved it under the password field." },
-      { kind: "agent" }
-    );
+      "--note",
+      "Moved it under the password field.",
+      "--app",
+      app,
+      "--json",
+    ]);
+    expect(reply.code, reply.stderr).toBe(0);
+    expect((await store.get(comment!.id)).thread.at(-1)).toMatchObject({ author: "agent" });
     await thread.getByText("Moved it under the password field.").waitFor({ timeout: 10_000 });
 
     // Resolving moves the thread to Resolved and removes the open pin.
@@ -291,8 +288,22 @@ describe("comment mode against proto dev", () => {
         }
       )
       .toMatch(/json:blocked.*simple:sent|simple:sent.*json:blocked/);
-    // The forged result outside a pick and the repeated ones before comment mode change nothing.
-    await page.waitForTimeout(800);
+    // The forged result outside a pick and the repeated ones before comment mode change nothing:
+    // wait until the prototype reports several forgeries after the frame was ready (its frame
+    // listener is attached by then), then assert their absence.
+    await expect
+      .poll(
+        () =>
+          frame.evaluate(() =>
+            Number(
+              /forged:(\d+)(?!.*forged:)/.exec(
+                document.querySelector('[data-testid="hostile"]')!.textContent ?? ""
+              )?.[1] ?? 0
+            )
+          ),
+        { timeout: 10_000 }
+      )
+      .toBeGreaterThanOrEqual(4);
     expect(await page.getByTestId("comment-composer").count()).toBe(0);
 
     await page.getByTestId("comment-tool").click();

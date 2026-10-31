@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { cn } from "../../ui/utils";
 import { useComments, useReviewData } from "../data";
 import { byActivity, commentNode } from "../format";
+import { ReviewHistory } from "../approval/approval";
 import { ThreadCard } from "./thread-card";
 
 export type ThreadScope = { kind: "state"; state: string } | { kind: "step"; node: string | null };
@@ -142,6 +143,7 @@ export function ThreadsPanel({
           </div>
         )
       )}
+      <ReviewHistory reviewKey={reviewKey} onComment={onFocus} />
     </div>
   );
 }

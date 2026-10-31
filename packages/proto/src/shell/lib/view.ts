@@ -26,7 +26,13 @@ export type View =
   | { area: "overview" }
   | { area: "spec"; spec: string }
   | { area: "flows" }
-  | { area: "flow"; flow: string; node: string | null }
+  | {
+      area: "flow";
+      flow: string;
+      node: string | null;
+      /** A flow comment to focus (`?flow=…&comment=flow-sign-in-2`). */
+      comment?: string | null;
+    }
   | { area: "screens" }
   | {
       area: "screen";
@@ -69,7 +75,14 @@ export function parseView(search: string): Location & { canonical: string } {
 
 function readArea(params: URLSearchParams): View {
   const flow = params.get("flow");
-  if (flow) return { area: "flow", flow, node: params.get("node") || null };
+  if (flow) {
+    return {
+      area: "flow",
+      flow,
+      node: params.get("node") || null,
+      comment: params.get("comment") || null,
+    };
+  }
   const slug = params.get("p");
   if (slug) {
     return {
@@ -116,6 +129,7 @@ export function viewSearch({ view, theme }: Location) {
     case "flow":
       entries.push(["flow", view.flow]);
       if (view.node) entries.push(["node", view.node]);
+      if (view.comment) entries.push(["comment", view.comment]);
       break;
     case "screen":
       entries.push(["p", view.slug]);

@@ -4,21 +4,21 @@
  * (per-state counts, step badges, spec status, the Comments rail item, ⌘K comment results).
  * Every piece renders nothing when the build has no review data.
  */
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { RegistryState, ResolvedNode } from "../../model/registry";
 import { flowKey, flowOfKey } from "../../model/registry";
 import { Link } from "../app/link";
 import type { ReviewTarget, ShellSlots } from "../app/slots";
-import { useT, type Translate } from "../lib/i18n";
+import { useLocale, useT, type Translate } from "../lib/i18n";
 import { go, useLocation } from "../lib/navigation";
 import type { SearchItem } from "../lib/search";
 import { useRegistry } from "../lib/shell-data";
-import { MessageSquare } from "../ui/icons";
+import { Bot, MessageSquare } from "../ui/icons";
 import { cn } from "../ui/utils";
 import { ReviewActions, ReviewMenu, ReviewStatus, StatusPill } from "./approval/approval";
 import { useAllComments, useReviewData, useReviewState, useReviewStates } from "./data";
-import { commentNode, commentNumber, isWaiting } from "./format";
+import { byActivity, commentNode, commentNumber, isWaiting, relativeTime } from "./format";
 import { commentView } from "./inbox/inbox";
 import { ThreadsPanel, useThreadFocus } from "./threads/threads-panel";
 
@@ -103,8 +103,13 @@ function PrototypeThreads({ target }: { target: Extract<ReviewTarget, { kind: "p
 }
 
 function FlowThreads({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> }) {
-  const [focused, setFocused] = useState<string | null>(null);
-  const focus = useThreadFocus({ focused, focus: setFocused });
+  const { view } = useLocation();
+  const focus = useThreadFocus({
+    focused: view.area === "flow" ? (view.comment ?? null) : null,
+    focus: id => {
+      if (view.area === "flow") go({ ...view, comment: id }, { replace: true });
+    },
+  });
   return (
     <ThreadsPanel
       reviewKey={target.key}
@@ -228,4 +233,106 @@ export function useCommentSearchItems(): SearchItem[] {
       target: { view: commentView(registry, comment) },
     };
   });
+}
+
+/** "Updated …" on a spec card: the latest comment or review change of its keys. */
+export function KeysUpdated({ keys }: { keys: string[] }) {
+  const review = useReviewData();
+  if (!review || !keys.length) return null;
+  return <KeysUpdatedInner keys={keys} />;
+}
+
+function KeysUpdatedInner({ keys }: { keys: string[] }) {
+  const t = useT();
+  const locale = useLocale();
+  const comments = useAllComments().data;
+  const states = useReviewStates(keys).data;
+  const set = new Set(keys);
+  const times = [
+    ...(comments ?? []).filter(item => set.has(item.slug)).map(item => item.updatedAt),
+    ...(states ?? []).flatMap(state => (state.updatedAt ? [state.updatedAt] : [])),
+  ];
+  if (!times.length) return null;
+  const latest = times.reduce((a, b) => (Date.parse(a) > Date.parse(b) ? a : b));
+  return (
+    <p className="mt-3 text-[11px] text-muted-foreground">
+      {t("overview.updated", { when: relativeTime(latest, locale) })}
+    </p>
+  );
+}
+
+/**
+ * S2 "Needs review": open threads across the app, newest first, each saying whether an agent
+ * replied (waiting for you) or nobody did yet; a thread opens in context.
+ */
+export function NeedsReview() {
+  const t = useT();
+  const locale = useLocale();
+  const review = useReviewData();
+  const registry = useRegistry();
+  const comments = useAllComments().data;
+  if (!review || !comments) return null;
+  const open = comments.filter(item => item.status === "open").sort(byActivity);
+  return (
+    <aside
+      aria-label={t("overview.needsReview")}
+      className="hidden w-[300px] shrink-0 flex-col border-l border-border bg-[var(--shell-panel)] lg:flex xl:w-[340px]"
+    >
+      <div className="flex items-center justify-between px-5 pt-5 pb-3">
+        <h2 className="text-[15px] font-semibold tracking-tight">{t("overview.needsReview")}</h2>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {t("approval.open", { count: open.length })}
+        </span>
+      </div>
+      <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto px-5 pb-5">
+        {open.length === 0 && <li className="text-xs text-muted-foreground">{t("inbox.empty")}</li>}
+        {open.slice(0, 50).map(comment => {
+          const first = comment.thread[0];
+          const replies = comment.thread.length - 1;
+          return (
+            <li key={comment.id}>
+              <Link
+                to={commentView(registry, comment)}
+                className="block rounded-xl border border-border bg-background p-3 hover:border-primary/50"
+              >
+                <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="grid size-4.5 shrink-0 place-items-center rounded-full bg-primary font-mono text-[9px] font-semibold text-primary-foreground">
+                    {commentNumber(comment)}
+                  </span>
+                  <span className="truncate font-mono">
+                    {comment.slug} · {comment.context.state || "—"}
+                  </span>
+                  <span className="ml-auto shrink-0">
+                    {relativeTime(comment.updatedAt, locale)}
+                  </span>
+                </span>
+                <span className="mt-2 line-clamp-2 block text-[13px] leading-relaxed">
+                  {first?.body}
+                </span>
+                <span
+                  className={cn(
+                    "mt-2 flex items-center gap-1.5 text-[11px]",
+                    isWaiting(comment)
+                      ? "text-[var(--shell-primary-text)]"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {isWaiting(comment) ? (
+                    <Bot className="size-3" />
+                  ) : (
+                    <MessageSquare className="size-3" />
+                  )}
+                  {isWaiting(comment)
+                    ? t("overview.waiting")
+                    : replies
+                      ? t("overview.replies", { count: replies })
+                      : t("overview.noReplies")}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
+  );
 }

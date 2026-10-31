@@ -21,6 +21,8 @@ import {
 import { createReviewApi, isReviewApiError } from "../../../src/shell/review/api.ts";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
 import { permissionsOf } from "../../../src/shell/review/permissions.ts";
+import { confinePick } from "../../../src/shell/review/comment-mode/pick.ts";
+import { registrySourceRoots } from "../../../src/shell/lib/registry-model.ts";
 import { Settings } from "../../../src/shell/review/settings/settings.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
 
@@ -268,5 +270,43 @@ describe("Settings → Credentials (remote session)", () => {
     );
     await vi.waitFor(() => expect(network.calls.some(call => call.method === "DELETE")).toBe(true));
     await vi.waitFor(() => expect(container.textContent).not.toContain("cr_9a1 ·"));
+  });
+});
+
+describe("registrySourceRoots (F6)", () => {
+  const target = (source: string) => ({
+    kind: "element" as const,
+    selector: "main",
+    testId: null,
+    tag: "main",
+    text: "",
+    source,
+    sourceChain: [source],
+    rect: { x: 0, y: 0, width: 1, height: 1 },
+    rectNormalized: { x: 0, y: 0, width: 1, height: 1 },
+    offset: null,
+  });
+
+  test("picks are confined to the registry's own roots (custom flows dir and canvas)", () => {
+    const custom = {
+      ...registry,
+      sourceRoots: { dirs: ["src", "journeys"], files: ["preview/canvas.tsx"] },
+    };
+    expect(
+      confinePick(target("journeys/sign-in.flow.ts:3:1"), registrySourceRoots(custom)).ok
+    ).toBe(true);
+    expect(confinePick(target("preview/canvas.tsx:9:1"), registrySourceRoots(custom)).ok).toBe(
+      true
+    );
+    expect(confinePick(target("../../.github/ci.yml:1:1"), registrySourceRoots(custom)).ok).toBe(
+      false
+    );
+    // Snapshots without roots keep the defaults (src, flows, proto.canvas.tsx).
+    expect(
+      confinePick(target("journeys/sign-in.flow.ts:3:1"), registrySourceRoots(registry)).ok
+    ).toBe(false);
+    expect(confinePick(target("flows/sign-in.flow.ts:3:1"), registrySourceRoots(registry)).ok).toBe(
+      true
+    );
   });
 });

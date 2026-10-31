@@ -74,7 +74,9 @@ export function RenderErrorCard({
           <span className="truncate">{t("frame.failed", { title })}</span>
         </div>
         <div className="p-4">
-          <p className="font-mono text-[13px] break-words">{status.message}</p>
+          <p className={status.reason ? "text-[13px]" : "font-mono text-[13px] break-words"}>
+            {status.reason === "auth_loop" ? t("frame.authLoop") : status.message}
+          </p>
           {frames.length > 0 && (
             <pre className="mt-3 overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
               {frames.join("\n")}
