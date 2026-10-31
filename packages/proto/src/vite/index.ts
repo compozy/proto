@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { searchForWorkspaceRoot, type Plugin } from "vite";
@@ -92,6 +93,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
     {
       name: "proto:render",
       config() {
+        const require = createRequire(resolve(project.root, "package.json"));
         return {
           optimizeDeps: {
             include: [
@@ -100,7 +102,16 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
               "react/jsx-runtime",
               "react/jsx-dev-runtime",
               "zod",
-            ],
+            ].filter(id => {
+              // Vite resolves explicit optimizer entries from the app, not this plugin.
+              // Minimal fixtures may have no dependencies installed at that root.
+              try {
+                require.resolve(id);
+                return true;
+              } catch {
+                return false;
+              }
+            }),
           },
           server: {
             fs: {
