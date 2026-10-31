@@ -10,6 +10,11 @@ export function productionBoundary(): Plugin {
   return {
     name: "gallery:production-boundary",
     generateBundle(_options, bundle) {
+      for (const id of this.getModuleIds())
+        if (prototypeOnly.test(id))
+          this.error(
+            `production_boundary: Prototype-only module reached the production graph: ${id}`
+          );
       for (const output of Object.values(bundle)) {
         if (output.type !== "chunk") continue;
         for (const id of Object.keys(output.modules)) {

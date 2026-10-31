@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { defineProtoConfig, resolveProtoConfig } from "../../../src/config.ts";
 import { ProtoError } from "../../../src/model/errors.ts";
 
-describe("UT-097 config lifecycle", () => {
-  it("evaluates the catalog with the app root and preserves unavailable catalogs", () => {
+describe("config lifecycle", () => {
+  it("UT-097 evaluates the catalog with the app root and preserves unavailable catalogs", () => {
     const config = defineProtoConfig({
       title: "Example",
       specs: (root: string) => ({ project_spec: root }),

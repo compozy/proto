@@ -6,6 +6,7 @@ import { loadProject, type ProtoProject } from "../node/project.ts";
 import { productionBoundary } from "../node/production-boundary.ts";
 import { presentationGuard } from "../node/presentation-guard.ts";
 import { sourceTags } from "../node/source-tags.ts";
+import { sourceRoots } from "../model/source.ts";
 import type { RenderConfig } from "../model/render-host.ts";
 
 export function proto(options: { config?: string } = {}): Plugin[] {
@@ -43,12 +44,8 @@ export function protoPresentation(
         const project = await loadProject(config.root, options.config);
         guard = presentationGuard(config.root, {
           matchers: project.config.guards.forbidRuntimeImports,
-          modules: project.config.guards.forbidRuntimeImports.filter(
-            (m): m is string => typeof m === "string" && m.startsWith("src/")
-          ),
-          packages: project.config.guards.forbidRuntimeImports.filter(
-            (m): m is string => typeof m === "string" && !m.startsWith("src/")
-          ),
+          modules: [],
+          packages: [],
         });
         tags = sourceTags(config.root, config.root);
         if (typeof guard.configResolved === "function")
@@ -69,9 +66,13 @@ export function protoPresentation(
           {
             name: "proto:presentation-tags",
             enforce: "pre" as const,
-            transform(code: string, id: string) {
-              const hook = tags?.transform;
-              if (hook && typeof hook !== "function") return hook.handler.call(this, code, id);
+            transform: {
+              order: "pre",
+              filter: { id: /\.tsx(?:\?|$)/ },
+              handler(code: string, id: string) {
+                const hook = tags?.transform;
+                if (hook && typeof hook !== "function") return hook.handler.call(this, code, id);
+              },
             },
           } satisfies Plugin,
         ]
@@ -79,6 +80,10 @@ export function protoPresentation(
   ];
 }
 export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig): Plugin[] {
+  renderConfig = {
+    ...renderConfig,
+    sourceRoots: sourceRoots({ flows: project.config.flows, canvas: project.config.canvas }),
+  };
   const ids = ["virtual:proto/render-config", "virtual:proto/prototypes", "virtual:proto/canvas"];
   return [
     sourceTags(project.root, project.root),

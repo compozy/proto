@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from "node:fs";
-import { dirname, join, relative, resolve, matchesGlob } from "node:path";
+import { realpathSync } from "node:fs";
+import { relative, matchesGlob } from "node:path";
 import ts from "typescript";
 import type { Plugin } from "vite";
 
@@ -11,8 +11,6 @@ export type PresentationBoundary = {
   matchers?: readonly (string | RegExp)[];
 };
 
-const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /**
  * Fails when a story or prototype reaches a forbidden module through runtime imports (type-only
  * imports are erased first). Tracks current imports, including edits while the dev server runs;
@@ -23,39 +21,28 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
   const imports = new Map<string, Set<string>>();
   const parents = new Map<string, Set<string>>();
   let building = false;
-  const forbidden = new Set(boundary.modules.map(file => resolve(appRoot, file)));
-  const names = boundary.packages.map(escape).join("|");
-  const packageSpecifier = names ? new RegExp(`^(?:${names})(?:/|$)`) : null;
-  // Installed location of each package (workspace packages resolve to their real folder).
-  const packageDirs = boundary.packages.flatMap(name => {
-    for (let dir = appRoot; ; dir = dirname(dir)) {
-      const candidate = join(dir, "node_modules", name);
-      if (existsSync(candidate)) return [`${realpathSync(candidate)}/`];
-      if (dirname(dir) === dir) return [];
-    }
-  });
+  const matchers = [...boundary.modules, ...boundary.packages, ...(boundary.matchers ?? [])];
+  const matches = (id: string) =>
+    matchers.some(matcher => {
+      const candidates = [id, relative(appRoot, id)];
+      const installed = id.split("/node_modules/").at(-1);
+      if (installed !== id && installed) candidates.push(installed);
+      return candidates.some(candidate => {
+        if (matcher instanceof RegExp) {
+          matcher.lastIndex = 0;
+          return matcher.test(candidate);
+        }
+        return (
+          candidate === matcher ||
+          candidate.startsWith(`${matcher}/`) ||
+          matchesGlob(candidate, matcher)
+        );
+      });
+    });
   const clean = (id: string) => id.split("?")[0]!;
 
   function forbiddenPath(id: string, seen = new Set<string>()): string[] | undefined {
-    if (
-      boundary.matchers?.some(matcher => {
-        if (matcher instanceof RegExp) {
-          matcher.lastIndex = 0;
-          return matcher.test(id);
-        }
-        return (
-          matchesGlob(relative(appRoot, id), matcher) ||
-          matchesGlob(id, matcher) ||
-          id === matcher ||
-          id.startsWith(`${matcher}/`) ||
-          id.includes(`/node_modules/${matcher}/`)
-        );
-      }) ||
-      forbidden.has(id) ||
-      packageSpecifier?.test(id) ||
-      packageDirs.some(dir => id.startsWith(dir))
-    )
-      return [id];
+    if (matches(id)) return [id];
     if (seen.has(id)) return;
     seen.add(id);
     for (const dependency of imports.get(id) ?? []) {
@@ -64,9 +51,9 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
     }
   }
 
-  function violation(id: string) {
+  function violation(id: string, through?: string) {
     const chain = forbiddenPath(id);
-    if (chain)
+    if (chain && (!through || chain.includes(through)))
       return `network_import: ${relative(appRoot, chain[0]!)} reaches ${relative(appRoot, chain.at(-1)!)}: ${chain.map(id => relative(appRoot, id)).join(" → ")}. Stories and prototypes render views; move data access to the route container.`;
   }
 
@@ -89,7 +76,13 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
         if (module)
           imports.set(
             clean(id),
-            new Set([...module.importedIds, ...module.dynamicallyImportedIds].map(clean))
+            new Set(
+              [
+                ...module.importedIds,
+                ...module.dynamicallyImportedIds,
+                ...[...(imports.get(clean(id)) ?? [])].filter(matches),
+              ].map(clean)
+            )
           );
       }
       for (const id of imports.keys()) {
@@ -99,7 +92,6 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
       }
     },
     async transform(code, source) {
-      if (building) return;
       const from = clean(source);
       if (!/\.[cm]?[jt]sx?$/.test(from) || from.includes("\0")) return;
       const syntax = ts.createSourceFile(
@@ -132,7 +124,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
       );
       const dependencies = new Set([
         ...resolved.flatMap(result => (result && !result.external ? [clean(result.id)] : [])),
-        ...[...specifiers].filter(specifier => packageSpecifier?.test(specifier)),
+        ...[...specifiers].filter(matches),
       ]);
       // Replace outgoing edges, rather than retaining dependencies removed by an edit.
       for (const previous of imports.get(from) ?? []) parents.get(previous)?.delete(from);
@@ -149,7 +141,7 @@ export function presentationGuard(appRoot: string, boundary: PresentationBoundar
         if (seen.has(current)) continue;
         seen.add(current);
         if (/\.(proto|stories)\.[jt]sx?$|\/src\/drafts\//.test(current)) {
-          const message = violation(current);
+          const message = violation(current, from);
           if (message) this.error(message);
         }
         pending.push(...(parents.get(current) ?? []));

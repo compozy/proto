@@ -81,7 +81,7 @@ it("UT-010 unknown specs", () =>
       ?.code
   ).toBe("unknown_spec"));
 
-it("IT-012 check refuses invalid registry before building", async () => {
+it("IT-012 and UT-097 check refuses invalid registry and reports unavailable specs", async () => {
   const { loadProject } = await import("../../../src/node/project.ts");
   const { checkProject } = await import("../../../src/node/check.ts");
   const root = mkdtempSync(join(tmpdir(), "proto-check-"));

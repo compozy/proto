@@ -7,6 +7,7 @@ import type { Registry } from "../model/registry.ts";
 import { findPrototypes } from "./discovery.ts";
 import { findFlows } from "./flows.ts";
 
+import { capture, type CaptureTarget } from "./capture.ts";
 import { FileStore, type ReviewStore } from "../store/index.ts";
 import { sourceRoots } from "../model/source.ts";
 import { migrateFiles, type MigrateOptions, type MigrationReport } from "../migrate/index.ts";
@@ -27,8 +28,8 @@ export interface ProtoProject {
   watch(onChange: (registry: Registry) => void): () => void;
   url(target: UrlTarget, options?: { remote?: boolean }): string;
   store(options?: { remote?: boolean }): ReviewStore;
-  screenshot(target: unknown): never;
-  evidence(target: unknown): never;
+  screenshot(target: CaptureTarget): Promise<{ path: string; width: number; height: number }>;
+  evidence(target: CaptureTarget): Promise<{ path: string }>;
   migrate(options: MigrateOptions): Promise<MigrationReport>;
 }
 export async function loadProject(
@@ -46,9 +47,6 @@ export async function loadProject(
     loaded.config as unknown as Parameters<typeof resolveProtoConfig>[0],
     root
   );
-  const later = (method: string): never => {
-    throw new Error(`${method} is wired in a later slice`);
-  };
   const project: ProtoProject = {
     root,
     config,
@@ -202,8 +200,9 @@ export async function loadProject(
         roots: sourceRoots(config),
       });
     },
-    screenshot: () => later("screenshot"),
-    evidence: () => later("evidence"),
+    screenshot: target =>
+      capture(project, target, false) as Promise<{ path: string; width: number; height: number }>,
+    evidence: target => capture(project, target, true),
     migrate: options => migrateFiles(root, options),
   };
   return project;

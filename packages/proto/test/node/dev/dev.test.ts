@@ -170,3 +170,107 @@ it("IT-001 / IT-003: real startDev persists shell comments, emits SSE and reject
     await rm(root, { recursive: true, force: true });
   }
 }, 30000);
+
+it("Render integration: DOM carries app-relative source tags and configured source roots", async context => {
+  const { chromium } = await import("playwright");
+  const { existsSync } = await import("node:fs");
+  if (!existsSync(chromium.executablePath())) {
+    context.skip();
+    return;
+  }
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = mkdtempSync(join(app, ".proto-render-tags-"));
+  mkdirSync(join(root, "src/drafts/tagged"), { recursive: true });
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Tags"};');
+  writeFileSync(
+    join(root, "vite.config.ts"),
+    'import react from "@vitejs/plugin-react"; import {proto} from "@compozy/proto/vite"; export default {cacheDir:".vite",plugins:[react({compiler:true}),proto()]};'
+  );
+  writeFileSync(
+    join(root, "src/drafts/tagged/index.proto.tsx"),
+    'import {definePrototype} from "@compozy/proto"; export const meta=definePrototype({title:"Tagged",states:[{id:"default",label:"Default"}]});export default function Tagged(){return <button>Tagged</button>;}'
+  );
+  const project = await loadProject(root);
+  project.config.flows = "journeys";
+  project.config.canvas = "proto.canvas.tsx";
+  const server = await startDev(project, { port: await port(), quiet: true });
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.goto(`${server.renderOrigin}/__proto/render/tagged`);
+    await page
+      .locator("[data-proto-src]")
+      .first()
+      .waitFor({ timeout: 10000 })
+      .catch(async error => {
+        throw new Error(
+          `${error.message}\nBrowser errors: ${errors.join("; ")}\nRendered document: ${await page.locator("body").innerText()}`
+        );
+      });
+    const sources = await page
+      .locator("[data-proto-src]")
+      .evaluateAll(elements => elements.map(element => element.getAttribute("data-proto-src")));
+    expect(sources.length).toBeGreaterThan(0);
+    expect(sources.every(source => /^src\/.*:\d+:\d+$/.test(source!))).toBe(true);
+    const config = await (
+      await fetch(`${server.renderOrigin}/@id/__x00__virtual:proto/render-config`)
+    ).text();
+    expect(config).toContain('"dirs":["src","journeys"]');
+  } finally {
+    await browser.close();
+    await server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
+it("Presentation integration: protoPresentation source tags survive the consumer React Compiler", async context => {
+  const { chromium } = await import("playwright");
+  const { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  if (!existsSync(chromium.executablePath())) {
+    context.skip();
+    return;
+  }
+  const { join } = await import("node:path");
+  const { createServer } = await import("vite");
+  const root = mkdtempSync(join(app, ".proto-tags-test-"));
+  let server: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Tags"};');
+    writeFileSync(
+      join(root, "vite.config.ts"),
+      'import react from "@vitejs/plugin-react"; import {protoPresentation} from "@compozy/proto/vite"; export default {cacheDir:".vite",plugins:[react({compiler:true}),protoPresentation({sourceTags:true})]};'
+    );
+    writeFileSync(
+      join(root, "index.html"),
+      '<div id="root"></div><script type="module" src="/src/main.tsx"></script>'
+    );
+    writeFileSync(
+      join(root, "src/main.tsx"),
+      'import {createRoot} from "react-dom/client"; function View(){return <button>Tagged view</button>;} createRoot(document.getElementById("root")!).render(<View/>);'
+    );
+    server = await createServer({
+      root,
+      logLevel: "silent",
+      server: { host: "127.0.0.1", port: await port(), strictPort: true },
+    });
+    await server.listen();
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(server.resolvedUrls!.local[0]!);
+    await page.getByRole("button").waitFor();
+    expect(await page.getByRole("button").getAttribute("data-proto-src")).toMatch(
+      /^src\/main.tsx:1:\d+$/
+    );
+  } finally {
+    await browser?.close();
+    await server?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);

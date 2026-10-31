@@ -1,5 +1,5 @@
 /**
- * Build and dev transform that stamps `data-proto-src="apps/<app>/src/...:<line>:<column>"`
+ * Build and dev transform that stamps `data-proto-src="src/...:<line>:<column>"`
  * on JSX elements in app views, prototypes and drafts, so a click in the
  * gallery's comment mode maps back to the JSX that rendered it. React 19 dropped `_debugSource`,
  * hence the attribute (same approach as open-slide's loc-tags plugin).
@@ -55,17 +55,18 @@ export function tagJsx(code: string, file: string): string | null {
   return next;
 }
 
-export function sourceTags(repoRoot: string, appRoot: string): Plugin {
-  const root = repoRoot;
-  const prefix = `${relative(repoRoot, appRoot) ? relative(repoRoot, appRoot) + "/" : ""}src/`;
+export function sourceTags(_repoRoot: string, appRoot: string): Plugin {
+  const root = appRoot;
+  const prefix = "src/";
   return {
     name: "gallery:source-tags",
-    // Before React Compiler, which is also `pre`, so it sees the authored source attributes.
+    // Hook order must precede React Compiler even when consumer plugins are merged first.
     enforce: "pre",
     transform: {
-      filter: { id: /\/src\/.+\.tsx$/ },
+      order: "pre",
+      filter: { id: /\/src\/.+\.tsx(?:\?|$)/ },
       handler(code, id) {
-        const file = relative(root, id.split("?")[0] ?? id);
+        const file = relative(root, id.split("?")[0] ?? id).replaceAll("\\", "/");
         if (!file.startsWith(prefix)) return null;
         const next = tagJsx(code, file);
         return next === null ? null : { code: next, map: null };

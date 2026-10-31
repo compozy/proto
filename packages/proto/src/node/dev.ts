@@ -16,7 +16,12 @@ import { sourceRoots } from "../model/source.ts";
 import { renderPlugins } from "../vite/index.ts";
 
 export type ReviewHandler = (request: Request) => Promise<Response>;
-export type DevOptions = { port?: number; review?: ReviewHandler; shellDir?: string };
+export type DevOptions = {
+  quiet?: boolean;
+  port?: number;
+  review?: ReviewHandler;
+  shellDir?: string;
+};
 export function commitAt(root: string): string | null {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], {
@@ -190,7 +195,10 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       res.end(String(error));
     }
   });
-  const vite = await createServer(renderViteConfig(project, port));
+  const vite = await createServer({
+    ...renderViteConfig(project, port),
+    ...(options.quiet ? { logLevel: "silent" as const } : {}),
+  });
   // Prepend to the Vite stack so its own host handling cannot bypass the exact port check.
   vite.middlewares.stack.unshift({
     route: "",
