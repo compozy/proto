@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1
+
+### Fixes
+
+- verify releases by provenance and make the package build reproducible (#5)
+
 ## v0.1.0
 
 ### Features
