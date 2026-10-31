@@ -89,7 +89,7 @@ for reloaddev, the only copy with remote review, once the review server and its 
    key reopens it in the same mutation.
 6. **CLI + Node API + MCP** — one capability catalog (§ Capability Catalog) drives the Node API, CLI verbs
    (`--json` everywhere) and MCP tools.
-7. **Agent kit** — skills shipped in the package (`author-prototype`, `apply-prototype-comments`), the
+7. **Agent kit** — skills shipped in the package (`proto`, `proto-apply-comments`), the
    open-design `target: library` record written by `proto init`, evidence commands.
 8. **Remote review server** — `@compozy/proto/server`: a fetch handler serving a built gallery, the render
    origin and the review API, with shipped Postgres DDL, pluggable storage (filesystem, Postgres) and auth

@@ -108,7 +108,13 @@ test(
       await t.test("proto init scaffolds the consumer", () => {
         run("node", [join(installed, "src/cli/main.js"), "init", "--skills"], app);
         assert.ok(existsSync(join(app, "proto.config.ts")));
-        assert.ok(existsSync(join(app, ".agents/skills/author-prototype/SKILL.md")));
+        // Whole skill directories ship in the tarball, references included.
+        for (const file of [
+          "proto/SKILL.md",
+          "proto/references/cli.md",
+          "proto-apply-comments/SKILL.md",
+        ])
+          assert.ok(existsSync(join(app, ".agents/skills", file)), file);
         run("node", [join(installed, "src/cli/main.js"), "check", "--json"], app);
       });
       await writeFile(

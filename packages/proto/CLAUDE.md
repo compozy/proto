@@ -41,7 +41,12 @@ canonical `ReviewStore` interface is exported by `src/store/index.ts`. The CLI c
 real FileStore with an isolated app copy; transport handlers call `project.store()` so the store
 implementation is shared by CLI, MCP and the dev review router.
 
-`proto init --skills` installs the package's `author-prototype` and `apply-prototype-comments` skills.
+`skills/` holds the shipped agent skills: `proto` (concepts, authoring, setup, CLI and
+troubleshooting, with `references/`) and `proto-apply-comments` (the comment loop). They are the
+consumer contract, so every command, flag, key and error code they name must match the source.
+`proto init --skills` syncs them into the Git top level's `.agents/skills/` (the app root outside
+Git), also in an app that is already set up, and reports 0.1.x copies under `legacySkills`. After
+editing a skill, run `bun run proto init --skills --app app` to refresh this repository's copy.
 Agents never approve reviews. MCP excludes review transitions, unlock, credentials, migrations and
 process lifecycle. Store commands accept `--remote`, and store-backed MCP tools accept `remote: true`,
 using HttpStore with bearer credentials. Remote approval/deletion is denied to bearers. Capture uses

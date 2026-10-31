@@ -354,14 +354,21 @@ export function formatHuman(
       return out(`✓ ${String(data.path)} (${String(data.width)}×${String(data.height)})`);
     case "evidence":
       return out(`✓ ${String(data.path)} (static DOM, no scripts)`);
-    case "init":
+    case "init": {
+      const skills = (data.skills ?? []) as { path: string; status: string }[];
+      const legacy = (data.legacySkills ?? []) as { path: string; replacedBy: string }[];
       return out(
-        data.skipped
-          ? "Already set up: nothing to write"
-          : [...(data.files as string[]).map(file => `✓ ${file}`), "Next: bunx proto dev"].join(
-              "\n"
-            )
+        [
+          ...(data.skipped
+            ? ["Already set up: setup files unchanged"]
+            : [...(data.files as string[]).map(file => `✓ ${file}`), "Next: bunx proto dev"]),
+          ...skills.map(skill => `✓ ${skill.path} (${skill.status})`),
+          ...legacy.map(
+            skill => `! ${skill.path} is a 0.1.x skill replaced by ${skill.replacedBy}; delete it`
+          ),
+        ].join("\n")
       );
+    }
     case "dev":
       return out("");
     case "build": {

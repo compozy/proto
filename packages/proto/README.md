@@ -70,12 +70,13 @@ in the consumer before adding Proto.
 
 ```sh
 bun add -d @compozy/proto
-bunx proto init
+bunx proto init --skills
 bunx proto dev --open
 ```
 
-`init` writes the config, canvas, welcome draft and Vite plugin integration. `proto --help` lists
-the commands; `proto --version` prints the installed package version.
+`init` writes the config, canvas, welcome draft and Vite plugin integration; `--skills` also
+installs the [agent skills](#the-review-loop). `proto --help` lists the commands; `proto --version`
+prints the installed package version.
 
 Install these optional peers only for the features you use:
 
@@ -203,7 +204,13 @@ capabilities as MCP tools over stdio (`proto_comments_list`, `proto_comments_rep
 Approval, credentials, migration and process lifecycle are intentionally not MCP tools:
 **agents never approve**.
 
-`proto init --skills` installs the `author-prototype` and `apply-prototype-comments` agent skills.
+`proto init --skills` installs two agent skills into `.agents/skills/` at the repository root (the
+app root outside Git): `proto`, which covers how proto works, authoring, setup, the CLI and
+troubleshooting, and `proto-apply-comments`, the review-comment loop. It also runs in an app that
+is already set up, without touching its configuration. Run it again after upgrading: it replaces
+stale copies (reported as `updated`) and lists copies of the 0.1.x `author-prototype` and
+`apply-prototype-comments` skills for you to delete. Installed copies belong to the package, so
+keep project-specific rules in your `AGENTS.md`.
 
 Local review data lives in `proto/review/<key>.json` (one file per prototype or flow, committed with
 your code), written under a per-key lock so the CLI, MCP and the dev server can write concurrently.
@@ -319,7 +326,7 @@ dependency · `4` remote or auth.
 
 | Command                                                    | What it does                                                     |
 | ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| `proto init [--skills]`                                    | Write the config, canvas, a first draft and the Vite plugin      |
+| `proto init [--skills]`                                    | Scaffold the app; `--skills` installs or updates agent skills    |
 | `proto dev [--port 4400] [--open]`                         | Gallery on `port`, render origin on `port + 1`                   |
 | `proto build`                                              | Read-only `dist-proto/`; `--remote` builds for the review server |
 | `proto list`                                               | Prototypes and flows                                             |

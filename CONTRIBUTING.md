@@ -60,6 +60,12 @@ UI work starts as a prototype. Put `*.proto.tsx` beside the view it composes, dr
 `docs/design/prototyping.md`. Views take props and callbacks; routes own data. Prototypes and
 stories never import the data layer, and the guards fail the build if they do.
 
+The agent skills that `proto init --skills` ships (`proto` and `proto-apply-comments`) live in
+`packages/proto/skills/`. They are part of the public contract: check every command, flag, config
+key and error code they mention against the source. After editing them, run
+`bun run proto init --skills --app app` to refresh the repository's installed copy in
+`.agents/skills/`.
+
 ## Conventions
 
 - TypeScript everywhere; code and docs in English.

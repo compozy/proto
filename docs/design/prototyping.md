@@ -113,7 +113,7 @@ edit, attach, detach and delete. `--message` is one-based and defaults to the au
 `review status <key>` reports review state. Human reviewers use `review approve` and `review reopen`;
 open comments require `--confirm-open` for approval. Agents never approve or reopen reviews, and
 never delete comments on their own initiative. `review unlock <key> --force` is operator recovery.
-Follow `.agents/skills/apply-prototype-comments/SKILL.md` when applying assigned comments.
+Follow `.agents/skills/proto-apply-comments/SKILL.md` when applying assigned comments.
 
 ## Evidence and static delivery
 
@@ -149,8 +149,9 @@ Stdout belongs to MCP. Review transitions, unlock, credentials, migration and pr
 are excluded from agent tools. Store tools expose `remote: true`, matching CLI `--remote` through
 HttpStore and the configured bearer credential; remote approval/deletion is denied to bearers.
 
-`proto init --skills` writes config, canvas, welcome draft, Vite integration, design record and
-review ignore rules, and installs authoring/review skills. Existing configuration is preserved
-unless `--force` is supplied. For another legacy app, `proto migrate --from gallery/comments
---dry-run` previews the local v3 migration; removing `--dry-run` writes the verified report and
-preserves its source until the operator deletes it.
+`proto init` writes config, canvas, welcome draft, Vite integration, design record and review
+ignore rules. Existing configuration is preserved unless `--force` is supplied. `--skills` syncs
+the shipped `proto` and `proto-apply-comments` skills into the repository's `.agents/skills/`, even
+when the app is already set up (`bun run proto init --skills --app app`). For another legacy app,
+`proto migrate --from gallery/comments --dry-run` previews the local v3 migration; removing
+`--dry-run` writes the verified report and preserves its source until the operator deletes it.
