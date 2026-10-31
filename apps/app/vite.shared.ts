@@ -28,6 +28,10 @@ export default defineConfig({
   // Base UI belongs to the UI workspace, not this app. Resolve its public entry points there
   // so browser tests do not re-optimize and reload midway through a cold run.
   optimizeDeps: {
+    // Scan every app module up front, not only the stories under test: a module outside that
+    // graph (a route, a data module, a test's app copy under .tmp) must never reach the
+    // optimizer late, since re-optimizing deletes chunks the other suites are still importing.
+    entries: ["src/**/*.{ts,tsx}", "!src/**/*.d.ts", "proto.canvas.tsx"],
     include: baseUiExports
       .filter(path => /^\.\/[a-z-]+$/.test(path) && path !== "./types" && path !== "./esm")
       .map(path => `@proto/ui > @base-ui/react${path.slice(1)}`),
