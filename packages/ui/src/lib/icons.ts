@@ -35,6 +35,10 @@ export {
   AlertTriangle as TriangleAlert,
   AlertTriangle as TriangleAlertIcon,
 } from "reicon-react/icons/AlertTriangle";
+export {
+  AlignVSpacing as SeparatorHorizontal,
+  AlignVSpacing as SeparatorHorizontalIcon,
+} from "reicon-react/icons/AlignVSpacing";
 export { Anchor, Anchor as AnchorIcon } from "reicon-react/icons/Anchor";
 export {
   AnglesLeft as ChevronFirst,
@@ -47,7 +51,16 @@ export {
   AnglesRight as ChevronsRightIcon,
 } from "reicon-react/icons/AnglesRight";
 export { Archive, Archive as ArchiveIcon } from "reicon-react/icons/Archive";
-export { Arrow2 as ArrowLeftRight, Arrow2 as ArrowLeftRightIcon } from "reicon-react/icons/Arrow2";
+export {
+  ArchiveUp as ArchiveRestore,
+  ArchiveUp as ArchiveRestoreIcon,
+} from "reicon-react/icons/ArchiveUp";
+export {
+  Arrow2 as ArrowLeftRight,
+  Arrow2 as ArrowLeftRightIcon,
+  Arrow2 as ArrowRightLeft,
+  Arrow2 as ArrowRightLeftIcon,
+} from "reicon-react/icons/Arrow2";
 export {
   Arrow3 as ArrowDownUp,
   Arrow3 as ArrowDownUpIcon,
@@ -55,6 +68,10 @@ export {
   Arrow3 as ArrowUpDownIcon,
 } from "reicon-react/icons/Arrow3";
 export { ArrowDown, ArrowDown as ArrowDownIcon } from "reicon-react/icons/ArrowDown";
+export {
+  ArrowDownRight,
+  ArrowDownRight as ArrowDownRightIcon,
+} from "reicon-react/icons/ArrowDownRight";
 export { ArrowLeft, ArrowLeft as ArrowLeftIcon } from "reicon-react/icons/ArrowLeft";
 export { ArrowRight, ArrowRight as ArrowRightIcon } from "reicon-react/icons/ArrowRight";
 export {
@@ -79,6 +96,10 @@ export { Bluetooth, Bluetooth as BluetoothIcon } from "reicon-react/icons/Blueto
 export { Bold, Bold as BoldIcon } from "reicon-react/icons/Bold";
 export { Bolt as Zap, Bolt as ZapIcon } from "reicon-react/icons/Bolt";
 export { Book, Book as BookIcon } from "reicon-react/icons/Book";
+export {
+  BookBookmark as BookMarked,
+  BookBookmark as BookMarkedIcon,
+} from "reicon-react/icons/BookBookmark";
 export { Bookmark, Bookmark as BookmarkIcon } from "reicon-react/icons/Bookmark";
 export {
   BookmarkCheck,
@@ -93,7 +114,12 @@ export {
 export { Box, Box as BoxIcon } from "reicon-react/icons/Box";
 export { Box2 as Boxes, Box2 as BoxesIcon } from "reicon-react/icons/Box2";
 export { BoxAdd as PackagePlus, BoxAdd as PackagePlusIcon } from "reicon-react/icons/BoxAdd";
+export {
+  BoxSearch as FolderSearch,
+  BoxSearch as FolderSearchIcon,
+} from "reicon-react/icons/BoxSearch";
 export { BoxTick as PackageCheck, BoxTick as PackageCheckIcon } from "reicon-react/icons/BoxTick";
+export { BranchUp as Split, BranchUp as SplitIcon } from "reicon-react/icons/BranchUp";
 export { Briefcase, Briefcase as BriefcaseIcon } from "reicon-react/icons/Briefcase";
 export {
   Briefcase2 as BriefcaseBusiness,
@@ -105,6 +131,7 @@ export { Bug, Bug as BugIcon } from "reicon-react/icons/Bug";
 export { Building, Building as BuildingIcon } from "reicon-react/icons/Building";
 export { Buildings as Building2, Buildings as Building2Icon } from "reicon-react/icons/Buildings";
 export { Bullhorn as Megaphone, Bullhorn as MegaphoneIcon } from "reicon-react/icons/Bullhorn";
+export { Cake, Cake as CakeIcon } from "reicon-react/icons/Cake";
 export { Calculator, Calculator as CalculatorIcon } from "reicon-react/icons/Calculator";
 export { Calendar, Calendar as CalendarIcon } from "reicon-react/icons/Calendar";
 export {
@@ -131,6 +158,7 @@ export {
   CalendarX,
   CalendarX as CalendarXIcon,
 } from "reicon-react/icons/CalendarX";
+export { Camera, Camera as CameraIcon } from "reicon-react/icons/Camera";
 export { Car, Car as CarIcon } from "reicon-react/icons/Car";
 export {
   Chart2 as BarChart,
@@ -159,7 +187,12 @@ export {
   ChartBarTrendUp as ChartNoAxesCombinedIcon,
 } from "reicon-react/icons/ChartBarTrendUp";
 export { ChartLine, ChartLine as ChartLineIcon } from "reicon-react/icons/ChartLine";
-export { ChartPie, ChartPie as ChartPieIcon } from "reicon-react/icons/ChartPie";
+export {
+  ChartPie,
+  ChartPie as ChartPieIcon,
+  ChartPie as PieChart,
+  ChartPie as PieChartIcon,
+} from "reicon-react/icons/ChartPie";
 export { Check, Check as CheckIcon } from "reicon-react/icons/Check";
 export {
   CheckCircle,
@@ -208,11 +241,17 @@ export {
   Clock as Clock3,
   Clock as Clock3Icon,
 } from "reicon-react/icons/Clock";
+export { CloudCheck, CloudCheck as CloudCheckIcon } from "reicon-react/icons/CloudCheck";
 export {
   CloudDownload,
   CloudDownload as CloudDownloadIcon,
 } from "reicon-react/icons/CloudDownload";
-export { CloudUpload, CloudUpload as CloudUploadIcon } from "reicon-react/icons/CloudUpload";
+export {
+  CloudUpload,
+  CloudUpload as CloudUploadIcon,
+  CloudUpload as UploadCloud,
+  CloudUpload as UploadCloudIcon,
+} from "reicon-react/icons/CloudUpload";
 export {
   Code,
   Code as CodeIcon,
@@ -226,6 +265,7 @@ export {
   CodeSquare as SquareCodeIcon,
 } from "reicon-react/icons/CodeSquare";
 export { Coffee, Coffee as CoffeeIcon } from "reicon-react/icons/Coffee";
+export { Coins, Coins as CoinsIcon } from "reicon-react/icons/Coins";
 export { Command, Command as CommandIcon } from "reicon-react/icons/Command";
 export { Compass, Compass as CompassIcon } from "reicon-react/icons/Compass";
 export { Component, Component as ComponentIcon } from "reicon-react/icons/Component";
@@ -238,7 +278,13 @@ export {
 export { CourseUp as TrendingUp, CourseUp as TrendingUpIcon } from "reicon-react/icons/CourseUp";
 export { Cpu, Cpu as CpuIcon } from "reicon-react/icons/Cpu";
 export { CreditCard, CreditCard as CreditCardIcon } from "reicon-react/icons/CreditCard";
-export { Cursor as MousePointer2, Cursor as MousePointer2Icon } from "reicon-react/icons/Cursor";
+export { Crop, Crop as CropIcon } from "reicon-react/icons/Crop";
+export {
+  Cursor as MousePointer2,
+  Cursor as MousePointer2Icon,
+  Cursor as MousePointerClick,
+  Cursor as MousePointerClickIcon,
+} from "reicon-react/icons/Cursor";
 export {
   CursorSquare as SquareDashedMousePointer,
   CursorSquare as SquareDashedMousePointerIcon,
@@ -270,6 +316,7 @@ export {
   DollarCircle as CircleDollarSign,
   DollarCircle as CircleDollarSignIcon,
 } from "reicon-react/icons/DollarCircle";
+export { DollarSign, DollarSign as DollarSignIcon } from "reicon-react/icons/DollarSign";
 export { Download, Download as DownloadIcon } from "reicon-react/icons/Download";
 export {
   Element as LayoutDashboard,
@@ -296,14 +343,27 @@ export { FacePlus as SmilePlus, FacePlus as SmilePlusIcon } from "reicon-react/i
 export { FaceSmile as Smile, FaceSmile as SmileIcon } from "reicon-react/icons/FaceSmile";
 export { File, File as FileIcon } from "reicon-react/icons/File";
 export {
+  FileCheck,
+  FileCheck as FileCheckIcon,
+  FileCheck as FileCheck2,
+  FileCheck as FileCheck2Icon,
+} from "reicon-react/icons/FileCheck";
+export {
   FileContent as FileSpreadsheet,
   FileContent as FileSpreadsheetIcon,
 } from "reicon-react/icons/FileContent";
 export { FileDown, FileDown as FileDownIcon } from "reicon-react/icons/FileDown";
+export {
+  FilePlus,
+  FilePlus as FilePlusIcon,
+  FilePlus as FilePlus2,
+  FilePlus as FilePlus2Icon,
+} from "reicon-react/icons/FilePlus";
 export { Files, Files as FilesIcon } from "reicon-react/icons/Files";
 export { FileText, FileText as FileTextIcon } from "reicon-react/icons/FileText";
 export { FileUp, FileUp as FileUpIcon } from "reicon-react/icons/FileUp";
 export { FileZip as FileArchive, FileZip as FileArchiveIcon } from "reicon-react/icons/FileZip";
+export { Film, Film as FilmIcon } from "reicon-react/icons/Film";
 export {
   Filter,
   Filter as FilterIcon,
@@ -319,6 +379,8 @@ export {
   FilterRemove as FunnelXIcon,
 } from "reicon-react/icons/FilterRemove";
 export {
+  Fingerprint,
+  Fingerprint as FingerprintIcon,
   Fingerprint as FingerprintPattern,
   Fingerprint as FingerprintPatternIcon,
 } from "reicon-react/icons/Fingerprint";
@@ -357,6 +419,7 @@ export {
 } from "reicon-react/icons/GallerySlash";
 export { Gauge, Gauge as GaugeIcon } from "reicon-react/icons/Gauge";
 export { Globe, Globe as GlobeIcon } from "reicon-react/icons/Globe";
+export { Globe2, Globe2 as Globe2Icon } from "reicon-react/icons/Globe2";
 export { Golf as LandPlot, Golf as LandPlotIcon } from "reicon-react/icons/Golf";
 export { Gps as LocateFixed, Gps as LocateFixedIcon } from "reicon-react/icons/Gps";
 export {
@@ -375,6 +438,11 @@ export {
 export { Grid2 as Table2, Grid2 as Table2Icon } from "reicon-react/icons/Grid2";
 export { Grid8 as Table, Grid8 as TableIcon } from "reicon-react/icons/Grid8";
 export { Hand, Hand as HandIcon } from "reicon-react/icons/Hand";
+export {
+  HandHeart as HandHelping,
+  HandHeart as HandHelpingIcon,
+} from "reicon-react/icons/HandHeart";
+export { Handshake, Handshake as HandshakeIcon } from "reicon-react/icons/Handshake";
 export { Hashtag as Hash, Hashtag as HashIcon } from "reicon-react/icons/Hashtag";
 export { Headphones, Headphones as HeadphonesIcon } from "reicon-react/icons/Headphones";
 export { Heart, Heart as HeartIcon } from "reicon-react/icons/Heart";
@@ -390,22 +458,40 @@ export {
 export { Hierarchy as GitBranch, Hierarchy as GitBranchIcon } from "reicon-react/icons/Hierarchy";
 export { Hierarchy2 as GitFork, Hierarchy2 as GitForkIcon } from "reicon-react/icons/Hierarchy2";
 export { Hierarchy3 as GitMerge, Hierarchy3 as GitMergeIcon } from "reicon-react/icons/Hierarchy3";
-export { History, History as HistoryIcon } from "reicon-react/icons/History";
+export {
+  History as FileClock,
+  History as FileClockIcon,
+  History,
+  History as HistoryIcon,
+} from "reicon-react/icons/History";
 export { Hospital, Hospital as HospitalIcon } from "reicon-react/icons/Hospital";
 export { Hourglass, Hourglass as HourglassIcon } from "reicon-react/icons/Hourglass";
-export { House, House as HouseIcon } from "reicon-react/icons/House";
+export {
+  House as Home,
+  House as HomeIcon,
+  House,
+  House as HouseIcon,
+} from "reicon-react/icons/House";
 export { Image, Image as ImageIcon } from "reicon-react/icons/Image";
+export { ImagePlus, ImagePlus as ImagePlusIcon } from "reicon-react/icons/ImagePlus";
 export { ImageUp, ImageUp as ImageUpIcon } from "reicon-react/icons/ImageUp";
 export { Inbox, Inbox as InboxIcon } from "reicon-react/icons/Inbox";
 export { Industry as Factory, Industry as FactoryIcon } from "reicon-react/icons/Industry";
 export { InfoCircle as Info, InfoCircle as InfoIcon } from "reicon-react/icons/InfoCircle";
 export { Italic, Italic as ItalicIcon } from "reicon-react/icons/Italic";
-export { Judge as Scale, Judge as ScaleIcon } from "reicon-react/icons/Judge";
+export {
+  Judge as Gavel,
+  Judge as GavelIcon,
+  Judge as Scale,
+  Judge as ScaleIcon,
+} from "reicon-react/icons/Judge";
 export {
   Kanban,
   Kanban as KanbanIcon,
   Kanban as KanbanSquare,
   Kanban as KanbanSquareIcon,
+  Kanban as SquareKanban,
+  Kanban as SquareKanbanIcon,
 } from "reicon-react/icons/Kanban";
 export { Key, Key as KeyIcon, Key as KeyRound, Key as KeyRoundIcon } from "reicon-react/icons/Key";
 export { Keyboard, Keyboard as KeyboardIcon } from "reicon-react/icons/Keyboard";
@@ -422,6 +508,13 @@ export {
   Lightbulb as LightbulbIcon,
 } from "reicon-react/icons/Lightbulb";
 export { Link, Link as LinkIcon } from "reicon-react/icons/Link";
+export { Link2, Link2 as Link2Icon } from "reicon-react/icons/Link2";
+export {
+  LinkBroken as RouteOff,
+  LinkBroken as RouteOffIcon,
+  LinkBroken as Unlink,
+  LinkBroken as UnlinkIcon,
+} from "reicon-react/icons/LinkBroken";
 export { List3 as List, List3 as ListIcon } from "reicon-react/icons/List3";
 export {
   Loader as Loader2,
@@ -443,7 +536,12 @@ export {
   MapArrowUp as NavigationIcon,
 } from "reicon-react/icons/MapArrowUp";
 export { MapPoint as MapPinned, MapPoint as MapPinnedIcon } from "reicon-react/icons/MapPoint";
-export { Maximize as Maximize2, Maximize as Maximize2Icon } from "reicon-react/icons/Maximize";
+export {
+  Maximize,
+  Maximize as MaximizeIcon,
+  Maximize as Maximize2,
+  Maximize as Maximize2Icon,
+} from "reicon-react/icons/Maximize";
 export { MemoPlus as ListPlus, MemoPlus as ListPlusIcon } from "reicon-react/icons/MemoPlus";
 export { Menu, Menu as MenuIcon } from "reicon-react/icons/Menu";
 export {
@@ -478,6 +576,10 @@ export {
   MessageText as MessageSquareText,
   MessageText as MessageSquareTextIcon,
 } from "reicon-react/icons/MessageText";
+export {
+  MessageX as MessageCircleOff,
+  MessageX as MessageCircleOffIcon,
+} from "reicon-react/icons/MessageX";
 export { Mic, Mic as MicIcon } from "reicon-react/icons/Mic";
 export { Minimize as Minimize2, Minimize as Minimize2Icon } from "reicon-react/icons/Minimize";
 export { Minus, Minus as MinusIcon } from "reicon-react/icons/Minus";
@@ -504,6 +606,7 @@ export {
   MoreH as MoreHorizontalIcon,
 } from "reicon-react/icons/MoreH";
 export { Music, Music as MusicIcon } from "reicon-react/icons/Music";
+export { MusicNotes as Music4, MusicNotes as Music4Icon } from "reicon-react/icons/MusicNotes";
 export {
   MusicPlaylist as ListMusic,
   MusicPlaylist as ListMusicIcon,
@@ -528,7 +631,12 @@ export {
   PauseCircle as PauseCircleIcon,
 } from "reicon-react/icons/PauseCircle";
 export { Pen as Pencil, Pen as PencilIcon } from "reicon-react/icons/Pen";
-export { PenLine as PencilLine, PenLine as PencilLineIcon } from "reicon-react/icons/PenLine";
+export {
+  PenLine as FileSignature,
+  PenLine as FileSignatureIcon,
+  PenLine as PencilLine,
+  PenLine as PencilLineIcon,
+} from "reicon-react/icons/PenLine";
 export { PenSquare as SquarePen, PenSquare as SquarePenIcon } from "reicon-react/icons/PenSquare";
 export { PenTool, PenTool as PenToolIcon } from "reicon-react/icons/PenTool";
 export {
@@ -541,6 +649,7 @@ export { PinOff, PinOff as PinOffIcon } from "reicon-react/icons/PinOff";
 export { Pipette, Pipette as PipetteIcon } from "reicon-react/icons/Pipette";
 export { Plane, Plane as PlaneIcon } from "reicon-react/icons/Plane";
 export { Play, Play as PlayIcon } from "reicon-react/icons/Play";
+export { PlayCircle, PlayCircle as PlayCircleIcon } from "reicon-react/icons/PlayCircle";
 export { Plug, Plug as PlugIcon } from "reicon-react/icons/Plug";
 export { Plug2 as Unplug, Plug2 as UnplugIcon } from "reicon-react/icons/Plug2";
 export { PlugCircle as PlugZap, PlugCircle as PlugZapIcon } from "reicon-react/icons/PlugCircle";
@@ -549,6 +658,8 @@ export {
   PlusCircle as CirclePlus,
   PlusCircle as CirclePlusIcon,
 } from "reicon-react/icons/PlusCircle";
+export { Power, Power as PowerIcon } from "reicon-react/icons/Power";
+export { PowerOff, PowerOff as PowerOffIcon } from "reicon-react/icons/PowerOff";
 export { Presentation, Presentation as PresentationIcon } from "reicon-react/icons/Presentation";
 export { Printer, Printer as PrinterIcon } from "reicon-react/icons/Printer";
 export {
@@ -562,11 +673,21 @@ export {
 export { Puzzle, Puzzle as PuzzleIcon } from "reicon-react/icons/Puzzle";
 export { Qr as QrCode, Qr as QrCodeIcon } from "reicon-react/icons/Qr";
 export { QuoteUp as Quote, QuoteUp as QuoteIcon } from "reicon-react/icons/QuoteUp";
+export { Radar, Radar as RadarIcon } from "reicon-react/icons/Radar";
 export { Ram as MemoryStick, Ram as MemoryStickIcon } from "reicon-react/icons/Ram";
 export { Receipt, Receipt as ReceiptIcon } from "reicon-react/icons/Receipt";
+export {
+  ReceiptSearch as FileSearch,
+  ReceiptSearch as FileSearchIcon,
+} from "reicon-react/icons/ReceiptSearch";
 export { ReceiptText, ReceiptText as ReceiptTextIcon } from "reicon-react/icons/ReceiptText";
 export { Redo as Redo2, Redo as Redo2Icon } from "reicon-react/icons/Redo";
-export { Refresh as RefreshCw, Refresh as RefreshCwIcon } from "reicon-react/icons/Refresh";
+export {
+  Refresh as RefreshCw,
+  Refresh as RefreshCwIcon,
+  Refresh as Replace,
+  Refresh as ReplaceIcon,
+} from "reicon-react/icons/Refresh";
 export { Repeat, Repeat as RepeatIcon } from "reicon-react/icons/Repeat";
 export { Repeat3 as Repeat2, Repeat3 as Repeat2Icon } from "reicon-react/icons/Repeat3";
 export { Reply as CornerUpLeft, Reply as CornerUpLeftIcon } from "reicon-react/icons/Reply";
@@ -618,6 +739,7 @@ export {
 } from "reicon-react/icons/Shield";
 export { ShieldAlert, ShieldAlert as ShieldAlertIcon } from "reicon-react/icons/ShieldAlert";
 export { ShieldCheck, ShieldCheck as ShieldCheckIcon } from "reicon-react/icons/ShieldCheck";
+export { ShieldOff, ShieldOff as ShieldOffIcon } from "reicon-react/icons/ShieldOff";
 export { ShoppingBag, ShoppingBag as ShoppingBagIcon } from "reicon-react/icons/ShoppingBag";
 export { ShoppingCart, ShoppingCart as ShoppingCartIcon } from "reicon-react/icons/ShoppingCart";
 export {
@@ -643,8 +765,14 @@ export {
   SidebarRight2 as PanelRightOpenIcon,
 } from "reicon-react/icons/SidebarRight2";
 export { SignalStream as Radio, SignalStream as RadioIcon } from "reicon-react/icons/SignalStream";
-export { Signpost, Signpost as SignpostIcon } from "reicon-react/icons/Signpost";
+export {
+  Signpost as Milestone,
+  Signpost as MilestoneIcon,
+  Signpost,
+  Signpost as SignpostIcon,
+} from "reicon-react/icons/Signpost";
 export { Simcard as CardSim, Simcard as CardSimIcon } from "reicon-react/icons/Simcard";
+export { Siren, Siren as SirenIcon } from "reicon-react/icons/Siren";
 export { Sitemap as Network, Sitemap as NetworkIcon } from "reicon-react/icons/Sitemap";
 export { SkipNext as SkipForward, SkipNext as SkipForwardIcon } from "reicon-react/icons/SkipNext";
 export { SkipPrev as SkipBack, SkipPrev as SkipBackIcon } from "reicon-react/icons/SkipPrev";
@@ -653,10 +781,23 @@ export {
   SlashCircle as CircleSlashIcon,
 } from "reicon-react/icons/SlashCircle";
 export { Sort3 as ListFilter, Sort3 as ListFilterIcon } from "reicon-react/icons/Sort3";
+export {
+  SortAsc as ArrowUpNarrowWide,
+  SortAsc as ArrowUpNarrowWideIcon,
+} from "reicon-react/icons/SortAsc";
+export {
+  SortDesc as ArrowDownWideNarrow,
+  SortDesc as ArrowDownWideNarrowIcon,
+} from "reicon-react/icons/SortDesc";
 export { Soundwave as AudioLines, Soundwave as AudioLinesIcon } from "reicon-react/icons/Soundwave";
 export { Sparkles, Sparkles as SparklesIcon } from "reicon-react/icons/Sparkles";
 export { Squares as Ungroup, Squares as UngroupIcon } from "reicon-react/icons/Squares";
 export { Star, Star as StarIcon } from "reicon-react/icons/Star";
+export { Stethoscope, Stethoscope as StethoscopeIcon } from "reicon-react/icons/Stethoscope";
+export {
+  Stickynote as StickyNote,
+  Stickynote as StickyNoteIcon,
+} from "reicon-react/icons/Stickynote";
 export {
   StopCircle as CircleStop,
   StopCircle as CircleStopIcon,
@@ -707,9 +848,12 @@ export {
   TicketPercent,
   TicketPercent as TicketPercentIcon,
 } from "reicon-react/icons/TicketPercent";
+export { TimeBack as TimerReset, TimeBack as TimerResetIcon } from "reicon-react/icons/TimeBack";
 export { Timer, Timer as TimerIcon } from "reicon-react/icons/Timer";
 export { Tower as RadioTower, Tower as RadioTowerIcon } from "reicon-react/icons/Tower";
 export {
+  TransferH as GitCompare,
+  TransferH as GitCompareIcon,
   TransferH as GitCompareArrows,
   TransferH as GitCompareArrowsIcon,
 } from "reicon-react/icons/TransferH";
@@ -720,6 +864,7 @@ export {
   Trash2 as Trash2Icon,
 } from "reicon-react/icons/Trash2";
 export { Triangle, Triangle as TriangleIcon } from "reicon-react/icons/Triangle";
+export { Trophy, Trophy as TrophyIcon } from "reicon-react/icons/Trophy";
 export { Truck, Truck as TruckIcon } from "reicon-react/icons/Truck";
 export { Tuning2 as Settings2, Tuning2 as Settings2Icon } from "reicon-react/icons/Tuning2";
 export {
@@ -736,7 +881,12 @@ export {
   User as UserRound,
   User as UserRoundIcon,
 } from "reicon-react/icons/User";
-export { UserAdd as UserPlus, UserAdd as UserPlusIcon } from "reicon-react/icons/UserAdd";
+export {
+  UserAdd as UserPlus,
+  UserAdd as UserPlusIcon,
+  UserAdd as UserRoundPlus,
+  UserAdd as UserRoundPlusIcon,
+} from "reicon-react/icons/UserAdd";
 export {
   UserCheck,
   UserCheck as UserCheckIcon,
@@ -790,7 +940,12 @@ export { Wifi, Wifi as WifiIcon } from "reicon-react/icons/Wifi";
 export { WifiOff, WifiOff as WifiOffIcon } from "reicon-react/icons/WifiOff";
 export { Window2 as AppWindow, Window2 as AppWindowIcon } from "reicon-react/icons/Window2";
 export { X, X as XIcon } from "reicon-react/icons/X";
-export { XCircle as CircleX, XCircle as CircleXIcon } from "reicon-react/icons/XCircle";
+export {
+  XCircle as CircleX,
+  XCircle as CircleXIcon,
+  XCircle,
+  XCircle as XCircleIcon,
+} from "reicon-react/icons/XCircle";
 
 /** Drawn locally: Reicon has no ArrowLeftToLine glyph. */
 const ArrowLeftToLineGlyph = createIcon("ArrowLeftToLine", {
@@ -815,6 +970,12 @@ const BracesGlyph = createIcon("Braces", {
   O: '<path d="M8.5 3.75H8A2.25 2.25 0 0 0 5.75 6v3.5c0 1.243-1.007 2.5-2.25 2.5 1.243 0 2.25 1.257 2.25 2.5V18A2.25 2.25 0 0 0 8 20.25h.5M15.5 3.75h.5A2.25 2.25 0 0 1 18.25 6v3.5c0 1.243 1.007 2.5 2.25 2.5-1.243 0-2.25 1.257-2.25 2.5V18A2.25 2.25 0 0 1 16 20.25h-.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
 });
 export { BracesGlyph as Braces, BracesGlyph as BracesIcon };
+
+/** Drawn locally: Reicon has no ChevronsDown glyph. */
+const ChevronsDownGlyph = createIcon("ChevronsDown", {
+  O: '<path d="M7.75 6.75 12 11l4.25-4.25M7.75 12.75 12 17l4.25-4.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+});
+export { ChevronsDownGlyph as ChevronsDown, ChevronsDownGlyph as ChevronsDownIcon };
 
 /** Drawn locally: Reicon has no Circle glyph. */
 const CircleGlyph = createIcon("Circle", {
@@ -869,6 +1030,24 @@ const Heading3Glyph = createIcon("Heading3", {
   O: '<path d="M3.75 5.75v12.5M12.25 5.75v12.5M3.75 12h8.5M16.25 7.25h4l-2.5 3.5a2.25 2.25 0 1 1-1.75 4.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
 });
 export { Heading3Glyph as Heading3, Heading3Glyph as Heading3Icon };
+
+/** Drawn locally: Reicon has no IndentDecrease glyph. */
+const IndentDecreaseGlyph = createIcon("IndentDecrease", {
+  O: '<path d="M20.25 5.75h-9M20.25 12h-9M20.25 18.25h-9M7 8.75 3.75 12 7 15.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+});
+export { IndentDecreaseGlyph as IndentDecrease, IndentDecreaseGlyph as IndentDecreaseIcon };
+
+/** Drawn locally: Reicon has no IndentIncrease glyph. */
+const IndentIncreaseGlyph = createIcon("IndentIncrease", {
+  O: '<path d="M20.25 5.75h-9M20.25 12h-9M20.25 18.25h-9M3.75 8.75 7 12l-3.25 3.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+});
+export { IndentIncreaseGlyph as IndentIncrease, IndentIncreaseGlyph as IndentIncreaseIcon };
+
+/** Drawn locally: Reicon has no PanelsTopLeft glyph. */
+const PanelsTopLeftGlyph = createIcon("PanelsTopLeft", {
+  O: '<rect x="3.75" y="3.75" width="16.5" height="16.5" rx="3.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.75 9.25h16.5M9.25 9.25v11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+});
+export { PanelsTopLeftGlyph as PanelsTopLeft, PanelsTopLeftGlyph as PanelsTopLeftIcon };
 
 /** Drawn locally: Reicon has no Rows3 glyph. */
 const Rows3Glyph = createIcon("Rows3", {
