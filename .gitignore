@@ -27,6 +27,7 @@ coverage/
 
 # prototype gallery and Storybook builds
 dist-proto/
+dist-gallery/
 storybook-static/
 
 # Vitest browser artifacts
