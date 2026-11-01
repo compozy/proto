@@ -48,5 +48,8 @@
         "bun": ">=1.4.4",
         "node": ">=24.22.1"
     },
-    "packageManager": "bun@1.4.4"
+    "packageManager": "bun@1.4.4",
+    "patchedDependencies": {
+        "@base-ui/react@1.8.0": "patches/@base-ui%2Freact@1.8.0.patch"
+    }
 }

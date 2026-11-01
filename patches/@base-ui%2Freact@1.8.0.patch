@@ -1,0 +1,28 @@
+diff --git a/internals/useAnchorPositioning.js b/internals/useAnchorPositioning.js
+index 3855aac7a2f4e1b0d6a886395d7cd7b996039279..b13efd8e32887ff28fae1cf058ef5f8e933b855e 100644
+--- a/internals/useAnchorPositioning.js
++++ b/internals/useAnchorPositioning.js
+@@ -301,6 +301,9 @@ function useAnchorPositioningWithHook(params, useFloatingHook) {
+     }
+   }, [mounted, floatingRootContext]);
+   const autoUpdateOptions = React.useMemo(() => ({
++    // Track animated references, including anchors clipped inside a Dialog.
++    // https://github.com/mui/base-ui/issues/5805
++    animationFrame: !disableAnchorTracking,
+     ancestorScroll: !disableAnchorTracking,
+     elementResize: !disableAnchorTracking && typeof ResizeObserver !== 'undefined',
+     layoutShift: !disableAnchorTracking && typeof IntersectionObserver !== 'undefined'
+diff --git a/internals/useAnchorPositioning.mjs b/internals/useAnchorPositioning.mjs
+index a12d14f2c12d07235df31c01f06e05379e23bdc6..022d8b039a1a44f5bf7a7f2e24b589772a04dee5 100644
+--- a/internals/useAnchorPositioning.mjs
++++ b/internals/useAnchorPositioning.mjs
+@@ -294,6 +294,9 @@ export function useAnchorPositioningWithHook(params, useFloatingHook) {
+     }
+   }, [mounted, floatingRootContext]);
+   const autoUpdateOptions = React.useMemo(() => ({
++    // Track animated references, including anchors clipped inside a Dialog.
++    // https://github.com/mui/base-ui/issues/5805
++    animationFrame: !disableAnchorTracking,
+     ancestorScroll: !disableAnchorTracking,
+     elementResize: !disableAnchorTracking && typeof ResizeObserver !== 'undefined',
+     layoutShift: !disableAnchorTracking && typeof IntersectionObserver !== 'undefined'
