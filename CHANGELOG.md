@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.3
+
+### Features
+
+- add icon aliases and color toast icons by type
+
+### Fixes
+
+- publish when the release merge keeps pr-release's commit subject (#14)
+
+### Maintenance
+
+- ignore dist-gallery output
+- upgrade base-ui to 1.8.0 and patch anchor tracking
+
 ## v0.1.2
 
 ### Features
@@ -11,6 +26,7 @@
 - pin the browser project's localhost to its own server (#7)
 - wait for the frame's ready handshake in the comment mode suite (#9)
 - missings skills
+- release with pr-release and bump the patch while on 0.x (#12)
 
 ## v0.1.1
 
