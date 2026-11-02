@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 import { migrateFiles } from "../../../src/migrate/index.ts";
 import { loadProject } from "../../../src/node/project.ts";
+import { emptyReviewFile } from "../../../src/model/review.ts";
 import { png } from "../store/contract.ts";
 const fixtures = resolve(import.meta.dirname, "../../fixtures/review");
 const cli = resolve(import.meta.dirname, "../../../src/cli/main.ts");
@@ -110,6 +111,41 @@ it("UT-082: conflicting target is preserved while other keys proceed", async () 
   expect(report.keys.filter(key => key.verified)).toHaveLength(7);
   expect(await readFile(target, "utf8")).toBe('{"different":true}');
   expect(report.deletable).toEqual([]);
+});
+it("legacy aliases and v3 keys keep source-order conflicts in dry and real migrations", async () => {
+  // Invariant: prefix rewriting applies only to legacy keys; one destination has one winner.
+  // Owner: local migration; real source and destination files exercise planning and publication.
+  const root = await mkdtemp(join(tmpdir(), "proto-migration-alias-"));
+  roots.push(root);
+  const source = join(root, "legacy");
+  for (const key of ["a", "flow-a"]) await mkdir(join(source, key), { recursive: true });
+  await writeFile(
+    join(source, "a/comments.json"),
+    JSON.stringify({
+      version: 2,
+      slug: "a",
+      sequence: 0,
+      comments: [],
+    })
+  );
+  await writeFile(
+    join(source, "flow-a/comments.json"),
+    JSON.stringify({
+      ...emptyReviewFile("flow-a"),
+      sequence: 10,
+    })
+  );
+  for (const dryRun of [true, false]) {
+    const report = await migrateFiles(root, { from: source, flowPrefix: "", dryRun });
+    expect(report.keys.map(({ sourceKey, key, status }) => ({ sourceKey, key, status }))).toEqual([
+      { sourceKey: "a", key: "flow-a", status: dryRun ? "planned" : "migrated" },
+      { sourceKey: "flow-a", key: "flow-a", status: "conflict" },
+    ]);
+    expect(report.errors).toMatchObject([{ key: "flow-a", code: "migration_conflict" }]);
+  }
+  expect(JSON.parse(await readFile(join(root, "proto/review/flow-a.json"), "utf8"))).toEqual(
+    emptyReviewFile("flow-a")
+  );
 });
 it("UT-083: rerun preserves verified key bytes and repairs an interrupted image copy", async () => {
   const { root, source } = await setup();

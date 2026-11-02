@@ -230,13 +230,14 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     },
   });
   try {
+    // Capture the review baseline before clients can read data or connect to SSE.
+    if (store instanceof FileStore)
+      stopReviews = await store.subscribe(event => events.publish(event));
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(port, "127.0.0.1", resolve);
     });
     await vite.listen();
-    if (store instanceof FileStore)
-      stopReviews = await store.subscribe(event => events.publish(event));
   } catch (error) {
     stopReviews();
     stopEvents();

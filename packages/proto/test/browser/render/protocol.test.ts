@@ -304,6 +304,54 @@ describe("picking", () => {
 });
 
 describe("IT-027: render half of the protocol", () => {
+  test("element and region picking work above a modal without closing it on Escape", async () => {
+    // Invariant: authored native modals remain reviewable and keep their modality after picking.
+    // Owner: render protocol; actual Chromium pointer, region and keyboard input in the iframe.
+    const host = mount({ slug: "card" });
+    await host.waitFor("ready");
+    await host.evaluate(`(() => {
+      const dialog = document.createElement('dialog');
+      dialog.dataset.testid = 'review-modal';
+      dialog.style.cssText = 'position:fixed;left:100px;top:100px;margin:0;padding:20px;width:300px;height:240px;transform:translate(0);overflow:hidden';
+      const button = document.createElement('button');
+      button.dataset.testid = 'modal-action';
+      button.textContent = 'Approve';
+      button.style.cssText = 'width:160px;height:80px';
+      dialog.append(button);
+      document.body.append(dialog);
+      dialog.showModal();
+      return true;
+    })()`);
+    host.send({ type: "pick:start", mode: "element" });
+    await vi.waitFor(async () => expect(await host.pickerShown()).toBe(true));
+    await host.click(150, 150);
+    expect((await host.waitFor("pick:result")).target).toMatchObject({
+      kind: "element",
+      testId: "modal-action",
+    });
+    host.messages.length = 0;
+    host.send({ type: "pick:start", mode: "region" });
+    await vi.waitFor(async () => expect(await host.pickerShown()).toBe(true));
+    await host.drag([140, 140], [200, 180]);
+    expect((await host.waitFor("pick:result")).target).toMatchObject({
+      kind: "region",
+      testId: "modal-action",
+      rect: { x: 140, y: 140, width: 60, height: 40 },
+    });
+    host.send({ type: "pick:start", mode: "keyboard" });
+    await vi.waitFor(async () =>
+      expect(await host.evaluate(`document.activeElement?.dataset.testid`)).toBe("proto-picker")
+    );
+    await host.keys(["Escape"]);
+    await host.waitFor("pick:cancel");
+    expect(
+      await host.evaluate(
+        `document.querySelector('[data-testid="review-modal"]').matches(':modal')`
+      )
+    ).toBe(true);
+    expect(await host.pickerShown()).toBe(false);
+  });
+
   test("a region drag picks the containing element with the region and its offset", async () => {
     const host = mount({ slug: "card" });
     await host.waitFor("ready");

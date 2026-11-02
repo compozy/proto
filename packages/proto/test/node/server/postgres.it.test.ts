@@ -130,10 +130,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       const store = postgresStorage(sql).store,
         author = { kind: "reviewer" as const, id: "person" };
       const pending = await store.upload("login-form", { name: "a.png", bytes: png }, author);
-      const result = await Promise.allSettled([
-        store.add("login-form", { ...input, attachments: [pending.id] }, author),
-        store.add("login-form", { ...input, attachments: [pending.id] }, author),
-      ]);
+      // The claim owns descriptors only; body reads belong to readAttachment (positive control above).
+      reads = { queries: 0, attachmentBytes: 0 };
+      let result: PromiseSettledResult<Awaited<ReturnType<typeof store.add>>>[];
+      try {
+        result = await Promise.allSettled([
+          store.add("login-form", { ...input, attachments: [pending.id] }, author),
+          store.add("login-form", { ...input, attachments: [pending.id] }, author),
+        ]);
+        expect(reads.attachmentBytes).toBe(0);
+      } finally {
+        reads = null;
+      }
       expect(result.filter(r => r.status === "fulfilled")).toHaveLength(1);
       expect(await sql`select * from proto_comments where key='login-form'`).toHaveLength(1);
       expect(

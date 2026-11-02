@@ -67,3 +67,25 @@ it("drains started I/O before rejecting and stops scheduling after a failure", a
   expect(await result).toBe(error);
   expect(started).toEqual([0, 1, 2, 3]);
 });
+
+// Invariant: parallel completion cannot change the first input error reported to the caller.
+// Owner: node concurrency executor; this suite also owns bounded scheduling and failure draining.
+it("reports the lowest failing input even when a reused worker fails first", async () => {
+  const gates = Array.from({ length: 5 }, deferred);
+  const laterStarted = deferred();
+  const firstError = new Error("input 1 failed");
+  const laterError = new Error("input 4 failed");
+  const result = mapConcurrent([0, 1, 2, 3, 4], async index => {
+    if (index === 4) laterStarted.resolve();
+    await gates[index]!.promise;
+    if (index === 1) throw firstError;
+    if (index === 4) throw laterError;
+    return index;
+  }).catch(error => error);
+  gates[0]!.resolve();
+  await laterStarted.promise;
+  gates[4]!.resolve();
+  await gates[4]!.promise;
+  for (const gate of gates) gate.resolve();
+  expect(await result).toBe(firstError);
+});

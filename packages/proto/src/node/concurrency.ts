@@ -6,22 +6,19 @@ export async function mapConcurrent<T, R>(
   const items = [...values];
   const results: R[] = [];
   let next = 0;
-  let failed = false;
+  const failures: { index: number; reason: unknown }[] = [];
   async function worker() {
-    while (!failed && next < items.length) {
+    while (!failures.length && next < items.length) {
       const index = next++;
       try {
         results[index] = await operation(items[index]!);
       } catch (error) {
-        failed = true;
-        throw error;
+        failures.push({ index, reason: error });
       }
     }
   }
-  const workers = await Promise.allSettled(
-    Array.from({ length: Math.min(4, items.length) }, worker)
-  );
-  const failure = workers.find(result => result.status === "rejected");
-  if (failure?.status === "rejected") throw failure.reason;
+  await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+  const [failure] = failures.sort((a, b) => a.index - b.index);
+  if (failure) throw failure.reason;
   return results;
 }

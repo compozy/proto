@@ -6,8 +6,13 @@ import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
 import { ProtoError, type ErrorCode } from "../model/errors.ts";
-import { upgradeReviewFile, type Rewrite, type UpgradeOptions } from "../model/upgrade.ts";
-import { reviewFileSchema } from "../model/review.ts";
+import {
+  reviewDestinationKey,
+  upgradeReviewFile,
+  type Rewrite,
+  type UpgradeOptions,
+} from "../model/upgrade.ts";
+import { reviewFileSchema, type ReviewFileV3 } from "../model/review.ts";
 import { resolveProtoConfig, type ProtoConfig } from "../config.ts";
 import { readLiteral } from "../node/literal.ts";
 import { atomicWrite } from "../store/file-store.ts";
@@ -56,6 +61,12 @@ const extensions: Record<string, string> = {
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const posix = (path: string) => path.replaceAll("\\", "/");
+const sourceHeaderSchema = z.object({
+  version: z.number(),
+  slug: z.string().optional(),
+  key: z.string().optional(),
+  sequence: z.number().optional(),
+});
 async function maybeRead(path: string): Promise<Buffer | null> {
   try {
     return await readFile(path);
@@ -202,9 +213,29 @@ export async function migrateFiles(
     }
   }
   const locks = new KeyLocks(destination);
-  async function migrateEntry(entry: (typeof entries)[number]) {
-    const sourcePath = join(source, entry.name, "comments.json"),
-      bytes = await maybeRead(sourcePath);
+  const planned = new Map<string, ReviewFileV3>();
+  const sources = await mapConcurrent(
+    entries.filter(entry => entry.isDirectory()).sort((a, b) => a.name.localeCompare(b.name)),
+    async entry => {
+      const bytes = await maybeRead(join(source, entry.name, "comments.json"));
+      let key = entry.name;
+      if (bytes) {
+        try {
+          const header = sourceHeaderSchema.parse(JSON.parse(bytes.toString()));
+          key = reviewDestinationKey(
+            header.version,
+            (header.version === 3 ? header.key : header.slug) ?? "",
+            options.flowPrefix
+          );
+        } catch {
+          // Malformed sources receive their normal per-key failure report below.
+        }
+      }
+      return { entry, bytes, key };
+    }
+  );
+  async function migrateEntry({ entry, bytes }: (typeof sources)[number]) {
+    const sourcePath = join(source, entry.name, "comments.json");
     if (!bytes) return;
     const item: MigrationKey = {
       sourceKey: entry.name,
@@ -222,14 +253,7 @@ export async function migrateFiles(
     };
     try {
       const raw: unknown = JSON.parse(bytes.toString());
-      const header = z
-        .object({
-          version: z.number(),
-          slug: z.string().optional(),
-          key: z.string().optional(),
-          sequence: z.number().optional(),
-        })
-        .parse(raw);
+      const header = sourceHeaderSchema.parse(raw);
       item.sourceVersion = header.version;
       if ((header.slug ?? header.key) !== entry.name)
         throw new ProtoError("migration_unverified", "Source folder and file key differ.");
@@ -281,6 +305,12 @@ export async function migrateFiles(
       }
       item.attachments = [...images.values()].map(image => image.report);
       const migrateKey = async () => {
+        const prior = planned.get(file.key);
+        if (prior && !isDeepStrictEqual(prior, file))
+          throw new ProtoError(
+            "migration_conflict",
+            `Target key ${file.key} has different content.`
+          );
         const target = join(destination, `${file.key}.json`),
           existing = await maybeRead(target);
         if (existing) {
@@ -309,6 +339,7 @@ export async function migrateFiles(
         });
         const pending = checked.filter(image => image !== null);
         if (dryRun) {
+          planned.set(file.key, file);
           item.status = existing && !pending.length ? "unchanged" : "planned";
           return;
         }
@@ -356,16 +387,11 @@ export async function migrateFiles(
     }
     return item;
   }
-  const groups = new Map<string, typeof entries>();
-  const prefix = options.flowPrefix ?? "fluxo-";
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory()) continue;
-    const key = entry.name.startsWith(prefix)
-      ? `flow-${entry.name.slice(prefix.length)}`
-      : entry.name;
-    const group = groups.get(key);
-    if (group) group.push(entry);
-    else groups.set(key, [entry]);
+  const groups = new Map<string, typeof sources>();
+  for (const item of sources) {
+    const group = groups.get(item.key);
+    if (group) group.push(item);
+    else groups.set(item.key, [item]);
   }
   const migrated = await mapConcurrent(groups.values(), group =>
     // Aliases can map to the same destination: publish them in source order, including dry runs.

@@ -233,7 +233,7 @@ failed operation, and the PostgreSQL byte counter has a positive control. Exact 
 final test receipts and the reviewed head are recorded on PR #16. Greptile is outside the
 completion criterion, as corrected by the user.
 
-Current repair validation: `bun run verify` passed all 13 tasks without cache (274 package,
+Validation at `c2d57ed`: `bun run verify` passed all 13 tasks without cache (274 package,
 28 app, 5 API and 1 DB tests: 308 total), using local PostgreSQL and real Chromium.
 The canonical HMR journey also preserves state in the unchanged Canvas through prototype
 replacement; the boundary clears its failure without remounting that Canvas. The protocol suite
@@ -241,3 +241,21 @@ separately verifies recovery from a throwing component and state retention for s
 rerenders. A temporary un-sandboxed iframe failed the warning-blocking Doctor gate (exit 1),
 then was removed. `test:tarball` passed all 8 fresh-consumer tests after the final package build.
 The exact reviewed commit and CI receipts remain in PR #16.
+
+The subsequent CodeRabbit review of `c2d57ed` reported six inline findings and one outside the
+diff. Native modal picking now uses an interactive descendant popover and has a Chromium
+regression that failed before the fix. Migration grouping and upgrading share the version-aware
+destination key, and dry runs detect conflicting aliases. Bounded I/O reports the first failing
+input after draining all started operations. Attachment claims select only ownership/descriptor
+columns. Dev startup captures the file-store baseline before listening, and native registry
+watchers use the same configured patterns as polling and discovery. Canonical suites cover
+modal input, migration conflicts, concurrent failures, attachment bytes and custom glob updates.
+
+The suggestion to weaken the full Doctor scan to `blocking: error` or `none` is not applicable:
+the baseline is clean and warning regressions must fail on PRs and main. The workflow documents
+this intent; the review thread links the successful full-scan CI receipt. Greptile remains excluded.
+
+Second-review validation: `bun run verify` passed all 13 tasks without cache (278 package,
+28 app, 5 API and 1 DB tests: 312 total), with real PostgreSQL and Chromium. The full Doctor
+scan reported zero errors and zero warnings across 223 files, including the three documented
+local iframe exceptions. A fresh tarball consumer passed all 8 tests after this package build.

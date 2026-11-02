@@ -6,6 +6,7 @@
  * consumer's CSS knows nothing about the host.
  */
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import type { ElementTarget, PickMode, Rect } from "../model/protocol.ts";
 import type { SourceRoots } from "../model/source.ts";
@@ -51,6 +52,14 @@ export function Picker({
   onCancel: () => void;
 }) {
   const layer = useRef<HTMLDivElement>(null);
+  // A modal makes siblings inert. Its descendant popover stays interactive in the top layer,
+  // without changing the authored dialog's focus trap, clipping or layout.
+  const [container] = useState(
+    () =>
+      document.activeElement?.closest("dialog:modal") ??
+      [...document.querySelectorAll("dialog:modal")].at(-1) ??
+      document.body
+  );
   const [cursor, setCursor] = useState<Point>(() => ({
     x: Math.round(window.innerWidth / 2),
     y: Math.round(window.innerHeight / 2),
@@ -102,6 +111,14 @@ export function Picker({
   }, []);
 
   useEffect(() => {
+    const element = layer.current;
+    element?.showPopover();
+    return () => {
+      if (element?.matches(":popover-open")) element.hidePopover();
+    };
+  }, []);
+
+  useEffect(() => {
     if (mode === "keyboard") layer.current?.focus();
   }, [mode]);
 
@@ -114,6 +131,13 @@ export function Picker({
   const layerStyle: CSSProperties = {
     position: "fixed",
     inset: 0,
+    width: "100%",
+    height: "100%",
+    margin: 0,
+    padding: 0,
+    border: 0,
+    background: "transparent",
+    overflow: "visible",
     zIndex: 2147483647,
     cursor: "crosshair",
     outline: "none",
@@ -130,9 +154,10 @@ export function Picker({
     ...extra,
   });
 
-  return (
+  return createPortal(
     <div
       ref={layer}
+      popover="manual"
       {...{ [pickerAttribute]: "" }}
       data-testid="proto-picker"
       data-mode={mode}
@@ -222,6 +247,7 @@ export function Picker({
           )}
         />
       ) : null}
-    </div>
+    </div>,
+    container
   );
 }

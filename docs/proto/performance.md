@@ -158,15 +158,23 @@ The canonical suites own the behavior:
   request; key-specific invalidation retains cached data and leaves unrelated reads fresh;
   notification bursts share a read and edits arriving during it are reconciled afterward.
 - `test/node/registry/registry.test.ts` and `test/node/store/file-store.test.ts`: real filesystem
-  snapshot/watch lifetimes and notifications only after a subsequent edit.
+  snapshot/watch lifetimes, configured prototype globs in polling and native watchers, and
+  notifications only after a subsequent edit. Dev startup establishes the review baseline before
+  accepting HTTP requests or SSE connections.
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
   missed edit; deep links, pins and browser history agree on focused comments.
 - `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,
-  image bodies are not transferred (with a positive control that detects an attachment read)
+  collection reads and attachment claims transfer no image bodies (with a positive control that
+  detects an attachment read)
   and thread/attachment ownership is preserved.
 - `test/browser/render/protocol.test.ts`: replacement components recover failed rendering while
   rerenders of the same component preserve state; context roles are confined to the catalog.
-- `test/node/concurrency.test.ts`: bounded, ordered work drains on failure before the caller exits.
+  A picker popover inside the active native modal receives pointer and keyboard input without
+  removing the authored modal's focus trap; Escape cancels picking without closing the modal.
+- `test/node/concurrency.test.ts`: bounded, ordered work drains on failure before the caller exits
+  and reports the lowest failing input index regardless of worker completion order.
+- `test/node/migrate/migrate.test.ts`: legacy aliases and v3 keys sharing a destination remain
+  ordered, including dry-run conflict reports. Prefix rewriting never rewrites an existing v3 key.
 - `test/browser/shell/render-frame.test.tsx`: clipboard denial remains retryable without false
   success or an unhandled rejection.
 - `apps/api/tests/proto.it.test.ts`: real Postgres, Better Auth, built SPA and remote review loop,

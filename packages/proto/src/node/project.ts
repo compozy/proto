@@ -1,7 +1,7 @@
 import { HttpStore } from "../store/http-store.ts";
 import { remoteToken } from "../auth/credentials.ts";
 import { existsSync, watch as watchFs, globSync, statSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, matchesGlob } from "node:path";
 import { loadConfigFromFile } from "vite";
 import { resolveProtoConfig, type ResolvedProtoConfig } from "../config.ts";
 import { ProtoError } from "../model/errors.ts";
@@ -53,6 +53,11 @@ export async function loadProject(
   let cached: Registry | undefined;
   let stopWatch: (() => void) | undefined;
   const observe = () => {
+    const patterns = [
+      ...(typeof config.prototypes === "string" ? [config.prototypes] : config.prototypes),
+      "**/*.flow.ts",
+      config.canvas,
+    ];
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
       cached = undefined;
@@ -66,11 +71,6 @@ export async function loadProject(
     let close: () => void;
     if (config.dev.poll || process.platform === "darwin") {
       // One observer serves shell and Vite. Include misplaced flows so diagnostics stay live.
-      const patterns = [
-        ...(typeof config.prototypes === "string" ? [config.prototypes] : config.prototypes),
-        "**/*.flow.ts",
-        config.canvas,
-      ];
       const fingerprint = () =>
         globSync(patterns, {
           cwd: root,
@@ -97,11 +97,11 @@ export async function loadProject(
       close = () => clearInterval(interval);
     } else {
       const watcher = watchFs(root, { recursive: true }, (_event, file) => {
+        const changed = file?.replaceAll("\\", "/");
         if (
-          file &&
-          !/(?:\.lock|\.tmp|\.pending\/|node_modules\/)/.test(file) &&
-          (/\.(proto\.tsx|flow\.ts)$/.test(file) ||
-            resolve(root, file) === resolve(root, config.canvas))
+          changed &&
+          !/(?:\.lock|\.tmp|\.pending\/|node_modules\/)/.test(changed) &&
+          patterns.some(pattern => matchesGlob(resolve(root, changed), resolve(root, pattern)))
         )
           refresh();
       });

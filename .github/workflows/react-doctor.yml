@@ -28,4 +28,5 @@ jobs:
           version: "0.9.18"
           project: apps/app,packages/proto
           scope: full
+          # The full baseline is clean; any new warning must fail, including pushes to main.
           blocking: warning

@@ -304,13 +304,13 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     }
     if (!ids.length) return [];
     const rows =
-      await sql`select * from proto_attachments where id=any(${ids}) and key=${key} and message_id is null and expires_at > now()`;
+      await sql`select id,uploader_id from proto_attachments where id=any(${ids}) and key=${key} and message_id is null and expires_at > now()`;
     if (rows.length !== ids.length) throw new ProtoError("attachment_expired");
     if (rows.some(row => row.uploader_id !== ownerId(author)))
       throw new ProtoError("message_not_owned");
     // The key lock and deferred FK make the entire conditional claim atomic before message insertion.
     const updated =
-      await sql`update proto_attachments set message_id=${messageId} where id=any(${ids}) and key=${key} and uploader_id=${ownerId(author)} and message_id is null and expires_at > now() returning *`;
+      await sql`update proto_attachments set message_id=${messageId} where id=any(${ids}) and key=${key} and uploader_id=${ownerId(author)} and message_id is null and expires_at > now() returning id,uploader_id,uploader_kind,name,type,size,width,height,extra`;
     if (updated.length !== ids.length) throw new ProtoError("attachment_expired");
     const byId = new Map(updated.map(row => [row.id, image(row)]));
     return ids.map(id => byId.get(id)!);
