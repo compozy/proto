@@ -68,10 +68,13 @@ export function FlowPage({
   };
   const problems = flowProblems(registry, flow.id);
   const coverage = flowCoverage(registry, flow);
+  const prototypesBySlug = new Map(
+    registry.prototypes.map(prototype => [prototype.slug, prototype])
+  );
   const uncovered = new Map<string, string[]>();
   for (const warning of coverage) {
     if (!warning.proto || !warning.state) continue;
-    const prototype = registry.prototypes.find(item => item.slug === warning.proto);
+    const prototype = prototypesBySlug.get(warning.proto);
     const label =
       prototype?.states.find(state => state.id === warning.state)?.label ?? warning.state;
     uncovered.set(warning.proto, [...(uncovered.get(warning.proto) ?? []), label]);

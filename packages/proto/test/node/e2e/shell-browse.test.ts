@@ -5,7 +5,7 @@
  * is built from source; Playwright Chromium drives it. Assertions own the journeys.
  */
 import { appFixture, appFiles } from "../app-fixture.ts";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ import {
 const fixture: Record<string, string> = {
   "proto.config.ts": `export default {
   title: "Browse fixture",
+  dev: { poll: true },
   specs: { billing: "Billing" },
   roles: { member: "Member", admin: "Admin" },
 };
@@ -99,6 +100,12 @@ export const flow = defineFlow({
   edges: [["open", "done", { on: "Pay" }]],
 });
 `,
+  "flows/preview.flow.ts": `import { defineFlow } from "@compozy/proto/flow";
+export const flow = defineFlow({
+  title: "Preview", start: ["open"],
+  nodes: { open: { proto: "invoice", state: "open" }, done: { proto: "invoice", state: "paid", end: true } },
+  edges: [["open", "done", { on: "Pay" }]],
+});`,
 };
 
 const work = workDir("shell-browse");
@@ -228,6 +235,92 @@ describe("browsing apps/app", () => {
 });
 
 describe("browsing a fixture", () => {
+  it("flow and prototype edits update live previews without reloading their documents", async () => {
+    // Invariant: authored updates preserve iframe documents; owner: Vite render HMR.
+    const page = await open(local.origin, "/?flow=preview");
+    const flowPath = join(work.dir, "fixture/flows/preview.flow.ts");
+    const prototypePath = join(work.dir, "fixture/src/billing/invoice.proto.tsx");
+    try {
+      const frame = await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');
+      const timeOrigin = await frame.evaluate(() => performance.timeOrigin);
+      const address = frame.url();
+      let loads = 0;
+      page.on("request", request => {
+        if (request.isNavigationRequest() && request.url().startsWith(local.renderOrigin)) loads++;
+      });
+      writeFileSync(
+        flowPath,
+        fixture["flows/preview.flow.ts"]!.replace('title: "Preview"', 'title: "Preview updated"')
+      );
+      await page
+        .getByRole("heading", { level: 1, name: "Preview updated journey", exact: true })
+        .waitFor();
+      const registryRefresh = page.waitForResponse(response =>
+        response.url().endsWith("/__proto/api/registry")
+      );
+      writeFileSync(
+        prototypePath,
+        fixture["src/billing/invoice.proto.tsx"]!.replace('paid={state === "paid"}', "paid={true}")
+      );
+      await registryRefresh;
+      await frame.getByText("Paid invoice for member", { exact: true }).waitFor();
+      writeFileSync(
+        prototypePath,
+        fixture["src/billing/invoice.proto.tsx"]!.replace(
+          'paid={state === "paid"}',
+          "paid={true}"
+        ).replace('title: "Invoice"', 'title: "Invoice updated"')
+      );
+      await expect.poll(() => frame.title()).toBe("Invoice updated");
+      expect(frame.url()).toBe(address);
+      expect(await frame.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+      expect(loads).toBe(0);
+    } finally {
+      writeFileSync(flowPath, fixture["flows/preview.flow.ts"]!);
+      writeFileSync(prototypePath, fixture["src/billing/invoice.proto.tsx"]!);
+      await page.close();
+    }
+  }, 90_000);
+
+  it("ready flow previews survive zooming out and back without loading another document", async () => {
+    // Invariant: zoom changes presentation, not the lifetime of an already loaded preview.
+    // Owner: flow canvas / preview scheduler; canonical real-browser browsing journey.
+    const page = await open(local.origin, "/?flow=preview");
+    const preview = page.locator('.react-flow__node[data-id="open"] iframe');
+    const zoomOut = page.getByRole("button", { name: "Zoom out", exact: true });
+    const zoomIn = page.getByRole("button", { name: "Zoom in", exact: true });
+    const zoom = async () => {
+      const text = await zoomOut.locator("..").textContent();
+      return Number(text?.match(/(\d+)%/)?.[1]);
+    };
+    while ((await zoom()) < 70) {
+      const before = await zoom();
+      await zoomIn.click();
+      await expect.poll(zoom).toBeGreaterThan(before);
+    }
+    await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');
+    const source = await preview.getAttribute("src");
+    let loads = 0;
+    page.on("request", request => {
+      if (request.isNavigationRequest() && request.url().startsWith(local.renderOrigin)) loads++;
+    });
+    while ((await zoom()) >= 60) {
+      const before = await zoom();
+      await zoomOut.click();
+      await expect.poll(zoom).toBeLessThan(before);
+    }
+    expect(await preview.count()).toBe(1);
+    while ((await zoom()) < 70) {
+      const before = await zoom();
+      await zoomIn.click();
+      await expect.poll(zoom).toBeGreaterThan(before);
+    }
+    await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');
+    expect(await preview.getAttribute("src")).toBe(source);
+    expect(loads).toBe(0);
+    await page.close();
+  }, 90_000);
+
   it("E2E-002: component prototypes render inside Frame with the role; drafts without Frame", async () => {
     const page = await open(local.origin, "/?p=invoice&state=paid&role=admin");
     const frame = await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');

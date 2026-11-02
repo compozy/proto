@@ -74,8 +74,8 @@ export function Composer({
       setError(
         t("composer.failed", { message: reason instanceof Error ? reason.message : String(reason) })
       );
-      setSending(false);
     }
+    setSending(false);
   };
 
   const failed = uploads.items.find(item => item.problem);

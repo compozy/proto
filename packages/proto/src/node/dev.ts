@@ -60,7 +60,9 @@ export function renderViteConfig(project: ProtoProject, port: number): InlineCon
       port: port + 1,
       strictPort: true,
       allowedHosts: [...project.config.dev.allowedHosts],
-      watch: { usePolling: project.config.dev.poll },
+      // Match the registry watcher's macOS fallback: both metadata and component bodies must
+      // update in managed filesystems where native filesystem notifications can be missed.
+      watch: { usePolling: project.config.dev.poll || process.platform === "darwin" },
     },
   };
 }

@@ -8,7 +8,12 @@ export function useBox<T extends HTMLElement = HTMLDivElement>() {
     const element = ref.current;
     if (!element) return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setBox({ width: entry.contentRect.width, height: entry.contentRect.height });
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        setBox(current =>
+          current.width === width && current.height === height ? current : { width, height }
+        );
+      }
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -22,22 +27,19 @@ export function useVisibility(ref: { current: Element | null }) {
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const watch = (key: "visible" | "near", rootMargin: string) => {
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          const value = entry?.isIntersecting ?? false;
-          setVisibility(current =>
-            current[key] === value ? current : { ...current, [key]: value }
-          );
-        },
-        { rootMargin }
-      );
-      observer.observe(element);
-      return observer;
+    const update = (key: "visible" | "near", entry?: IntersectionObserverEntry) => {
+      const value = entry?.isIntersecting ?? false;
+      setVisibility(current => (current[key] === value ? current : { ...current, [key]: value }));
     };
-    const observers = [watch("visible", "0px"), watch("near", "100% 100% 100% 100%")];
+    const visible = new IntersectionObserver(([entry]) => update("visible", entry));
+    const near = new IntersectionObserver(([entry]) => update("near", entry), {
+      rootMargin: "100% 100% 100% 100%",
+    });
+    visible.observe(element);
+    near.observe(element);
     return () => {
-      for (const observer of observers) observer.disconnect();
+      visible.disconnect();
+      near.disconnect();
     };
   }, [ref]);
   return visibility;

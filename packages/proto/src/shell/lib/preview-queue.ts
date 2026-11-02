@@ -1,8 +1,8 @@
 /**
  * Which flow nodes mount their live preview. Each preview boots a whole prototype app, so the
  * canvas plans them only from a settled viewport: nodes on screen at preview zoom start loading,
- * nearest to the center first and at most `maxLoadingPreviews` at a time; a loaded preview stays
- * mounted while it remains near the viewport, up to `maxKeptPreviews`, so panning back does not
+ * nearest to the center first and at most `maxLoadingPreviews` at a time; loaded previews stay
+ * mounted in a bounded LRU, up to `maxKeptPreviews`, so panning back does not
  * reload it. Pure, so the queue is testable without a browser.
  */
 /** Below this zoom flow cards show a placeholder instead of a live preview (US-012.AC-3). */
@@ -49,8 +49,8 @@ export function previewView(nodes: readonly NodeBox[], viewport: ScreenViewport)
 }
 
 /**
- * The plan for a settled view. Loading previews that left the screen are cancelled and loaded
- * ones that left its surroundings unmount; a preview whose source changed (theme) starts over.
+ * The plan for a settled view. Loading previews that left the surroundings are cancelled;
+ * ready previews are retained until eviction. A changed source (theme) starts over.
  * New previews start while fewer than `maxLoadingPreviews` load, replacing the least recently
  * seen loaded preview off screen once `maxKeptPreviews` are mounted.
  */
@@ -64,8 +64,8 @@ export function schedulePreviews(
     sources.get(entry.id) !== entry.src
       ? false
       : entry.status === "loading"
-        ? visible.has(entry.id)
-        : view.near.has(entry.id)
+        ? view.near.has(entry.id)
+        : true
   );
   // Previews on screen become the most recently seen, in priority order.
   const next = [

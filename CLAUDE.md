@@ -24,14 +24,15 @@ Bun + Turborepo monorepo. `CLAUDE.md` is canonical; `AGENTS.md` is a symlink mad
 
 ## Commands
 
-| Command                              | What                                                                              |
-| ------------------------------------ | --------------------------------------------------------------------------------- |
-| `bun run db:up`                      | Start Postgres (docker compose, port from `.env.local`)                           |
-| `bun run db:generate` / `db:migrate` | Create / apply a migration after a schema change                                  |
-| `bun dev`                            | Every app in watch mode                                                           |
-| `bun run proto dev`                  | Shell on <http://127.0.0.1:4400>, app render server on port 4401                  |
-| `bun run storybook`                  | Storybook of the UI and app views                                                 |
-| `bun run verify`                     | Format check, lint, codegen check, typecheck, test, build. The definition of done |
+| Command                              | What                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `bun run db:up`                      | Start Postgres (docker compose, port from `.env.local`)                                         |
+| `bun run db:generate` / `db:migrate` | Create / apply a migration after a schema change                                                |
+| `bun dev`                            | Every app in watch mode                                                                         |
+| `bun run proto dev`                  | Shell on <http://127.0.0.1:4400>, app render server on port 4401                                |
+| `bun run storybook`                  | Storybook of the UI and app views                                                               |
+| `bun run doctor:check`               | React Doctor and React Compiler diagnostics for owned React code                                |
+| `bun run verify`                     | Format check, lint, React Doctor, codegen check, typecheck, test, build. The definition of done |
 
 `bun run codegen` regenerates `apps/api/openapi.json` and `apps/app/src/generated/api.d.ts` from
 the API routes; `verify` fails when they are stale.

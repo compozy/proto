@@ -2,15 +2,17 @@
  * The prebuilt shell (ADR-002): bootstrap → registry → the area the URL names. It imports only
  * `src/model` and its own `ui/`, and talks to prototypes only through the render protocol.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Registry } from "../../model/registry";
-import { FlowPage } from "../flow/flow-page";
+import { loadFlowPage, loadSettings } from "../lib/preload";
 import { LocaleProvider, useT } from "../lib/i18n";
+import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
 import { registryItems } from "../lib/search";
-import { loadBootstrap, ShellDataProvider, useShellData, type ShellEnv } from "../lib/shell-data";
+import { bootstrapQuery, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
 import type { View } from "../lib/view";
@@ -28,7 +30,6 @@ import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
 import { reviewKeys, ReviewProvider, useReviewData } from "../review/data";
 import { Inbox } from "../review/inbox/inbox";
 import { KeysStatus, readOnlySlots, reviewSlots, useCommentSearchItems } from "../review/review-ui";
-import { Settings } from "../review/settings/settings";
 import {
   CommentModeProvider,
   commentModeSlots,
@@ -42,25 +43,34 @@ import {
   type ShellSlots,
 } from "./slots";
 
-type Boot =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; env: ShellEnv };
+const FlowPage = lazy(loadFlowPage);
+const Settings = lazy(loadSettings);
 
 export function Root() {
-  const [boot, setBoot] = useState<Boot>({ status: "loading" });
-  useEffect(() => {
-    loadBootstrap().then(
-      env => setBoot({ status: "ready", env }),
-      (error: unknown) => setBoot({ status: "error", message: String(error) })
-    );
-  }, []);
-  if (boot.status === "loading") return <BootSkeleton />;
-  if (boot.status === "error")
-    return <Fatal message={boot.message} onRetry={() => window.location.reload()} />;
+  const [client] = useState(createShellQueryClient);
   return (
-    <LocaleProvider locale={boot.env.bootstrap.locale}>
-      <ShellDataProvider env={boot.env}>
+    <QueryClientProvider client={client}>
+      <BootstrapApp />
+    </QueryClientProvider>
+  );
+}
+
+function BootstrapApp() {
+  const client = useQueryClient();
+  const boot = useQuery(bootstrapQuery());
+  if (boot.isPending) return <BootSkeleton />;
+  if (boot.isError)
+    return (
+      <Fatal
+        message={String(boot.error)}
+        onRetry={() => {
+          void boot.refetch();
+        }}
+      />
+    );
+  return (
+    <LocaleProvider locale={boot.data.bootstrap.locale}>
+      <ShellDataProvider env={boot.data} client={client}>
         <App />
       </ShellDataProvider>
     </LocaleProvider>
@@ -223,7 +233,19 @@ function Browse({
       />
       <SessionExpiredBanner />
       <main id="shell-main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-        {page.body}
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              aria-label={t("frame.loading")}
+              className="grid flex-1 place-items-center"
+            >
+              <Skeleton className="h-40 w-80" />
+            </div>
+          }
+        >
+          {page.body}
+        </Suspense>
       </main>
       {overlay === "search" && (
         <SearchPalette items={searchable} onAction={onAction} onClose={() => setOverlay(null)} />

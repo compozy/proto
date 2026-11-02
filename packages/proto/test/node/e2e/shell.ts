@@ -43,7 +43,7 @@ export function writeApp(dir: string, files: Record<string, string>) {
 /** The prebuilt shell from this checkout's sources (never a stale `dist/shell`). */
 export async function buildShell(outDir: string) {
   await build({
-    configFile: join(packageRoot, "vite.shell.config.ts"),
+    configFile: join(packageRoot, "vite.config.ts"),
     logLevel: "error",
     build: { outDir, emptyOutDir: true },
   });

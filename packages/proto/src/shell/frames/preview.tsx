@@ -50,7 +50,7 @@ export function Preview({
   const slot = usePreviewSlot(id, {
     src,
     visible: enabled && visibility.visible,
-    near: enabled && visibility.near,
+    near: visibility.near,
     order,
   });
   const scale = box.width / width;
@@ -71,6 +71,7 @@ export function Preview({
           width={width}
           height={height}
           scale={scale}
+          hidden={!enabled}
         />
       )}
       {overlay}
@@ -86,6 +87,7 @@ function PreviewFrame({
   width,
   height,
   scale,
+  hidden,
 }: {
   id: string;
   src: string;
@@ -94,6 +96,7 @@ function PreviewFrame({
   width: number;
   height: number;
   scale: number;
+  hidden: boolean;
 }) {
   const t = useT();
   const scheduler = usePreviewScheduler();
@@ -101,11 +104,11 @@ function PreviewFrame({
   const frame = useRenderFrame(iframe, { ...target, width }, { slugs: noSlugs });
   const settled = frame.status.kind !== "loading" || frame.status.slow;
   useEffect(() => {
-    if (settled) scheduler.settle(id, src);
+    if (settled) scheduler.trigger.settled({ id, src });
   }, [settled, scheduler, id, src]);
   return (
     <>
-      <div inert className="absolute inset-0">
+      <div inert className={cn("absolute inset-0", hidden && "invisible")}>
         <iframe
           key={frame.nonce}
           ref={iframe}

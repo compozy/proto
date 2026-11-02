@@ -53,7 +53,11 @@ export function LoginForm({
               <Label htmlFor="password">Password</Label>
               <Input id="password" name="password" type="password" minLength={8} required />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
             <Button type="submit" disabled={pending}>
               {mode === "sign-in" ? "Sign in" : "Create account"}
             </Button>

@@ -20,6 +20,8 @@ import {
 } from "../../../src/shell/lib/shell-data.tsx";
 import { createReviewApi, isReviewApiError } from "../../../src/shell/review/api.ts";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
+import { createShellQueryClient } from "../../../src/shell/lib/query.ts";
+import { createReviewQueries, invalidateReview } from "../../../src/shell/review/queries.ts";
 import { permissionsOf } from "../../../src/shell/review/permissions.ts";
 import { confinePick } from "../../../src/shell/review/comment-mode/pick.ts";
 import { registrySourceRoots } from "../../../src/shell/lib/registry-model.ts";
@@ -44,6 +46,74 @@ function fakeFetch(answer: (call: Call) => Response | Promise<Response>) {
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
+
+describe("review query ownership", () => {
+  test("a review change retains cached data and invalidates only its dependent reads", async () => {
+    // Invariant: a key change refreshes its detail and matching lists, not unrelated reviews.
+    // Owner: review data queries; canonical browser client suite, mocked only at HTTP.
+    let open = 0;
+    const network = fakeFetch(call => {
+      const url = new URL(call.url);
+      return url.pathname.includes("/reviews/")
+        ? json({
+            review: {
+              key: url.pathname.split("/").at(-1),
+              status: "in_review",
+              updatedAt: null,
+              open,
+              events: [],
+            },
+          })
+        : json({ comments: [] });
+    });
+    const api = createReviewApi({ apiBase: "http://127.0.0.1/api/", fetch: network.fetch });
+    const client = createShellQueryClient();
+    const queries = createReviewQueries(api, "local");
+    const reads = [queries.state("one"), queries.state("two")];
+    try {
+      await Promise.all(reads.map(read => client.fetchQuery(read)));
+      await client.fetchQuery(queries.comments({ status: "all" }));
+      await client.fetchQuery(queries.comments({ key: "two", status: "all" }));
+      open = 1;
+      await invalidateReview(client, queries, "one");
+      expect(client.getQueryData(queries.state("one").queryKey)?.open).toBe(0);
+      const states = await Promise.all(reads.map(read => client.fetchQuery(read)));
+      await client.fetchQuery(queries.comments({ status: "all" }));
+      await client.fetchQuery(queries.comments({ key: "two", status: "all" }));
+      expect(states.map(state => state.open)).toEqual([1, 0]);
+      const count = (path: string) =>
+        network.calls.filter(call => new URL(call.url).pathname + new URL(call.url).search === path)
+          .length;
+      expect(count("/api/reviews/one")).toBe(2);
+      expect(count("/api/reviews/two")).toBe(1);
+      expect(count("/api/comments?status=all")).toBe(2);
+      expect(count("/api/comments?key=two&status=all")).toBe(1);
+    } finally {
+      client.clear();
+    }
+  });
+
+  test("intent prefetch and concurrent detail readers share one request and fresh result", async () => {
+    // Invariant: all readers of one review share the canonical query, including prefetch.
+    const network = fakeFetch(() =>
+      json({ review: { key: "one", status: "in_review", updatedAt: null, open: 0, events: [] } })
+    );
+    const api = createReviewApi({ apiBase: "http://127.0.0.1/api/", fetch: network.fetch });
+    const queries = createReviewQueries(api, "local");
+    const client = createShellQueryClient();
+    try {
+      await Promise.all([
+        client.prefetchQuery(queries.state("one")),
+        client.fetchQuery(queries.state("one")),
+        client.fetchQuery(queries.state("one")),
+      ]);
+      expect((await client.fetchQuery(queries.state("one"))).key).toBe("one");
+      expect(network.calls).toHaveLength(1);
+    } finally {
+      client.clear();
+    }
+  });
+});
 
 describe("createReviewApi", () => {
   const base = "http://127.0.0.1:4400/";

@@ -204,6 +204,39 @@
                     }
                 ]
             }
+        },
+        {
+            "files": [
+                "apps/app/src/**/*.{ts,tsx}",
+                "apps/app/proto.canvas.tsx",
+                "packages/proto/src/render/**/*.{ts,tsx}",
+                "packages/proto/src/shell/{app,flow,frames,lib,pages,review,screen}/**/*.{ts,tsx}"
+            ],
+            "plugins": ["react"],
+            "rules": {
+                "react/error-boundaries": "error",
+                "react/globals": "error",
+                "react/immutability": "error",
+                "react/incompatible-library": "error",
+                "react/no-deriving-state-in-effects": "error",
+                "react/preserve-manual-memoization": "error",
+                "react/purity": "error",
+                "react/refs": "error",
+                "react/set-state-in-effect": "error",
+                "react/set-state-in-render": "error",
+                "react/static-components": "error",
+                "react/unsupported-syntax": "error",
+                "react/use-memo": "error",
+                "react/void-use-memo": "error",
+                "react-doctor/no-fetch-in-effect": "error",
+                "react-doctor/no-loading-flag-reset-outside-finally": "error"
+            }
+        }
+    ],
+    "jsPlugins": [
+        {
+            "name": "react-doctor",
+            "specifier": "oxlint-plugin-react-doctor"
         }
     ]
 }

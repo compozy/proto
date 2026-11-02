@@ -408,13 +408,23 @@ describe("Composer", () => {
       attachments: [...backend.pending.keys()],
     });
     expect(cancelled).toBe(false);
+    // The composer owns releasing its busy state after success, even when the parent keeps it open.
+    await userEvent.fill(page.getByRole("textbox"), "Follow-up without attachments");
+    await expect.element(send).toBeEnabled();
+    await userEvent.click(send);
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ body: "Follow-up without attachments", attachments: [] });
+    // A later unsent draft still owns its pending uploads; claimed attachments stay with the message.
+    await userEvent.upload(page.getByTestId("composer-file"), [png("next.png")]);
+    await vi.waitFor(() => expect(backend.pending.size).toBe(2));
+    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await vi.waitFor(() => expect([...backend.pending.keys()]).toEqual(sent[0]!.attachments));
+    await expect.element(page.getByTestId("comment-composer")).not.toBeInTheDocument();
   });
 
   test("cancel discards pending uploads", async () => {
-    let open = true;
     function Harness() {
       const [shown, setShown] = useState(true);
-      open = shown;
       return shown ? (
         <Composer
           reviewKey="card"
@@ -429,7 +439,7 @@ describe("Composer", () => {
     await vi.waitFor(() => expect(backend.pending.size).toBe(1));
     await userEvent.click(page.getByRole("button", { name: "Cancel" }));
     await vi.waitFor(() => expect(backend.pending.size).toBe(0));
-    expect(open).toBe(false);
+    await expect.element(page.getByTestId("comment-composer")).not.toBeInTheDocument();
   });
 });
 

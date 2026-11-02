@@ -4,7 +4,18 @@
  * `registryUrl`, refreshed on SSE `registry` events when `eventsUrl` is set. Other slices
  * subscribe to `comments` and `review` events through `useShellEvents`.
  */
+import {
+  QueryClientProvider,
+  queryOptions,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
+
+import { createShellQueryClient } from "./query";
+import { useStore } from "@xstate/store-react";
+import { previewLogic, PreviewSchedulerProvider } from "./preview-scheduler";
 
 import { bootstrapSchema, type Bootstrap } from "../../model/bootstrap";
 import type { Registry } from "../../model/registry";
@@ -20,10 +31,14 @@ export type ShellEnv = {
   renderOrigin: string;
 };
 
-export async function loadBootstrap(base = document.baseURI): Promise<ShellEnv> {
+export async function loadBootstrap(
+  base = document.baseURI,
+  signal?: AbortSignal
+): Promise<ShellEnv> {
   const response = await fetch(new URL(bootstrapHref, base), {
     headers: { accept: "application/json" },
     credentials: "same-origin",
+    signal,
   });
   if (!response.ok) throw new Error(`bootstrap.json answered ${response.status}`);
   const bootstrap = bootstrapSchema.parse(await response.json());
@@ -37,11 +52,12 @@ function isRegistry(value: unknown): value is Registry {
   return [prototypes, flows, problems, warnings].every(Array.isArray);
 }
 
-export async function loadRegistry(env: ShellEnv): Promise<Registry> {
+export async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Registry> {
   const url = new URL(env.bootstrap.registryUrl, document.baseURI);
   const response = await fetch(url, {
     headers: { accept: "application/json" },
     credentials: "same-origin",
+    signal,
   });
   if (!response.ok) throw new Error(`The registry answered ${response.status}`);
   const body: unknown = await response.json();
@@ -106,36 +122,68 @@ type ShellData = ShellEnv & { registry: RegistryState; events: ShellEvents; relo
 
 const ShellDataContext = createContext<ShellData | null>(null);
 
-export function ShellDataProvider({ env, children }: { env: ShellEnv; children: ReactNode }) {
+export const bootstrapQuery = () =>
+  queryOptions({
+    queryKey: ["bootstrap", new URL(bootstrapHref, document.baseURI).href],
+    // Bootstrap belongs to this shell session; keep its request across StrictMode trial mounts.
+    queryFn: () => loadBootstrap(),
+    staleTime: Infinity,
+  });
+
+export const registryQuery = (env: ShellEnv) =>
+  queryOptions({
+    queryKey: ["registry", new URL(env.bootstrap.registryUrl, document.baseURI).href],
+    queryFn: ({ signal }) => loadRegistry(env, signal),
+    // Authored data changes through SSE. Static builds are immutable.
+    staleTime: Infinity,
+  });
+
+export function ShellDataProvider({
+  env,
+  client,
+  children,
+}: {
+  env: ShellEnv;
+  client?: QueryClient;
+  children: ReactNode;
+}) {
+  const [ownedClient] = useState(createShellQueryClient);
+  const scheduler = useStore(previewLogic);
+  return (
+    <QueryClientProvider client={client ?? ownedClient}>
+      <PreviewSchedulerProvider value={scheduler}>
+        <ShellDataContent env={env}>{children}</ShellDataContent>
+      </PreviewSchedulerProvider>
+    </QueryClientProvider>
+  );
+}
+
+function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNode }) {
+  const client = useQueryClient();
   const [events] = useState(() => new ShellEvents(env.bootstrap.eventsUrl));
-  const [registry, setRegistry] = useState<RegistryState>({ status: "loading" });
-  const [generation, setGeneration] = useState(0);
-
-  useEffect(() => events.subscribe("registry", () => setGeneration(value => value + 1)), [events]);
-
+  const query = useQuery(registryQuery(env));
   useEffect(() => {
-    let current = true;
-    loadRegistry(env).then(
-      value => {
-        if (current) setRegistry({ status: "ready", registry: value });
-      },
-      (error: unknown) => {
-        // A failed refresh keeps the last good snapshot on screen.
-        if (current) {
-          setRegistry(previous =>
-            previous.status === "ready" ? previous : { status: "error", message: String(error) }
-          );
-        }
-      }
-    );
-    return () => {
-      current = false;
-    };
-  }, [env, generation]);
-
+    return events.subscribe("registry", () => {
+      void client.invalidateQueries({ queryKey: registryQuery(env).queryKey });
+    });
+  }, [client, env, events]);
+  // Structural sharing keeps unchanged prototypes/flows stable across registry events.
+  // A failed refresh leaves the last successful registry on screen.
+  const registry: RegistryState = query.data
+    ? { status: "ready", registry: query.data }
+    : query.error
+      ? { status: "error", message: String(query.error) }
+      : { status: "loading" };
   return (
     <ShellDataContext
-      value={{ ...env, registry, events, reload: () => setGeneration(value => value + 1) }}
+      value={{
+        ...env,
+        registry,
+        events,
+        reload: () => {
+          void query.refetch();
+        },
+      }}
     >
       {children}
     </ShellDataContext>

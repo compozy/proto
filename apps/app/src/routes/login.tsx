@@ -15,18 +15,22 @@ export function Login() {
   async function submit({ name, email, password }: LoginValues) {
     setPending(true);
     setError(null);
-    const result =
-      mode === "sign-in"
-        ? await authClient.signIn.email({ email, password })
-        : await authClient.signUp.email({ email, password, name });
-    setPending(false);
-    if (result.error) return setError(result.error.message ?? "Something went wrong");
-    const href = reviewReturn(returnTo);
-    if (href) {
-      window.location.assign(href);
-      return;
+    try {
+      const result =
+        mode === "sign-in"
+          ? await authClient.signIn.email({ email, password })
+          : await authClient.signUp.email({ email, password, name });
+      if (result.error) {
+        setError(result.error.message ?? "Something went wrong");
+      } else {
+        const href = reviewReturn(returnTo);
+        if (href) window.location.assign(href);
+        else await router.navigate({ to: "/" });
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Something went wrong");
     }
-    await router.navigate({ to: "/" });
+    setPending(false);
   }
 
   return (

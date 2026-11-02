@@ -172,7 +172,10 @@ function useShellMessages(
       queryElement(document, message.selector)?.scrollIntoView({ block: "center" });
     }
   });
-  useEffect(() => bridge.listen(onMessage), [bridge]);
+  useEffect(() => {
+    const stop = bridge.listen(onMessage);
+    return () => stop();
+  }, [bridge]);
 }
 
 function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & { bridge: Bridge }) {

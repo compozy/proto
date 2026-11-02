@@ -87,6 +87,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
     sourceRoots: sourceRoots({ flows: project.config.flows, canvas: project.config.canvas }),
   };
   const ids = ["virtual:proto/render-config", "virtual:proto/prototypes", "virtual:proto/canvas"];
+  let prototypeSnapshot: string | undefined;
   return [
     sourceTags(project.root, project.root),
     ...protoPresentation(),
@@ -131,6 +132,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
           return `export const config = { ...${JSON.stringify(renderConfig)}${renderConfig.mode === "read-only" ? ", shellOrigin: window.location.origin" : ""} }; export default config; export const renderConfig = config;`;
         if (id === `\0${ids[1]}`) {
           const registry = await project.registry();
+          prototypeSnapshot = JSON.stringify(registry.prototypes);
           return `export const prototypes = [${registry.prototypes.map(p => `({...${JSON.stringify(p)}, load: () => import(${JSON.stringify(resolve(project.root, p.file))})})`).join(",")}]; export default prototypes;`;
         }
         if (id === `\0${ids[2]}`) {
@@ -141,12 +143,14 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
         }
       },
       configureServer(server) {
-        const stop = project.watch(() => {
-          for (const id of ids) {
-            const module = server.moduleGraph.getModuleById(`\0${id}`);
-            if (module) server.moduleGraph.invalidateModule(module);
-          }
-          server.ws.send({ type: "full-reload" });
+        const stop = project.watch(registry => {
+          const next = JSON.stringify(registry.prototypes);
+          if (next === prototypeSnapshot) return;
+          prototypeSnapshot = next;
+          // Flow edits belong to the shell. Prototype body edits already use React Refresh;
+          // metadata/add/remove changes update only this virtual module, without reloading frames.
+          const module = server.moduleGraph.getModuleById(`\0${ids[1]}`);
+          if (module) void server.reloadModule(module);
         });
         server.httpServer?.once("close", stop);
         server.middlewares.use(async (req, res, next) => {
