@@ -244,7 +244,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       next();
     },
   });
-  /** Stop admission, bound SSE draining and release idle sockets while accepted requests finish. */
+  /** Stop admission and bound SSE/HTTP draining while accepted requests have time to finish. */
   const closeServers = async () => {
     closing = true;
     const closed = new Promise<void>(resolve => server.close(() => resolve()));
@@ -270,7 +270,12 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
           })
       )
     ).then(() => server.closeIdleConnections());
-    await Promise.all([vite.close(), streamsEnded, closed]);
+    const requestDeadline = setTimeout(() => server.closeAllConnections(), 10_000);
+    try {
+      await Promise.all([vite.close(), streamsEnded, closed]);
+    } finally {
+      clearTimeout(requestDeadline);
+    }
   };
   try {
     // Capture the review baseline before clients can read data or connect to SSE.

@@ -162,7 +162,8 @@ The canonical suites own the behavior:
   notifications only after a subsequent edit. Dev startup establishes the review baseline before
   accepting HTTP requests or SSE connections.
 - `test/node/dev/dev.test.ts`: dev shutdown stops accepting HTTP connections, releases idle
-  preconnects and lets accepted review writes return their response. SSE drains on finish or
+  preconnects and gives accepted review requests ten seconds to return their response before
+  closing any remaining connections. SSE drains on finish or
   disconnect; a stream that stops reading is destroyed after one second. Consumer Vite cleanup
   runs alongside HTTP cleanup, and automatic reconnects cannot keep shutdown open.
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a

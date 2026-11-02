@@ -254,6 +254,38 @@ it.each([false, true])(
   },
   120000
 );
+it("shutdown bounds an accepted HTTP request that never completes", async () => {
+  // Invariant: an accepted but stalled upload cannot keep the dev host open indefinitely.
+  // Owner: dev lifecycle; real HTTP 100 Continue confirms acceptance before shutdown starts.
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-stalled-upload-");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Stalled upload"};');
+  writeFileSync(join(root, "vite.config.ts"), "export default {};");
+  const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+  const client = request(`${server.origin}/__proto/api/comments`, {
+    method: "POST",
+    headers: { Expect: "100-continue", "Content-Length": 1024, Origin: server.origin },
+  });
+  const errors: Error[] = [];
+  client.on("error", error => errors.push(error));
+  let closing: Promise<void> | undefined;
+  try {
+    const accepted = once(client, "continue");
+    client.flushHeaders();
+    await accepted;
+    let closed = false;
+    closing = server.close().then(() => {
+      closed = true;
+    });
+    await expect.poll(() => closed && client.destroyed, { timeout: 15000 }).toBe(true);
+    expect(errors).toContainEqual(expect.objectContaining({ code: "ECONNRESET" }));
+  } finally {
+    client.destroy();
+    await (closing ?? server.close());
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120000);
 it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");

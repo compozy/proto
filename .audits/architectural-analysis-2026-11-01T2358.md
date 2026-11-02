@@ -317,3 +317,15 @@ Third-review validation passed all 13 tasks uncached with real PostgreSQL and Ch
 283 package, 28 app, 5 API and 1 DB tests (317 total). The full React Doctor scan still reports
 zero errors and zero warnings with the same three documented iframe exceptions. The original
 comment journey passes after the pre-bundling repair, without changing its assertions or timeout.
+
+An additional CodeRabbit CLI review of `199af66` found one minor lifecycle gap: an accepted
+HTTP upload could outlive shutdown indefinitely from the caller's perspective. The same canonical
+dev suite now accepts an upload with HTTP 100 Continue and leaves its body unfinished. It failed
+before the fix. Shutdown gives HTTP requests ten seconds to finish, then closes remaining
+connections; the deadline is cleared on completion or failure and applies to startup-failure
+cleanup too. The earlier accepted-write case still verifies a 201 response and exactly one write
+within the grace period. SSE keeps its independent one-second drain deadline.
+
+CLI follow-up validation passed all 13 verification tasks uncached with real PostgreSQL and
+Chromium (284 package, 28 app, 5 API and 1 DB tests: 318 total). The rebuilt package passed
+all 8 fresh-consumer tests, and React Doctor still reports no errors or warnings.
