@@ -4,7 +4,7 @@
  * earlier column) loop under the cards; edges within a column run bottom → top. Small,
  * deterministic and dependency-free (ELK alone would exceed the shell's bundle budget). Pure.
  */
-import type { RegistryFlow } from "../../model/registry";
+import { outgoingEdges, type RegistryFlow } from "../../model/registry";
 
 export const cardWidth = 248;
 export const columnGap = 112;
@@ -16,15 +16,18 @@ export const externalHeight = 96;
 export type LaidOutNode = { id: string; x: number; y: number; column: number; height: number };
 export type EdgeRoute = "forward" | "back" | "same";
 
+/** Assign breadth-first columns and stable step rows, placing unreachable nodes in a final column. */
 export function layoutFlow(flow: RegistryFlow) {
   const depth = new Map<string, number>();
-  const queue = flow.start.filter(id => flow.nodes.some(node => node.id === id));
+  const nodeIds = new Set(flow.nodes.map(node => node.id));
+  const queue = [...new Set(flow.start.filter(id => nodeIds.has(id)))];
+  const outgoing = outgoingEdges(flow.edges);
   for (const id of queue) depth.set(id, 0);
-  while (queue.length) {
-    const id = queue.shift() as string;
+  for (let index = 0; index < queue.length; index++) {
+    const id = queue[index]!;
     const next = (depth.get(id) ?? 0) + 1;
-    for (const edge of flow.edges) {
-      if (edge.from === id && !depth.has(edge.to)) {
+    for (const edge of outgoing.get(id) ?? []) {
+      if (!depth.has(edge.to)) {
         depth.set(edge.to, next);
         queue.push(edge.to);
       }
@@ -36,7 +39,9 @@ export function layoutFlow(flow: RegistryFlow) {
   const columns = new Map<number, typeof ordered>();
   for (const node of ordered) {
     const column = depth.get(node.id) ?? last;
-    columns.set(column, [...(columns.get(column) ?? []), node]);
+    const members = columns.get(column);
+    if (members) members.push(node);
+    else columns.set(column, [node]);
   }
   const heightOf = (node: (typeof ordered)[number]) =>
     node.kind === "prototype" ? prototypeHeight : externalHeight;

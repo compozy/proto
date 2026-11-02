@@ -12,9 +12,17 @@ import { RenderHost } from "./host.tsx";
 
 const root = document.getElementById("root");
 if (root) {
-  createRoot(root).render(
-    <StrictMode>
-      <RenderHost config={renderConfig} prototypes={prototypes} Canvas={Canvas} Frame={Frame} />
-    </StrictMode>
-  );
+  const renderer = createRoot(root);
+  const render = (entries: typeof prototypes) =>
+    renderer.render(
+      <StrictMode>
+        <RenderHost config={renderConfig} prototypes={entries} Canvas={Canvas} Frame={Frame} />
+      </StrictMode>
+    );
+  render(prototypes);
+  if (import.meta.hot) {
+    import.meta.hot.accept("virtual:proto/prototypes", module => {
+      if (module) render(module.prototypes);
+    });
+  }
 }

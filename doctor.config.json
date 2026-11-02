@@ -1,0 +1,22 @@
+{
+    "$schema": "https://react.doctor/schema/config.json",
+    "projects": ["apps/app", "packages/proto"],
+    "scope": "full",
+    "blocking": "warning",
+    "ignore": {
+        "files": [
+            "**/src/generated/**",
+            "**/src/shell/ui/**",
+            "**/dist/**",
+            "**/dist-proto/**",
+            "**/storybook-static/**",
+            "**/.tmp/**"
+        ],
+        "overrides": [
+            {
+                "files": ["**/*.proto.tsx", "**/proto.canvas.tsx"],
+                "rules": ["react-doctor/only-export-components"]
+            }
+        ]
+    }
+}

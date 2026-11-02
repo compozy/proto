@@ -22,7 +22,8 @@ async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expect
     clearTimeout(timer);
   }
 }
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
+import { once } from "node:events";
 import { request } from "node:http";
 import { beforeAll, afterAll, expect, it } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
@@ -123,6 +124,200 @@ it("UT-069 busy ports name the pair", async () => {
     });
   } finally {
     await new Promise<void>(r => occupied.close(() => r()));
+  }
+}, 120000);
+it("shutdown drains accepted writes and refuses SSE reconnects while the render server closes", async () => {
+  // Invariant: shutdown drains accepted writes, refuses reconnects and releases idle preconnects.
+  // Owner: dev server lifecycle; real HTTP/SSE and a consumer Vite plugin with a filesystem barrier.
+  const { writeFileSync, mkdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-shutdown-");
+  const entered = join(root, "closing");
+  const release = join(root, "release");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Shutdown"};');
+  mkdirSync(join(root, "src"));
+  writeFileSync(
+    join(root, "src/login-form.proto.tsx"),
+    'export const meta=definePrototype({title:"Login",states:[{id:"default",label:"Default"}]}); export default function Prototype(){return null;}'
+  );
+  writeFileSync(
+    join(root, "vite.config.ts"),
+    `
+    import {existsSync, writeFileSync} from "node:fs";
+    export default {plugins: [{name: "consumer-cleanup", async closeBundle() {
+      writeFileSync(${JSON.stringify(entered)}, "ready");
+      while (!existsSync(${JSON.stringify(release)})) await new Promise(done => setTimeout(done, 10));
+    }}]};
+  `
+  );
+  const abort = new AbortController();
+  let server: Awaited<ReturnType<typeof startDev>> | undefined;
+  let closing: Promise<void> | undefined;
+  let preconnect: ReturnType<typeof createConnection> | undefined;
+  let pendingRequest: ReturnType<typeof request> | undefined;
+  try {
+    const project = await loadProject(root);
+    server = await startDev(project, { port: await port(), quiet: true });
+    preconnect = createConnection(Number(new URL(server.origin).port), "127.0.0.1");
+    await once(preconnect, "connect");
+    const events = `${server.origin}/__proto/api/events`;
+    const reader = (await fetch(events, { signal: abort.signal })).body!.getReader();
+    await readEvent(reader, ": registry-watcher-ready");
+    const body = JSON.stringify({
+      key: "login-form",
+      body: "Accepted before shutdown",
+      context: {
+        state: "default",
+        theme: "light",
+        role: null,
+        viewport: { width: 1440, height: 900 },
+      },
+      target: { kind: "node", node: null, label: "Whole view" },
+    });
+    const response = new Promise<{ status?: number; body?: string; error?: Error }>(resolve => {
+      pendingRequest = request(
+        `${server!.origin}/__proto/api/comments`,
+        {
+          method: "POST",
+          headers: {
+            Origin: server!.origin,
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+            Expect: "100-continue",
+          },
+        },
+        result => {
+          let body = "";
+          result.setEncoding("utf8");
+          result.on("data", chunk => {
+            body += chunk;
+          });
+          result.once("end", () => resolve({ status: result.statusCode, body }));
+        }
+      );
+      pendingRequest.once("error", error => resolve({ error }));
+    });
+    const accepted = once(pendingRequest!, "continue");
+    pendingRequest!.flushHeaders();
+    await accepted;
+    closing = server.close();
+    await expect.poll(() => existsSync(entered)).toBe(true);
+    expect((await reader.read()).done).toBe(true);
+    await expect.poll(() => preconnect!.destroyed).toBe(true);
+    await expect(fetch(events, { signal: abort.signal })).rejects.toThrow();
+    pendingRequest!.end(body);
+    const outcome = await response;
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({ status: 201 });
+    expect(await project.store().list()).toHaveLength(1);
+  } finally {
+    abort.abort();
+    preconnect?.destroy();
+    pendingRequest?.destroy();
+    writeFileSync(release, "continue");
+    await (closing ?? server?.close());
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120000);
+it.each([false, true])(
+  "shutdown finishes when a stalled SSE client disconnects=%s",
+  async disconnect => {
+    // Invariant: an unread SSE backlog or disconnect cannot hold shutdown indefinitely.
+    // Owner: dev lifecycle; a real HTTP socket stops reading while the host publishes a large event.
+    const { writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const root = appFixture("proto-dev-sse-shutdown-");
+    writeFileSync(join(root, "proto.config.ts"), 'export default {title:"SSE shutdown"};');
+    writeFileSync(join(root, "vite.config.ts"), "export default {};");
+    const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+    const client = request(`${server.origin}/__proto/api/events`);
+    const received = once(client, "response");
+    client.end();
+    const [stream] = (await received) as [import("node:http").IncomingMessage];
+    let closing: Promise<void> | undefined;
+    try {
+      stream.pause();
+      stream.socket.pause();
+      server.publish("registry", { backlog: "x".repeat(16 * 1024 * 1024) });
+      let closed = false;
+      closing = server.close().then(() => {
+        closed = true;
+      });
+      if (disconnect) stream.destroy();
+      await expect.poll(() => closed, { timeout: 5000 }).toBe(true);
+      await closing;
+    } finally {
+      stream.destroy();
+      client.destroy();
+      if (!closing) await server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+  120000
+);
+it("shutdown rejects an SSE request pipelined on an accepted HTTP connection", async () => {
+  // Invariant: no event stream can join shutdown after its initial SSE drain, even on a reused socket.
+  // Owner: dev lifecycle; real HTTP pipelining behind an accepted, unfinished upload.
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-pipelined-sse-");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Pipelined SSE"};');
+  writeFileSync(join(root, "vite.config.ts"), "export default {};");
+  const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+  const host = new URL(server.origin).host;
+  const client = createConnection(Number(new URL(server.origin).port), "127.0.0.1");
+  let response = "";
+  client.setEncoding("utf8");
+  client.on("data", chunk => {
+    response += chunk;
+  });
+  let closing: Promise<void> | undefined;
+  try {
+    await once(client, "connect");
+    client.write(
+      `POST /__proto/api/unknown HTTP/1.1\r\nHost: ${host}\r\nContent-Length: 1\r\nExpect: 100-continue\r\n\r\n`
+    );
+    await expect.poll(() => response.includes("HTTP/1.1 100 Continue")).toBe(true);
+    closing = server.close();
+    client.write(`xGET /__proto/api/events HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
+    await expect.poll(() => response).toContain("HTTP/1.1 503");
+    expect(response).not.toContain("text/event-stream");
+    await closing;
+  } finally {
+    client.destroy();
+    await (closing ?? server.close());
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120000);
+it("shutdown bounds an accepted HTTP request that never completes", async () => {
+  // Invariant: an accepted but stalled upload cannot keep the dev host open indefinitely.
+  // Owner: dev lifecycle; real HTTP 100 Continue confirms acceptance before shutdown starts.
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-stalled-upload-");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Stalled upload"};');
+  writeFileSync(join(root, "vite.config.ts"), "export default {};");
+  const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+  const client = request(`${server.origin}/__proto/api/comments`, {
+    method: "POST",
+    headers: { Expect: "100-continue", "Content-Length": 1024, Origin: server.origin },
+  });
+  const errors: Error[] = [];
+  client.on("error", error => errors.push(error));
+  let closing: Promise<void> | undefined;
+  try {
+    const accepted = once(client, "continue");
+    client.flushHeaders();
+    await accepted;
+    let closed = false;
+    closing = server.close().then(() => {
+      closed = true;
+    });
+    await expect.poll(() => closed && client.destroyed, { timeout: 15000 }).toBe(true);
+    expect(errors).toContainEqual(expect.objectContaining({ code: "ECONNRESET" }));
+  } finally {
+    client.destroy();
+    await (closing ?? server.close());
+    rmSync(root, { recursive: true, force: true });
   }
 }, 120000);
 it("IT-011 registry SSE follows prototype changes within two seconds", async () => {

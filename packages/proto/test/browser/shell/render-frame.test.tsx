@@ -11,6 +11,7 @@ import { act, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { commands } from "vitest/browser";
+import { RenderErrorCard } from "../../../src/shell/frames/frame-status.tsx";
 
 import { protocolVersion } from "../../../src/model/protocol.ts";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
@@ -126,6 +127,38 @@ describe("acceptRenderMessage", () => {
 });
 
 describe("ScreenFrame", () => {
+  test("copying a render error remains retryable after the clipboard denies access", async () => {
+    // Invariant: no false success or unhandled rejection; retry copies the original diagnostic.
+    // Owner: shell frame controls. Clipboard is the only mocked I/O boundary.
+    const clipboard = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"))
+      .mockResolvedValueOnce();
+    try {
+      const container = mount(
+        <RenderErrorCard
+          title="Broken"
+          status={{ kind: "error", message: "Render failed", componentStack: null }}
+          onReload={() => {}}
+        />
+      );
+      const button = [...container.querySelectorAll("button")].find(item =>
+        item.textContent?.includes("Copy error")
+      )!;
+      await act(async () => {
+        button.click();
+        await clipboard.mock.results[0]!.value.catch(() => {});
+      });
+      expect(clipboard).toHaveBeenCalledTimes(1);
+      expect(button.textContent).toContain("Copy error");
+      act(() => button.click());
+      await vi.waitFor(() => expect(button.textContent).toContain("Copied"));
+      expect(clipboard).toHaveBeenLastCalledWith("Render failed");
+    } finally {
+      clipboard.mockRestore();
+    }
+  });
+
   test("UT-065 messages from another window, another origin or a stale nonce never reach the frame", async () => {
     const container = mount(
       <ScreenFrame

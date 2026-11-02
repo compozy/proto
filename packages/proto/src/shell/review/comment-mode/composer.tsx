@@ -42,6 +42,7 @@ function problemText(t: Translate, problem: UploadProblem, name: string, size: n
   return t("composer.uploadFailed", { name });
 }
 
+/** Own a review-scoped draft and pending uploads through submission, retry or cancellation. */
 export function Composer({
   reviewKey,
   submitLabel,
@@ -62,6 +63,7 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null);
   const canSend = body.trim().length > 0 && uploads.ready && !sending;
 
+  /** Claim uploads and clear the draft only after a successful write; always release sending state. */
   const submit = async () => {
     if (!canSend) return;
     setSending(true);
@@ -74,8 +76,8 @@ export function Composer({
       setError(
         t("composer.failed", { message: reason instanceof Error ? reason.message : String(reason) })
       );
-      setSending(false);
     }
+    setSending(false);
   };
 
   const failed = uploads.items.find(item => item.problem);

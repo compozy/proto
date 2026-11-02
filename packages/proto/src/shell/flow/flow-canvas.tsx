@@ -22,12 +22,13 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import { useState, type ReactNode } from "react";
+import { useStore as useXStateStore } from "@xstate/store-react";
 
 import type { EdgeKind } from "../../flow";
 import type { RegistryFlow, RegistryProblem, ResolvedNode } from "../../model/registry";
 import { Preview } from "../frames/preview";
 import { useT } from "../lib/i18n";
-import { PreviewScheduler, PreviewSchedulerProvider } from "../lib/preview-scheduler";
+import { previewLogic, PreviewSchedulerProvider } from "../lib/preview-scheduler";
 import { previewZoom } from "../lib/preview-queue";
 import { nodeSubtitle, nodeTitle, stepKind, type StepKind } from "../lib/registry-model";
 import { useShortcuts } from "../lib/shortcuts";
@@ -49,7 +50,7 @@ import {
 import { cn } from "../ui/utils";
 import { cardWidth, layoutFlow } from "./layout";
 
-export const tone: Record<StepKind, string> = {
+const tone: Record<StepKind, string> = {
   start: "var(--tone-start)",
   screen: "var(--tone-screen)",
   overlay: "var(--tone-overlay)",
@@ -58,7 +59,7 @@ export const tone: Record<StepKind, string> = {
   end: "var(--tone-end)",
 };
 
-export const glyph: Record<StepKind, typeof Monitor> = {
+const glyph: Record<StepKind, typeof Monitor> = {
   start: LogIn,
   screen: Monitor,
   overlay: Layers,
@@ -67,7 +68,7 @@ export const glyph: Record<StepKind, typeof Monitor> = {
   end: Flag,
 };
 
-export const dash: Record<EdgeKind, string | undefined> = {
+const dash: Record<EdgeKind, string | undefined> = {
   navigate: undefined,
   overlay: "5 4",
   redirect: "1.5 4",
@@ -82,15 +83,16 @@ type StepData = {
   problem: boolean;
   uncovered: string[];
   theme: "light" | "dark";
-  previews: boolean;
   badge: ReactNode;
 };
 type StepNode = Node<StepData, "step">;
 type LinkEdge = Edge<{ on: string; kind: EdgeKind; lit: boolean }, "link">;
 
+/** Show a flow node and retain its admitted preview document when zoom hides the thumbnail. */
 function StepCard({ data }: NodeProps<StepNode>) {
   const t = useT();
-  const { node, kind, selected, lit, problem, uncovered, theme, previews, badge } = data;
+  const { node, kind, selected, lit, problem, uncovered, theme, badge } = data;
+  const previews = useStore(state => state.transform[2] >= previewZoom);
   const Icon = glyph[kind];
   return (
     <div
@@ -129,17 +131,17 @@ function StepCard({ data }: NodeProps<StepNode>) {
         </div>
       </div>
       {node.kind === "prototype" && (
-        <div className="mt-2.5 overflow-hidden rounded-lg border border-border">
-          {previews ? (
-            <Preview
-              target={{ slug: node.proto, state: node.state, theme, role: node.role ?? null }}
-              title={t("preview.of", { title: `${node.title} · ${node.stateLabel}` })}
-              width={720}
-              height={420}
-              order={node.step || 999}
-            />
-          ) : (
-            <div className="grid aspect-[720/420] place-items-center bg-background font-mono text-[10px] text-muted-foreground">
+        <div className="relative mt-2.5 overflow-hidden rounded-lg border border-border">
+          <Preview
+            target={{ slug: node.proto, state: node.state, theme, role: node.role ?? null }}
+            title={t("preview.of", { title: `${node.title} · ${node.stateLabel}` })}
+            width={720}
+            height={420}
+            order={node.step || 999}
+            enabled={previews}
+          />
+          {!previews && (
+            <div className="absolute inset-0 grid place-items-center bg-background font-mono text-[10px] text-muted-foreground">
               {node.proto}
             </div>
           )}
@@ -218,6 +220,7 @@ export type FlowCanvasProps = {
   tools?: ReactNode;
 };
 
+/** Lay out flow nodes, route connections and coordinate selection within one preview surface. */
 function FlowSurface({
   flow,
   selected,
@@ -230,7 +233,6 @@ function FlowSurface({
 }: FlowCanvasProps) {
   const t = useT();
   const { fitView, zoomIn, zoomOut } = useReactFlow();
-  const zoom = useStore(state => state.transform[2]);
   const [pan, setPan] = useState(false);
   // Controlled nodes: measured sizes come back as `dimensions` changes (fit view, minimap).
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
@@ -238,6 +240,13 @@ function FlowSurface({
   const offending = new Set(problems.flatMap(problem => (problem.node ? [problem.node] : [])));
   const touches = (edge: { from: string; to: string }) =>
     edge.from === selected || edge.to === selected;
+  const connected = new Set<string>();
+  for (const edge of flow.edges) {
+    if (touches(edge)) {
+      connected.add(edge.from);
+      connected.add(edge.to);
+    }
+  }
   const nodes: StepNode[] = flow.nodes.map(node => {
     const box = layout.byId.get(node.id);
     return {
@@ -254,16 +263,10 @@ function FlowSurface({
         node,
         kind: stepKind(flow, node),
         selected: node.id === selected,
-        measured: sizes[node.id],
-        initialWidth: cardWidth,
-        initialHeight: box?.height,
-        lit: flow.edges.some(
-          edge => touches(edge) && (edge.from === node.id || edge.to === node.id)
-        ),
+        lit: connected.has(node.id),
         problem: offending.has(node.id),
         uncovered: node.kind === "prototype" ? (uncovered.get(node.proto) ?? []) : [],
         theme,
-        previews: zoom >= previewZoom,
         badge: badge?.(node),
       },
     };
@@ -299,7 +302,14 @@ function FlowSurface({
             ? [[change.id, change.dimensions] as const]
             : []
         );
-        if (measured.length) setSizes(current => ({ ...current, ...Object.fromEntries(measured) }));
+        if (measured.length)
+          setSizes(current => {
+            const changed = measured.filter(
+              ([id, size]) =>
+                current[id]?.width !== size.width || current[id]?.height !== size.height
+            );
+            return changed.length ? { ...current, ...Object.fromEntries(changed) } : current;
+          });
         // Clicks and Enter on a focused step both arrive as selection changes.
         const picked = changes.find(change => change.type === "select" && change.selected);
         if (picked && "id" in picked && !pan) onSelect(picked.id);
@@ -368,7 +378,7 @@ function FlowSurface({
             <Minus />
           </Button>
           <span className="w-10 text-center font-medium tabular-nums" aria-live="polite">
-            {Math.round(zoom * 100)}%
+            <ZoomPercent />
           </span>
           <Button
             variant="ghost"
@@ -459,7 +469,7 @@ function Legend({ pattern, label }: { pattern?: string; label: string }) {
 /** The flow canvas: dotted surface, its own preview queue and the problem banner. */
 export function FlowCanvas(props: FlowCanvasProps) {
   const t = useT();
-  const [scheduler] = useState(() => new PreviewScheduler());
+  const scheduler = useXStateStore(previewLogic);
   return (
     <div className="shell-dots relative min-h-0 min-w-0 flex-1">
       {props.problems.length > 0 && (
@@ -472,8 +482,8 @@ export function FlowCanvas(props: FlowCanvasProps) {
             {t("flow.problems", { count: props.problems.length })}
           </div>
           <ul className="mt-1.5 flex flex-col gap-1">
-            {props.problems.map((problem, index) => (
-              <li key={`${problem.code}-${index}`} className="flex gap-2 text-xs">
+            {props.problems.map(problem => (
+              <li key={JSON.stringify(problem)} className="flex gap-2 text-xs">
                 <span className="shrink-0 font-mono text-destructive uppercase">
                   {problem.code}
                 </span>
@@ -490,4 +500,10 @@ export function FlowCanvas(props: FlowCanvasProps) {
       </PreviewSchedulerProvider>
     </div>
   );
+}
+
+/** Only the readout subscribes to every zoom tick; nodes subscribe to the preview threshold. */
+function ZoomPercent() {
+  const percent = useStore(state => Math.round(state.transform[2] * 100));
+  return <>{percent}%</>;
 }

@@ -181,6 +181,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("Proto API integration", () => {
       await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       await page.getByLabel("Email", { exact: true }).fill("deployed@example.com");
       await page.getByLabel("Password", { exact: true }).fill("deployed-password-strong");
+      // Login owns recovery from real network failure: the form must allow a retry after reconnect.
+      await page.context().setOffline(true);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("alert").waitFor();
+      await expect
+        .poll(() => page.getByRole("button", { name: "Sign in", exact: true }).isEnabled())
+        .toBe(true);
+      await page.context().setOffline(false);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page.waitForURL(target, { waitUntil: "domcontentloaded", timeout: 60000 });
       const frame = page.frameLocator("iframe").first();

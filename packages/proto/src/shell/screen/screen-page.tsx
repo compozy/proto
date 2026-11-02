@@ -13,13 +13,15 @@ import {
   ShellSubHeader,
   StateDot,
   useInspector,
+  useFocusedTab,
   type ViewTab,
 } from "../app/chrome";
 import { Link } from "../app/link";
 import { useSlots, type InspectorTab, type ReviewTarget } from "../app/slots";
-import { ScreenFrame, type FrameGeometry } from "../frames/screen-frame";
+import { ScreenFrame } from "../frames/screen-frame";
 import type { FrameContext } from "../frames/use-render-frame";
 import { useT } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 import { go, navigate } from "../lib/navigation";
 import {
   occurrences,
@@ -42,6 +44,7 @@ import { ViewportControl } from "./viewport-control";
 
 type ScreenView = Extract<View, { area: "screen" }>;
 
+/** Compose one prototype's render, comparison and review panels from URL presentation state. */
 export function ScreenPage({
   view,
   theme,
@@ -58,16 +61,8 @@ export function ScreenPage({
   const { bootstrap } = useShellData();
   const slots = useSlots();
   const inspector = useInspector();
-  const [tab, setTab] = useState(view.comment ? "comments" : "state");
-  const annotate = useStateAnnotation(prototype.slug);
-  // A comment focused from the URL (inbox, search, a CLI link) opens the Comments tab.
-  const [seenComment, setSeenComment] = useState(view.comment);
-  if (view.comment !== seenComment) {
-    setSeenComment(view.comment);
-    if (view.comment) setTab("comments");
-  }
-  const [fitWidth, setFitWidth] = useState(0);
-  const { state, unknown } = resolveState(prototype, view.state);
+  const [tab, setTab] = useFocusedTab(view.comment, "state");
+  const { state } = resolveState(prototype, view.state);
   const role = resolveRole(registry, prototype, view.role);
   const slugs = new Set(registry.prototypes.map(item => item.slug));
   const flowsHere = occurrences(registry, prototype.slug, state.id);
@@ -124,7 +119,6 @@ export function ScreenPage({
   const meta = [prototype.surface, prototype.route, bootstrap.commit?.slice(0, 7)]
     .filter(Boolean)
     .join(" · ");
-  const roles = roleOptions(registry, prototype);
   const frameTarget = { slug: prototype.slug, state: state.id, theme, role };
 
   const tabs: InspectorTab[] = [
@@ -163,28 +157,7 @@ export function ScreenPage({
           aria-label={t("screen.canvas")}
           className="shell-dots flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4">
-            <StatePicker
-              prototype={prototype}
-              state={state}
-              unknown={unknown}
-              annotate={annotate}
-              onState={id => update({ state: id })}
-            />
-            {roles.length > 0 && (
-              <RolePicker value={role} options={roles} onRole={value => update({ role: value })} />
-            )}
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              {!view.compare && (
-                <ViewportControl
-                  width={view.width}
-                  fitWidth={fitWidth}
-                  onWidth={width => update({ width }, { replace: true })}
-                />
-              )}
-              {slots.canvasTools?.(target)}
-            </div>
-          </div>
+          {view.compare && <ScreenToolbar prototype={prototype} view={view} fitWidth={0} />}
           {view.compare ? (
             <CompareCanvas
               prototype={prototype}
@@ -201,7 +174,9 @@ export function ScreenPage({
               onContext={onContext}
               onMessage={frameSlot?.onMessage}
               overlay={frameSlot?.overlay}
-              onGeometry={(geometry: FrameGeometry) => setFitWidth(geometry.width)}
+              toolbar={geometry => (
+                <ScreenToolbar prototype={prototype} view={view} fitWidth={geometry.width} />
+              )}
               className="flex-1 px-6 pt-5 pb-2"
               caption={geometry => (
                 <p className="shrink-0 pt-2 text-center font-mono text-[11px] text-muted-foreground tabular-nums">
@@ -225,6 +200,56 @@ export function ScreenPage({
         />
       </div>
     </>
+  );
+}
+
+/** Bind viewport/state controls and review tools to the current frame fit width. */
+function ScreenToolbar({
+  prototype,
+  view,
+  fitWidth,
+}: {
+  prototype: RegistryPrototype;
+  view: ScreenView;
+  fitWidth: number;
+}) {
+  const registry = useRegistry();
+  const slots = useSlots();
+  const annotate = useStateAnnotation(prototype.slug);
+  const { state, unknown } = resolveState(prototype, view.state);
+  const role = resolveRole(registry, prototype, view.role);
+  const roles = roleOptions(registry, prototype);
+  const target: ReviewTarget = {
+    kind: "prototype",
+    key: prototype.slug,
+    slug: prototype.slug,
+    state: state.id,
+  };
+  const update = (patch: Partial<ScreenView>, options?: { replace?: boolean }) =>
+    go({ ...view, ...patch }, options);
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4">
+      <StatePicker
+        prototype={prototype}
+        state={state}
+        unknown={unknown}
+        annotate={annotate}
+        onState={id => update({ state: id })}
+      />
+      {roles.length > 0 && (
+        <RolePicker value={role} options={roles} onRole={value => update({ role: value })} />
+      )}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {!view.compare && (
+          <ViewportControl
+            width={view.width}
+            fitWidth={fitWidth}
+            onWidth={width => update({ width }, { replace: true })}
+          />
+        )}
+        {slots.canvasTools?.(target)}
+      </div>
+    </div>
   );
 }
 
@@ -364,9 +389,7 @@ function SourcePanel({ prototype }: { prototype: RegistryPrototype }) {
             variant="ghost"
             size="icon-xs"
             aria-label={copied ? t("common.copied") : t("health.copyPath")}
-            onClick={() =>
-              void navigator.clipboard?.writeText(prototype.file).then(() => setCopied(true))
-            }
+            onClick={async () => setCopied(await copyText(prototype.file))}
           >
             {copied ? <Check /> : <Copy />}
           </Button>

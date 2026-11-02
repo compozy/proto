@@ -25,6 +25,14 @@ export type Groups = {
   drafts: RegistryPrototype[];
 };
 
+/** Index the first descriptor for each slug so duplicate diagnostics do not change navigation identity. */
+export function prototypeIndex(registry: Registry) {
+  const index = new Map<string, RegistryPrototype>();
+  for (const prototype of registry.prototypes)
+    if (!index.has(prototype.slug)) index.set(prototype.slug, prototype);
+  return index;
+}
+
 export function specTitle(registry: Registry, spec: string) {
   return registry.specs?.[spec] ?? spec;
 }
@@ -40,11 +48,11 @@ export function flowsOfSpec(registry: Registry, spec: string) {
  * (unknown or unavailable catalog), then unsorted components and drafts.
  */
 export function groupRegistry(registry: Registry): Groups {
-  const ids = Object.keys(registry.specs ?? {});
+  const ids = new Set(Object.keys(registry.specs ?? {}));
   for (const item of [...registry.prototypes, ...registry.flows]) {
-    if (item.spec && !ids.includes(item.spec)) ids.push(item.spec);
+    if (item.spec) ids.add(item.spec);
   }
-  const specs = ids.map(id => ({
+  const specs = [...ids].map(id => ({
     id,
     title: specTitle(registry, id),
     prototypes: registry.prototypes.filter(item => item.spec === id),

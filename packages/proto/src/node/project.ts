@@ -1,7 +1,7 @@
 import { HttpStore } from "../store/http-store.ts";
 import { remoteToken } from "../auth/credentials.ts";
 import { existsSync, watch as watchFs, globSync, statSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, matchesGlob, sep } from "node:path";
 import { loadConfigFromFile } from "vite";
 import { resolveProtoConfig, type ResolvedProtoConfig } from "../config.ts";
 import { ProtoError } from "../model/errors.ts";
@@ -34,6 +34,7 @@ export interface ProtoProject {
   evidence(target: CaptureTarget): Promise<{ path: string }>;
   migrate(options: MigrateOptions): Promise<MigrationReport>;
 }
+/** Load configuration and expose discovery, watched snapshots, stores and authoring operations. */
 export async function loadProject(
   cwd: string,
   configFile = "proto.config.ts"
@@ -49,10 +50,93 @@ export async function loadProject(
     loaded.config as unknown as Parameters<typeof resolveProtoConfig>[0],
     root
   );
+  const listeners = new Set<(registry: Registry) => void>();
+  let cached: Registry | undefined;
+  let stopWatch: (() => void) | undefined;
+  /** Share one authored-file watcher across subscribers and debounce registry refresh notifications. */
+  const observe = () => {
+    const patterns = [
+      ...(typeof config.prototypes === "string" ? [config.prototypes] : config.prototypes),
+      "**/*.flow.ts",
+      config.canvas,
+    ];
+    const watchedFiles = () =>
+      globSync(patterns, {
+        cwd: root,
+        exclude: ["**/node_modules/**", "**/.pending/**", "**/*.tmp/**", "**/*.lock*/**"],
+      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      cached = undefined;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void project.registry().then(registry => {
+          for (const listener of listeners) listener(registry);
+        });
+      }, 75);
+    };
+    let close: () => void;
+    if (config.dev.poll || process.platform === "darwin") {
+      // One observer serves shell and Vite. Include misplaced flows so diagnostics stay live.
+      const fingerprint = () =>
+        watchedFiles()
+          .sort()
+          .map(file => {
+            try {
+              const info = statSync(join(root, file));
+              return `${file}:${info.mtimeMs}:${info.size}:${info.ino}`;
+            } catch {
+              return file;
+            }
+          })
+          .join("\n");
+      let previous = fingerprint();
+      const interval = setInterval(() => {
+        const next = fingerprint();
+        if (next !== previous) {
+          previous = next;
+          refresh();
+        }
+      }, 200);
+      close = () => clearInterval(interval);
+    } else {
+      const watcher = watchFs(root, { recursive: true }, (event, file) => {
+        const changed = file?.replaceAll("\\", "/");
+        if (!changed || /(?:\.lock|\.tmp|\.pending\/|node_modules\/)/.test(changed)) return;
+        const absolute = resolve(root, changed);
+        if (patterns.some(pattern => matchesGlob(absolute, resolve(root, pattern)))) {
+          refresh();
+          return;
+        }
+        if (event !== "rename") return;
+        const descendant = (file: string) => resolve(root, file).startsWith(absolute + sep);
+        // Native watchers may report only the directory when its descendants leave the tree.
+        const previous = [
+          { file: config.canvas },
+          ...(cached?.prototypes ?? []),
+          ...(cached?.flows ?? []),
+          ...(cached?.problems ?? []),
+        ];
+        if (
+          previous.some(item => descendant(item.file)) ||
+          (statSync(absolute, { throwIfNoEntry: false })?.isDirectory() &&
+            watchedFiles().some(descendant))
+        )
+          refresh();
+      });
+      close = () => watcher.close();
+    }
+    return () => {
+      clearTimeout(timer);
+      close();
+    };
+  };
   const project: ProtoProject = {
     root,
     config,
+    /** Discover a registry snapshot, reusing it only while a watcher can invalidate stale entries. */
     async registry() {
+      if (cached) return cached;
       const legacy = {
         title: config.title,
         specs: config.specs,
@@ -68,7 +152,7 @@ export async function loadProject(
       const problems = [...found.problems, ...flow.problems].filter(
         p => !(config.specs === null && p.code === "unknown_spec")
       );
-      return {
+      const registry: Registry = {
         title: config.title,
         locale: config.locale,
         specs: config.specs,
@@ -121,66 +205,32 @@ export async function loadProject(
             : []),
         ],
       };
+      // Without observers, explicit CLI reads remain fresh without a background process.
+      if (listeners.size) cached = registry;
+      return registry;
     },
     watch(onChange) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const refresh = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          void project.registry().then(onChange);
-        }, 75);
-      };
-      // Native macOS watchers can miss events in managed hosts; use the reliable polling backend.
-      if (config.dev.poll || process.platform === "darwin") {
-        const snapshot = () =>
-          globSync(["**/*.proto.tsx", "**/*.flow.ts"], {
-            cwd: root,
-            exclude: ["**/node_modules/**", "**/.pending/**", "**/*.tmp/**", "**/*.lock*/**"],
-          })
-            .sort()
-            .map(file => {
-              try {
-                return `${file}:${statSync(join(root, file)).mtimeMs}`;
-              } catch {
-                return file;
-              }
-            })
-            .join("\n");
-        let previous = snapshot();
-        const interval = setInterval(() => {
-          const next = snapshot();
-          if (next !== previous) {
-            previous = next;
-            refresh();
-          }
-        }, 200);
-        return () => {
-          clearInterval(interval);
-          clearTimeout(timer);
-        };
-      }
-      const watcher = watchFs(root, { recursive: true }, (_event, file) => {
-        if (
-          !file ||
-          /(?:\.lock|\.tmp|\.pending\/|node_modules\/)/.test(file) ||
-          !/\.(proto\.tsx|flow\.ts)$/.test(file)
-        )
-          return;
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          void project.registry().then(onChange);
-        }, 75);
-      });
+      // Each subscription has its own lifetime, even when a caller reuses a callback.
+      const listener = (registry: Registry) => onChange(registry);
+      listeners.add(listener);
+      stopWatch ??= observe();
       return () => {
-        clearTimeout(timer);
-        watcher.close();
+        listeners.delete(listener);
+        if (!listeners.size) {
+          stopWatch?.();
+          stopWatch = undefined;
+          cached = undefined;
+        }
       };
     },
+    /** Build a local or remote presentation URL, validating the remote base before adding context. */
     url(target, options) {
       const base = options?.remote
         ? process.env.PROTO_REMOTE_URL || config.review.remote?.url
         : `http://127.0.0.1:${config.dev.port}`;
       if (!base) throw new ProtoError("invalid_config", "review.remote.url is required");
+      if (!URL.canParse(base))
+        throw new ProtoError("invalid_config", "The remote review URL is invalid.");
       const url =
         target.bare && !options?.remote
           ? new URL(

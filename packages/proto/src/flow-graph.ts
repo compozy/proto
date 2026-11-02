@@ -1,13 +1,16 @@
 import type { CoverageWarning, FlowEntry, Occurrence, ResolvedEdge } from "./flow.ts";
+import { outgoingEdges } from "./model/registry.ts";
 
 export type { Occurrence } from "./flow.ts";
 
+/** Visit reachable nodes once in breadth-first order, preserving start and outgoing-edge order. */
 export function bfsOrder(start: readonly string[], edges: readonly ResolvedEdge[]): string[] {
   const order = [...new Set(start)];
   const seen = new Set(order);
+  const outgoing = outgoingEdges(edges);
   for (let i = 0; i < order.length; i++) {
-    for (const edge of edges) {
-      if (edge.from !== order[i] || seen.has(edge.to)) continue;
+    for (const edge of outgoing.get(order[i]!) ?? []) {
+      if (seen.has(edge.to)) continue;
       seen.add(edge.to);
       order.push(edge.to);
     }

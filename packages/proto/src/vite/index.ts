@@ -87,6 +87,8 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
     sourceRoots: sourceRoots({ flows: project.config.flows, canvas: project.config.canvas }),
   };
   const ids = ["virtual:proto/render-config", "virtual:proto/prototypes", "virtual:proto/canvas"];
+  let prototypeSnapshot: string | undefined;
+  let canvasExists = existsSync(resolve(project.root, project.config.canvas));
   return [
     sourceTags(project.root, project.root),
     ...protoPresentation(),
@@ -98,6 +100,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
           optimizeDeps: {
             include: [
               "react",
+              "react-dom",
               "react-dom/client",
               "react/jsx-runtime",
               "react/jsx-dev-runtime",
@@ -126,27 +129,38 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
       resolveId(id) {
         if (ids.includes(id)) return `\0${id}`;
       },
+      /** Generate render config, prototype imports or the current Canvas module for a virtual entry. */
       async load(id) {
         if (id === `\0${ids[0]}`)
           return `export const config = { ...${JSON.stringify(renderConfig)}${renderConfig.mode === "read-only" ? ", shellOrigin: window.location.origin" : ""} }; export default config; export const renderConfig = config;`;
         if (id === `\0${ids[1]}`) {
           const registry = await project.registry();
+          prototypeSnapshot = JSON.stringify(registry.prototypes);
           return `export const prototypes = [${registry.prototypes.map(p => `({...${JSON.stringify(p)}, load: () => import(${JSON.stringify(resolve(project.root, p.file))})})`).join(",")}]; export default prototypes;`;
         }
         if (id === `\0${ids[2]}`) {
           const canvas = resolve(project.root, project.config.canvas);
-          return existsSync(canvas)
+          canvasExists = existsSync(canvas);
+          return canvasExists
             ? `import * as canvas from ${JSON.stringify(canvas)}; export const Canvas = canvas.Canvas; export const Frame = canvas.Frame ?? null;`
             : "export const Canvas = ({children}) => children; export const Frame = null;";
         }
       },
       configureServer(server) {
-        const stop = project.watch(() => {
-          for (const id of ids) {
+        const stop = project.watch(registry => {
+          const next = JSON.stringify(registry.prototypes);
+          const exists = existsSync(resolve(project.root, project.config.canvas));
+          const prototypesChanged = next !== prototypeSnapshot;
+          const canvasChanged = exists !== canvasExists;
+          if (!prototypesChanged && !canvasChanged) return;
+          prototypeSnapshot = next;
+          canvasExists = exists;
+          // Body edits use React Refresh; registry and canvas-existence changes update their virtual modules.
+          for (const id of [prototypesChanged ? ids[1] : null, canvasChanged ? ids[2] : null]) {
+            if (!id) continue;
             const module = server.moduleGraph.getModuleById(`\0${id}`);
-            if (module) server.moduleGraph.invalidateModule(module);
+            if (module) void server.reloadModule(module);
           }
-          server.ws.send({ type: "full-reload" });
         });
         server.httpServer?.once("close", stop);
         server.middlewares.use(async (req, res, next) => {

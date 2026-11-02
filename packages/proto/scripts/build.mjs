@@ -10,10 +10,13 @@ const stage = new URL("../dist/package/", import.meta.url);
 await rm(stage, { recursive: true, force: true });
 execFileSync("bun", ["x", "--no-install", "tsdown"], { cwd: root, stdio: "inherit" });
 await mkdir(stage, { recursive: true });
-for (const folder of ["render", "model"])
-  await cp(new URL(`../src/${folder}/`, import.meta.url), new URL(`src/${folder}/`, stage), {
-    recursive: true,
-  });
+await Promise.all(
+  ["render", "model"].map(folder =>
+    cp(new URL(`../src/${folder}/`, import.meta.url), new URL(`src/${folder}/`, stage), {
+      recursive: true,
+    })
+  )
+);
 if (existsSync(new URL("../src/server/migrations/", import.meta.url)))
   await cp(
     new URL("../src/server/migrations/", import.meta.url),
@@ -61,10 +64,13 @@ manifest.files = ["src", "dist/shell", "skills", "README.md", "LICENSE"];
 delete manifest.scripts;
 delete manifest.devDependencies;
 await writeFile(new URL("package.json", stage), JSON.stringify(manifest, null, 2) + "\n");
-for (const name of ["README.md", "LICENSE"]) {
-  if (existsSync(new URL(`../${name}`, import.meta.url)))
-    await cp(new URL(`../${name}`, import.meta.url), new URL(name, stage));
-}
+await Promise.all(
+  ["README.md", "LICENSE"].map(name =>
+    existsSync(new URL(`../${name}`, import.meta.url))
+      ? cp(new URL(`../${name}`, import.meta.url), new URL(name, stage))
+      : undefined
+  )
+);
 
 // Inferred union order depends on declaration-emission scheduling. Canonicalize the
 // type AST (not source text) so semantically identical declarations pack identically.

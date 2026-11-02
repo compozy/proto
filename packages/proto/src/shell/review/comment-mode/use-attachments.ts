@@ -50,7 +50,6 @@ export function useAttachments(api: Pick<ReviewApi, "upload" | "discard">, key: 
   const [items, setItems] = useState<Upload[]>([]);
   const [refused, setRefused] = useState<Refusal | null>(null);
   const live = useRef(new Map<string, Upload>());
-  const sent = useRef(false);
 
   const publish = () => setItems([...live.current.values()].map(item => ({ ...item })));
 
@@ -60,8 +59,7 @@ export function useAttachments(api: Pick<ReviewApi, "upload" | "discard">, key: 
     return () => {
       for (const item of uploads.values()) {
         URL.revokeObjectURL(item.preview);
-        if (!sent.current && item.attachment)
-          void api.discard(key, item.attachment.id).catch(() => {});
+        if (item.attachment) void api.discard(key, item.attachment.id).catch(() => {});
       }
       uploads.clear();
     };
@@ -137,9 +135,12 @@ export function useAttachments(api: Pick<ReviewApi, "upload" | "discard">, key: 
     /** Every image uploaded and none failed: the message can be sent. */
     ready: items.every(item => item.status === "ready"),
     ids: items.flatMap(item => (item.attachment ? [item.attachment.id] : [])),
-    /** The message was stored with these attachments: keep them on unmount. */
+    /** Stored attachments belong to the message; release their local previews for the next draft. */
     claimed: () => {
-      sent.current = true;
+      for (const item of live.current.values()) URL.revokeObjectURL(item.preview);
+      live.current.clear();
+      publish();
+      setRefused(null);
     },
   };
 }

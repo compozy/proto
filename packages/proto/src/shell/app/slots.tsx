@@ -42,21 +42,6 @@ export type ShellSlots = {
   composer?: ComponentType<ComposerProps>;
 };
 
-/**
- * The thread focused through comment mode (pin clicks) and the setter threads call when a thread
- * is focused (comment mode scrolls to its anchor and highlights the pin). Comment mode provides
- * it; without it the threads keep their own focus.
- */
-export type CommentFocus = { focused: string | null; focusComment: (id: string | null) => void };
-
-const CommentFocusContext = createContext<CommentFocus | null>(null);
-
-export const CommentFocusProvider = CommentFocusContext.Provider;
-
-export function useCommentFocus() {
-  return use(CommentFocusContext);
-}
-
 /** Props of the shared composer (`review/comment-mode/composer.tsx`). */
 export type ComposerProps = {
   /** Pending uploads go to `POST attachments?key=<reviewKey>`. */

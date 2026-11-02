@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../node/concurrency.ts";
 import { z } from "zod";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -127,6 +128,7 @@ const required = (value: string | undefined, name: string) => {
   if (!value) throw new UsageError(`${name} is required`);
   return value;
 };
+/** Dispatch the shared CLI/MCP capability contract while enforcing transport and remote authority. */
 export async function executeCapability(
   capability: Capability,
   args: Arguments,
@@ -286,25 +288,27 @@ export async function executeCapability(
     const out = context.transport === "mcp" ? `.tmp/proto/${id}` : (args.out ?? `.tmp/proto/${id}`);
     const directory = confined(project.root, out);
     mkdirSync(directory, { recursive: true });
-    const files: string[] = [];
-    for (const attachment of comment.thread.flatMap(m => m.attachments)) {
-      const downloaded = await store.readAttachment(comment.slug, attachment.id);
-      const path = confined(
-        project.root,
-        join(
-          out,
-          basename(attachment.id) +
-            ({
-              "image/png": ".png",
-              "image/jpeg": ".jpg",
-              "image/webp": ".webp",
-              "image/gif": ".gif",
-            }[downloaded.type] ?? ".bin")
-        )
-      );
-      writeFileSync(path, downloaded.bytes);
-      files.push(relative(project.root, path));
-    }
+    const files = await mapConcurrent(
+      comment.thread.flatMap(m => m.attachments),
+      async attachment => {
+        const downloaded = await store.readAttachment(comment.slug, attachment.id);
+        const path = confined(
+          project.root,
+          join(
+            out,
+            basename(attachment.id) +
+              ({
+                "image/png": ".png",
+                "image/jpeg": ".jpg",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+              }[downloaded.type] ?? ".bin")
+          )
+        );
+        writeFileSync(path, downloaded.bytes);
+        return relative(project.root, path);
+      }
+    );
     return { files };
   }
   const message = args.message

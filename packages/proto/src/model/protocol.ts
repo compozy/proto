@@ -113,12 +113,21 @@ export function renderHref(renderUrl: string, params: RenderParams) {
   return `${base}${search ? `?${search}` : ""}`;
 }
 
+/** Preview role names are confined to the catalog; they never grant a session permission. */
+export function parsePreviewRole(value: string | null, knownRoles: ReadonlySet<string>) {
+  return value !== null && knownRoles.has(value) ? value : null;
+}
+
 /**
  * Reads a `context.url` from the render host: accepted only as `/__proto/render/<known slug>?…`
  * or the static `…/__proto/render/index.html?slug=<known slug>&…` form; only `state`, `theme`,
  * `role` and `w` are kept. Anything else returns null and is ignored.
  */
-export function readContextUrl(url: string, knownSlugs: ReadonlySet<string>) {
+export function readContextUrl(
+  url: string,
+  knownSlugs: ReadonlySet<string>,
+  knownRoles: ReadonlySet<string>
+) {
   let parsed: URL;
   try {
     parsed = new URL(url, "http://render.invalid");
@@ -135,7 +144,7 @@ export function readContextUrl(url: string, knownSlugs: ReadonlySet<string>) {
     slug,
     state: parsed.searchParams.get("state"),
     theme: theme === "light" || theme === "dark" ? theme : null,
-    role: parsed.searchParams.get("role"),
+    role: parsePreviewRole(parsed.searchParams.get("role"), knownRoles),
     w: Number.isFinite(width) && width > 0 ? width : null,
   };
 }

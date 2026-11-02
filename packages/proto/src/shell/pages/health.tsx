@@ -1,5 +1,6 @@
 /** S15 Health: discovery, flow and guard problems and warnings with codes and files. */
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
 
 import type { RegistryProblem, RegistryWarning } from "../../model/registry";
 import { useT } from "../lib/i18n";
@@ -17,6 +18,7 @@ function location(item: RegistryProblem | RegistryWarning) {
   return `${item.file}${line}`;
 }
 
+/** Present the current registry problems and warnings, including the empty healthy state. */
 export function Health() {
   const t = useT();
   const registry = useRegistry();
@@ -40,8 +42,8 @@ export function Health() {
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
-          {entries.map((entry, index) => (
-            <HealthItem key={`${entry.item.code}-${index}`} entry={entry} />
+          {entries.map(entry => (
+            <HealthItem key={`${entry.severity}:${JSON.stringify(entry.item)}`} entry={entry} />
           ))}
         </ul>
       )}
@@ -50,6 +52,7 @@ export function Health() {
   );
 }
 
+/** Show a diagnostic location and report clipboard success only after copying succeeds. */
 function HealthItem({ entry }: { entry: Entry }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -76,7 +79,7 @@ function HealthItem({ entry }: { entry: Entry }) {
             variant="ghost"
             size="xs"
             className="ml-auto text-muted-foreground"
-            onClick={() => void navigator.clipboard?.writeText(path).then(() => setCopied(true))}
+            onClick={async () => setCopied(await copyText(path))}
           >
             {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
             {copied ? t("common.copied") : t("health.copyPath")}

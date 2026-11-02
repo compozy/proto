@@ -11,9 +11,9 @@ import { Link } from "../../app/link";
 import { Preview } from "../../frames/preview";
 import { useLocale, useT } from "../../lib/i18n";
 import { go } from "../../lib/navigation";
-import { specTitle } from "../../lib/registry-model";
+import { prototypeIndex, specTitle } from "../../lib/registry-model";
 import { useRegistry } from "../../lib/shell-data";
-import { screenView, type InboxFilter, type View } from "../../lib/view";
+import { type InboxFilter } from "../../lib/view";
 import { Avatar, AvatarFallback } from "../../ui/avatar";
 import { Bot, ExternalLink, Monitor, Workflow } from "../../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../../ui/native-select";
@@ -24,6 +24,7 @@ import {
   authorName,
   byActivity,
   commentNumber,
+  commentView,
   initials,
   isWaiting,
   relativeTime,
@@ -36,22 +37,6 @@ type Item = {
   spec: string | null;
   kind: "screen" | "flow";
 };
-
-/** Where a comment opens: its prototype state, or its flow step. */
-export function commentView(registry: Registry, comment: ReviewComment): View {
-  const flow = flowOfKey(comment.slug);
-  if (flow)
-    return {
-      area: "flow",
-      flow,
-      node: comment.target.kind === "node" ? comment.target.node : null,
-      comment: comment.id,
-    };
-  return screenView(comment.slug, comment.context.state, {
-    comment: comment.id,
-    role: comment.context.role,
-  });
-}
 
 /** The prototype state a comment shows (flow comments: the step's prototype). */
 function previewTarget(registry: Registry, comment: ReviewComment) {
@@ -66,13 +51,18 @@ function previewTarget(registry: Registry, comment: ReviewComment) {
     : null;
 }
 
-function describe(registry: Registry, comment: ReviewComment): Item {
+/** Resolve inbox titles and specs through catalog indexes, retaining identity when an entry is missing. */
+function describe(
+  prototypes: ReadonlyMap<string, Registry["prototypes"][number]>,
+  flows: ReadonlyMap<string, Registry["flows"][number]>,
+  comment: ReviewComment
+): Item {
   const flow = flowOfKey(comment.slug);
   if (flow) {
-    const found = registry.flows.find(item => item.id === flow);
+    const found = flows.get(flow);
     return { comment, title: found?.title ?? flow, spec: found?.spec ?? null, kind: "flow" };
   }
-  const prototype = registry.prototypes.find(item => item.slug === comment.slug);
+  const prototype = prototypes.get(comment.slug);
   return {
     comment,
     title: prototype?.title ?? comment.slug,
@@ -81,6 +71,7 @@ function describe(registry: Registry, comment: ReviewComment): Item {
   };
 }
 
+/** Filter the shared comments collection and show a selected thread without per-key list requests. */
 export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" | "dark" }) {
   const t = useT();
   const locale = useLocale();
@@ -90,31 +81,32 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   const [spec, setSpec] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const comments = query.data ?? [];
+  const prototypes = prototypeIndex(registry);
+  const flows = new Map(registry.flows.map(item => [item.id, item]));
+  const described = comments.map(item => describe(prototypes, flows, item));
   const counts = {
     open: comments.filter(item => item.status === "open").length,
     waiting: comments.filter(isWaiting).length,
     resolved: comments.filter(item => item.status === "resolved").length,
   };
-  const items = comments
-    .filter(item =>
+  const items = described
+    .filter(({ comment: item }) =>
       filter === "waiting"
         ? isWaiting(item)
         : item.status === (filter === "resolved" ? "resolved" : "open")
     )
-    .filter(item => !author || item.thread[0]?.author === author)
-    .map(item => describe(registry, item))
+    .filter(({ comment: item }) => !author || item.thread[0]?.author === author)
     .filter(item => !spec || item.spec === spec)
     .sort((a, b) => byActivity(a.comment, b.comment));
-  const groups: { key: string; items: Item[] }[] = [];
+  const grouped = new Map<string, Item[]>();
   for (const item of items) {
-    const group = groups.find(entry => entry.key === item.comment.slug);
-    if (group) group.items.push(item);
-    else groups.push({ key: item.comment.slug, items: [item] });
+    const group = grouped.get(item.comment.slug);
+    if (group) group.push(item);
+    else grouped.set(item.comment.slug, [item]);
   }
+  const groups = [...grouped].map(([key, items]) => ({ key, items }));
   const active = items.find(item => item.comment.id === selected) ?? items[0];
-  const specs = [
-    ...new Set(comments.map(item => describe(registry, item).spec).filter(Boolean)),
-  ] as string[];
+  const specs = [...new Set(described.map(item => item.spec).filter(Boolean))] as string[];
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex w-full max-w-[420px] min-w-0 shrink-0 flex-col border-r border-border bg-[var(--shell-panel)] max-md:max-w-none">
@@ -267,11 +259,12 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   );
 }
 
+/** Show the selected thread with its captured preview context and a link back to focused review. */
 function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
   const t = useT();
   const registry = useRegistry();
   const target = previewTarget(registry, item.comment);
-  const view = commentView(registry, item.comment);
+  const view = commentView(item.comment);
   const rect = item.comment.target.kind === "node" ? null : item.comment.target.rectNormalized;
   const width = item.comment.context.viewport.width || 1280;
   const height = item.comment.context.viewport.height || 800;

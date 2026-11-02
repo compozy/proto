@@ -6,6 +6,10 @@
  * frame's DOM and input are reached through Playwright (`harness/commands.ts`).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { act, createElement, useState, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { RenderHost } from "../../../src/render/host.tsx";
+import type { RenderPrototype, PrototypeModule } from "../../../src/model/render-host.ts";
 import { commands } from "vitest/browser";
 
 import {
@@ -16,7 +20,7 @@ import {
   type RenderMessage,
   type ShellMessage,
 } from "../../../src/model/protocol.ts";
-import { resolveSlug } from "../../../src/render/host.tsx";
+import { resolveSlug } from "../../../src/render/url-state.ts";
 
 const renderOrigin = window.location.origin.replace("127.0.0.1", "localhost");
 const renderPath = "/test/browser/render/__proto/render/index.html";
@@ -300,6 +304,54 @@ describe("picking", () => {
 });
 
 describe("IT-027: render half of the protocol", () => {
+  test("element and region picking work above a modal without closing it on Escape", async () => {
+    // Invariant: authored native modals remain reviewable and keep their modality after picking.
+    // Owner: render protocol; actual Chromium pointer, region and keyboard input in the iframe.
+    const host = mount({ slug: "card" });
+    await host.waitFor("ready");
+    await host.evaluate(`(() => {
+      const dialog = document.createElement('dialog');
+      dialog.dataset.testid = 'review-modal';
+      dialog.style.cssText = 'position:fixed;left:100px;top:100px;margin:0;padding:20px;width:300px;height:240px;transform:translate(0);overflow:hidden';
+      const button = document.createElement('button');
+      button.dataset.testid = 'modal-action';
+      button.textContent = 'Approve';
+      button.style.cssText = 'width:160px;height:80px';
+      dialog.append(button);
+      document.body.append(dialog);
+      dialog.showModal();
+      return true;
+    })()`);
+    host.send({ type: "pick:start", mode: "element" });
+    await vi.waitFor(async () => expect(await host.pickerShown()).toBe(true));
+    await host.click(150, 150);
+    expect((await host.waitFor("pick:result")).target).toMatchObject({
+      kind: "element",
+      testId: "modal-action",
+    });
+    host.messages.length = 0;
+    host.send({ type: "pick:start", mode: "region" });
+    await vi.waitFor(async () => expect(await host.pickerShown()).toBe(true));
+    await host.drag([140, 140], [200, 180]);
+    expect((await host.waitFor("pick:result")).target).toMatchObject({
+      kind: "region",
+      testId: "modal-action",
+      rect: { x: 140, y: 140, width: 60, height: 40 },
+    });
+    host.send({ type: "pick:start", mode: "keyboard" });
+    await vi.waitFor(async () =>
+      expect(await host.evaluate(`document.activeElement?.dataset.testid`)).toBe("proto-picker")
+    );
+    await host.keys(["Escape"]);
+    await host.waitFor("pick:cancel");
+    expect(
+      await host.evaluate(
+        `document.querySelector('[data-testid="review-modal"]').matches(':modal')`
+      )
+    ).toBe(true);
+    expect(await host.pickerShown()).toBe(false);
+  });
+
   test("a region drag picks the containing element with the region and its offset", async () => {
     const host = mount({ slug: "card" });
     await host.waitFor("ready");
@@ -399,16 +451,88 @@ describe("IT-027: render half of the protocol", () => {
     const context = await host.waitFor("context");
     expect(context).toMatchObject({ state: "default", theme: "light", role: "member" });
     expect(new URL(context.url, renderOrigin).searchParams.get("tab")).toBe("2");
-    expect(readContextUrl(context.url, slugs)).toMatchObject({ slug: "card", role: "member" });
+    expect(readContextUrl(context.url, slugs, new Set(["member"]))).toMatchObject({
+      slug: "card",
+      role: "member",
+    });
+    // Invariant: render-sourced presentation roles are confined to the gallery catalog. Owner: protocol.
+    const forgedRole = new URL(context.url, renderOrigin);
+    forgedRole.searchParams.set("role", "unlisted-admin");
+    expect(readContextUrl(forgedRole.href, slugs, new Set(["member"]))?.role).toBeNull();
 
     host.messages.length = 0;
     await host.click(180, 376);
     host.send({ type: "pick:start", mode: "element" });
     const changed = await host.waitFor("context", message => message.state === "b");
-    expect(readContextUrl(changed.url, slugs)).toMatchObject({ slug: "card", state: "b" });
+    expect(readContextUrl(changed.url, slugs, new Set(["member"]))).toMatchObject({
+      slug: "card",
+      state: "b",
+    });
     await host.waitFor("ready", message => message.state === "b");
     expect(await host.pickerShown()).toBe(true);
     await host.click(44, 44);
     expect((await host.waitFor("pick:result")).target.testId).toBe("save");
   });
+});
+
+// Invariant: a replacement prototype recovers a failed boundary; ordinary metadata changes preserve state.
+// Owner: render host lifecycle, canonical browser protocol suite, with real React and no Refresh runtime.
+test("replacing a failed prototype recovers without resetting subsequent same-component renders", async () => {
+  const address = window.location.href;
+  window.history.replaceState(null, "", `${window.location.pathname}?slug=card&chrome=0`);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Canvas({ children }: { children: ReactNode }) {
+    return children;
+  }
+  function Broken(): never {
+    throw new Error("Broken replacement");
+  }
+  function Fixed() {
+    const [count, setCount] = useState(0);
+    return createElement(
+      "button",
+      { onClick: () => setCount(value => value + 1) },
+      `Count ${count}`
+    );
+  }
+  const render = async (Component: PrototypeModule["default"], title: string) => {
+    const entry: RenderPrototype = {
+      slug: "card",
+      title,
+      kind: "component",
+      route: null,
+      standalone: true,
+      states: [{ id: "default", label: "Default" }],
+      roles: [],
+      load: async () => ({ default: Component }),
+    };
+    await act(async () =>
+      root.render(
+        createElement(RenderHost, {
+          config: { mode: "read-only", form: "query", shellOrigin: window.location.origin },
+          prototypes: [entry],
+          Canvas,
+          Frame: null,
+        })
+      )
+    );
+  };
+  try {
+    await render(Broken, "Broken");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Broken replacement");
+    await render(Fixed, "Fixed");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    const button = container.querySelector("button")!;
+    act(() => button.click());
+    expect(button.textContent).toBe("Count 1");
+    await render(Fixed, "Updated metadata");
+    expect(container.querySelector("button")).toBe(button);
+    expect(button.textContent).toBe("Count 1");
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    window.history.replaceState(null, "", address);
+  }
 });

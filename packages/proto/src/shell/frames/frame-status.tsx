@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
 
 import { useT } from "../lib/i18n";
 import { topFrames, type FrameStatus } from "../lib/render-channel";
@@ -59,9 +60,9 @@ export function RenderErrorCard({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const frames = topFrames(status.componentStack);
-  const copy = () => {
+  const copy = async () => {
     const text = [status.message, ...frames].join("\n");
-    void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+    setCopied(await copyText(text));
   };
   return (
     <div className="grid h-full w-full place-items-center overflow-auto p-6">

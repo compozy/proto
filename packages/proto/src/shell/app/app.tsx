@@ -2,15 +2,16 @@
  * The prebuilt shell (ADR-002): bootstrap → registry → the area the URL names. It imports only
  * `src/model` and its own `ui/`, and talks to prototypes only through the render protocol.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 
-import type { Registry } from "../../model/registry";
-import { FlowPage } from "../flow/flow-page";
+import { reviewKeys, type Registry } from "../../model/registry";
+import { loadFlowPage, loadSettings } from "../lib/preload";
 import { LocaleProvider, useT } from "../lib/i18n";
+import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
-import { registryItems } from "../lib/search";
-import { loadBootstrap, ShellDataProvider, useShellData, type ShellEnv } from "../lib/shell-data";
+import { useBootstrap, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
 import type { View } from "../lib/view";
@@ -22,45 +23,44 @@ import { RotateCcw, TriangleAlert } from "../ui/icons";
 import { Skeleton } from "../ui/skeleton";
 import { Shell, ShellSubHeader, ShellTopBar, type Crumb } from "./chrome";
 import { Link } from "./link";
-import { actionItems, SearchPalette } from "./search-palette";
+import { SearchPalette } from "./search-palette";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
-import { reviewKeys, ReviewProvider, useReviewData } from "../review/data";
+import { ReviewProvider, useReviewData } from "../review/data";
 import { Inbox } from "../review/inbox/inbox";
-import { KeysStatus, readOnlySlots, reviewSlots, useCommentSearchItems } from "../review/review-ui";
-import { Settings } from "../review/settings/settings";
-import {
-  CommentModeProvider,
-  commentModeSlots,
-  Composer,
-  useCommentMode,
-} from "../review/comment-mode";
-import {
-  CommentFocusProvider,
-  ShellSlotsProvider,
-  type ReviewTarget,
-  type ShellSlots,
-} from "./slots";
+import { KeysStatus, useReviewSlots } from "../review/review-ui";
+import { CommentModeProvider, commentModeSlots, Composer } from "../review/comment-mode";
+import { ShellSlotsProvider, type ReviewTarget } from "./slots";
 
-type Boot =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; env: ShellEnv };
+const FlowPage = lazy(loadFlowPage);
+const Settings = lazy(loadSettings);
 
 export function Root() {
-  const [boot, setBoot] = useState<Boot>({ status: "loading" });
-  useEffect(() => {
-    loadBootstrap().then(
-      env => setBoot({ status: "ready", env }),
-      (error: unknown) => setBoot({ status: "error", message: String(error) })
-    );
-  }, []);
-  if (boot.status === "loading") return <BootSkeleton />;
-  if (boot.status === "error")
-    return <Fatal message={boot.message} onRetry={() => window.location.reload()} />;
+  const [client] = useState(createShellQueryClient);
   return (
-    <LocaleProvider locale={boot.env.bootstrap.locale}>
-      <ShellDataProvider env={boot.env}>
+    <QueryClientProvider client={client}>
+      <BootstrapApp />
+    </QueryClientProvider>
+  );
+}
+
+/** Load the shell environment, exposing retry before mounting data-dependent routes. */
+function BootstrapApp() {
+  const client = useQueryClient();
+  const boot = useBootstrap();
+  if (boot.isPending) return <BootSkeleton />;
+  if (boot.isError)
+    return (
+      <Fatal
+        message={String(boot.error)}
+        onRetry={() => {
+          void boot.refetch();
+        }}
+      />
+    );
+  return (
+    <LocaleProvider locale={boot.data.bootstrap.locale}>
+      <ShellDataProvider env={boot.data} client={client}>
         <App />
       </ShellDataProvider>
     </LocaleProvider>
@@ -109,6 +109,25 @@ function Fatal({
   );
 }
 
+class PageBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+  state: { error: unknown } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  /** Recover a failed lazy page with a document reload that clears the cached import rejection. */
+  render() {
+    return this.state.error ? (
+      <Fatal
+        title="This page could not load"
+        message={String(this.state.error)}
+        onRetry={() => window.location.reload()}
+      />
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 function App() {
   const t = useT();
   const { bootstrap, registry, reload } = useShellData();
@@ -148,34 +167,20 @@ function App() {
 
 /** Review slots (threads, approval) and comment mode (tools, picking, pins, composer). */
 function Slots({ children }: { children: ReactNode }) {
-  const t = useT();
   const review = useReviewData();
-  const { bootstrap } = useShellData();
-  const [slots] = useState<ShellSlots>(() =>
-    review
-      ? { ...reviewSlots(t), ...commentModeSlots, composer: Composer }
-      : bootstrap.mode === "read-only"
-        ? readOnlySlots(t)
-        : {}
-  );
+  const base = useReviewSlots();
+  const slots = review ? { ...base, ...commentModeSlots, composer: Composer } : base;
   if (!review) return <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>;
   return (
     <CommentModeProvider>
-      <FocusBridge>
-        <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>
-      </FocusBridge>
+      <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>
     </CommentModeProvider>
   );
 }
 
-/** Threads and pins share one focused comment: comment mode's. */
-function FocusBridge({ children }: { children: ReactNode }) {
-  const { focused, focusComment } = useCommentMode();
-  return <CommentFocusProvider value={{ focused, focusComment }}>{children}</CommentFocusProvider>;
-}
-
 type Page = { crumbs: Crumb[]; target: ReviewTarget | null; share: boolean; body: ReactNode };
 
+/** Compose the current page, review chrome and transient search/shortcut overlays from URL state. */
 function Browse({
   view,
   choice,
@@ -201,11 +206,6 @@ function Browse({
   );
   const review = useReviewData() !== null;
   const page = pageFor(view, registry, theme, choice, t, review);
-  const searchable = [
-    ...registryItems(registry),
-    ...useCommentSearchItems(),
-    ...actionItems(t, { compare: view.area === "screen" && !view.compare }),
-  ];
   const onAction = (action: string) => {
     if (action === "theme") toggleTheme();
     else if (action === "health") go({ area: "settings", section: "health" });
@@ -223,10 +223,28 @@ function Browse({
       />
       <SessionExpiredBanner />
       <main id="shell-main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-        {page.body}
+        <PageBoundary key={view.area}>
+          <Suspense
+            fallback={
+              <div
+                role="status"
+                aria-label={t("frame.loading")}
+                className="grid flex-1 place-items-center"
+              >
+                <Skeleton className="h-40 w-80" />
+              </div>
+            }
+          >
+            {page.body}
+          </Suspense>
+        </PageBoundary>
       </main>
       {overlay === "search" && (
-        <SearchPalette items={searchable} onAction={onAction} onClose={() => setOverlay(null)} />
+        <SearchPalette
+          compare={view.area === "screen" && !view.compare}
+          onAction={onAction}
+          onClose={() => setOverlay(null)}
+        />
       )}
       {overlay === "shortcuts" && <ShortcutsSheet onClose={() => setOverlay(null)} />}
     </Shell>

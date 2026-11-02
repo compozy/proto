@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -103,3 +103,84 @@ it("IT-012 and UT-097 check refuses invalid registry and reports unavailable spe
   expect(result.problems[0]?.code).toBe("invalid_meta");
   expect(result.warnings.map(w => w.code)).toContain("specs_unavailable");
 });
+
+it.each([
+  { poll: true, extension: "proto.tsx" },
+  { poll: false, extension: "story.tsx" },
+])(
+  "a watched project shares one fresh snapshot with $extension and poll=$poll",
+  async ({ poll, extension }) => {
+    // Invariant: live consumers share discovery work; add/change/remove invalidate that snapshot.
+    // Owner: project registry lifecycle, with real polling/native watchers and configured patterns.
+    const { loadProject } = await import("../../../src/node/project.ts");
+    const root = mkdtempSync(join(tmpdir(), "proto-watch-"));
+    roots.push(root);
+    mkdirSync(join(root, "src"));
+    writeFileSync(
+      join(root, "proto.config.ts"),
+      `export default ${JSON.stringify({
+        title: "Watch",
+        prototypes: `src/**/*.${extension}`,
+        dev: { poll },
+      })};`
+    );
+    const file = join(root, `src/login.${extension}`);
+    writeFileSync(file, source());
+    const project = await loadProject(root);
+    const first: Awaited<ReturnType<typeof project.registry>>[] = [];
+    const second: typeof first = [];
+    const stopFirst = project.watch(registry => first.push(registry));
+    const stopSecond = project.watch(registry => second.push(registry));
+    try {
+      const initial = await project.registry();
+      expect(await project.registry()).toBe(initial);
+      writeFileSync(file, source(meta.replace("Login", "Updated login")));
+      await expect.poll(() => first.at(-1)?.prototypes[0]?.title).toBe("Updated login");
+      expect(second.at(-1)).toBe(first.at(-1));
+      expect(await project.registry()).toBe(first.at(-1));
+      // Discovery reports misplaced flows too: the live cache must not hide those diagnostics.
+      const misplaced = join(root, "src/misplaced.flow.ts");
+      writeFileSync(misplaced, "export const flow = {};");
+      await expect
+        .poll(() => first.at(-1)?.problems.some(item => item.code === "flow_outside_root"))
+        .toBe(true);
+      rmSync(misplaced);
+      await expect
+        .poll(() => first.at(-1)?.problems.some(item => item.code === "flow_outside_root"))
+        .toBe(false);
+      // Directory-only native notifications must invalidate descendants in the shared snapshot.
+      const outside = mkdtempSync(join(tmpdir(), "proto-moved-"));
+      roots.push(outside);
+      const folder = join(root, "src/components/moving");
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, `moving.${extension}`), source());
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(true);
+      renameSync(folder, join(outside, "moving"));
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(false);
+      renameSync(join(outside, "moving"), folder);
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(true);
+      rmSync(folder, { recursive: true });
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(false);
+      stopFirst();
+      rmSync(file);
+      await expect.poll(() => second.at(-1)?.prototypes.length).toBe(0);
+      expect(first.at(-1)?.prototypes).toHaveLength(1);
+      writeFileSync(file, source());
+      await expect.poll(() => second.at(-1)?.prototypes[0]?.title).toBe("Login");
+    } finally {
+      stopFirst();
+      stopSecond();
+    }
+    // Without a watcher, CLI callers still observe files changed between explicit reads.
+    writeFileSync(file, source(meta.replace("Login", "Unwatched")));
+    expect((await project.registry()).prototypes[0]?.title).toBe("Unwatched");
+  }
+);

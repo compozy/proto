@@ -7,7 +7,8 @@
  */
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import type { ElementTarget, Rect } from "../../../model/protocol";
+import type { ElementTarget, Rect, RenderMessage } from "../../../model/protocol";
+import type { ReviewComment } from "../../../model/review";
 import type { ReviewTarget } from "../../app/slots";
 import type { FrameGeometry } from "../../frames/screen-frame";
 import type { RenderFrameHandle } from "../../frames/use-render-frame";
@@ -33,10 +34,11 @@ import {
   type ActivePick,
   type PickSession,
 } from "./pick";
-import { onFrameMessage, useCommentMode } from "./state";
+import { useCommentMode } from "./state";
 
 type PrototypeTarget = Extract<ReviewTarget, { kind: "prototype" }>;
 
+/** Coordinate frame picking, anchor measurements, pins and the composer for the active prototype. */
 export function ScreenCommentLayer({
   target,
   frame,
@@ -58,10 +60,12 @@ export function ScreenCommentLayer({
   const role = prototype ? resolveRole(registry, prototype, requestedRole) : null;
   const writable = Boolean(review?.writable);
 
-  const open = useComments({ key: target.key, status: "open" }).data ?? [];
-  const all = useComments({ key: target.key, status: "all" }).data ?? open;
-  const pinned = open.filter(
-    comment => comment.context.state === target.state && comment.target.kind !== "node"
+  const all = useComments({ key: target.key, status: "all" }).data ?? [];
+  const pinned = all.filter(
+    comment =>
+      comment.status === "open" &&
+      comment.context.state === target.state &&
+      comment.target.kind !== "node"
   );
 
   const [rects, setRects] = useState<ReadonlyMap<string, Rect | null>>(new Map());
@@ -109,7 +113,7 @@ export function ScreenCommentLayer({
   });
   useEffect(() => scrollTo(), [focusedId, nonce]);
 
-  const receive = useEffectEvent((message: Parameters<Parameters<typeof onFrameMessage>[0]>[0]) => {
+  const receive = useEffectEvent((message: RenderMessage) => {
     if (message.frame !== nonce) return;
     if (message.type === "anchors") {
       setRects(new Map(message.rects.map(item => [item.id, item.rect])));
@@ -136,7 +140,8 @@ export function ScreenCommentLayer({
     setRefused(false);
     setDraft(confined.target);
   });
-  useEffect(() => onFrameMessage(message => receive(message)), []);
+  const listen = frame.listen;
+  useEffect(() => listen(message => receive(message)), [listen]);
 
   useShortcuts({ escape: () => mode.setTool("select") }, picking);
 
@@ -167,70 +172,24 @@ export function ScreenCommentLayer({
 
   return (
     <div className="pointer-events-none absolute inset-0" data-testid="comment-layer">
-      {pinned.map(comment => {
-        const measured = rects.get(comment.id);
-        if (measured === undefined || comment.target.kind === "node") return null;
-        const moved = measured === null;
-        const normalized = comment.target.rectNormalized;
-        const rect = measured ?? {
-          x: normalized.x * geometry.width,
-          y: normalized.y * geometry.height,
-          width: normalized.width * geometry.width,
-          height: normalized.height * geometry.height,
-        };
-        const at = pinPosition(rect, box);
-        const number = commentNumber(comment);
-        const selected = comment.id === mode.focused;
-        return (
-          <button
-            key={comment.id}
-            type="button"
-            data-testid="comment-pin"
-            data-comment={comment.id}
-            data-moved={moved || undefined}
-            aria-label={t(moved ? "comment.pinMoved" : "comment.pin", { number })}
-            aria-pressed={selected}
-            title={comment.thread[0]?.body}
-            onClick={() => mode.focusComment(selected ? null : comment.id)}
-            className={cn(
-              "shell-pin pointer-events-auto absolute grid size-6 -translate-y-full place-items-center rounded-full rounded-bl-none bg-primary font-mono text-[11px] font-semibold text-primary-foreground shadow-md transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-              selected && "scale-110 ring-2 ring-primary-foreground",
-              moved && "bg-muted text-muted-foreground ring-1 ring-dashed ring-primary/70"
-            )}
-            style={{ left: at.left, top: at.top }}
-          >
-            {number}
-            {moved && (
-              <span className="absolute top-full left-0 mt-0.5 rounded bg-[var(--shell-panel)] px-1 font-sans text-[9px] font-medium tracking-wide text-muted-foreground uppercase ring-1 ring-border">
-                {t("comment.moved")}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      {pinned.map(comment => (
+        <CommentPin
+          key={comment.id}
+          comment={comment}
+          measured={rects.get(comment.id)}
+          geometry={geometry}
+          focused={mode.focused}
+          onFocus={mode.focusComment}
+        />
+      ))}
       {focusedComment && rects.get(focusedComment.id) && (
         <Outline rect={rects.get(focusedComment.id)!} scale={geometry.scale} dashed />
       )}
-      {picking && (
-        <div
-          role="status"
-          data-testid="comment-hint"
-          className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/50 bg-[var(--shell-panel)] px-3 py-1.5 text-xs whitespace-nowrap shadow-lg"
-        >
-          <span className="size-1.5 rounded-full bg-primary" />
-          {mode.keyboard ? t("comment.hintKeyboard") : t("comment.hint")}
-          <Kbd>Esc</Kbd>
-        </div>
-      )}
-      {refused && !picking && !draft && (
-        <p
-          role="alert"
-          data-testid="comment-refused"
-          className="pointer-events-auto absolute top-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 rounded-lg border border-destructive/40 bg-[var(--shell-panel)] px-3 py-1.5 text-xs text-destructive shadow-lg"
-        >
-          {t("comment.invalidSource")}
-        </p>
-      )}
+      <PickFeedback
+        picking={picking}
+        keyboard={mode.keyboard}
+        refused={refused && draft === null}
+      />
       {draft && (
         <>
           <Outline rect={draft.rect} scale={geometry.scale} dashed={draft.kind === "region"} />
@@ -256,6 +215,98 @@ export function ScreenCommentLayer({
         </>
       )}
     </div>
+  );
+}
+
+/** Announce pointer/keyboard picking instructions or a refused selection without owning picker state. */
+function PickFeedback({
+  picking,
+  keyboard,
+  refused,
+}: {
+  picking: boolean;
+  keyboard: boolean;
+  refused: boolean;
+}) {
+  const t = useT();
+  return (
+    <>
+      {picking && (
+        <div
+          role="status"
+          data-testid="comment-hint"
+          className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/50 bg-[var(--shell-panel)] px-3 py-1.5 text-xs whitespace-nowrap shadow-lg"
+        >
+          <span className="size-1.5 rounded-full bg-primary" />
+          {keyboard ? t("comment.hintKeyboard") : t("comment.hint")}
+          <Kbd>Esc</Kbd>
+        </div>
+      )}
+      {refused && !picking && (
+        <p
+          role="alert"
+          data-testid="comment-refused"
+          className="pointer-events-auto absolute top-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 rounded-lg border border-destructive/40 bg-[var(--shell-panel)] px-3 py-1.5 text-xs text-destructive shadow-lg"
+        >
+          {t("comment.invalidSource")}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Project a measured or stored comment anchor into the scaled frame and expose URL-owned focus. */
+function CommentPin({
+  comment,
+  measured,
+  geometry,
+  focused,
+  onFocus,
+}: {
+  comment: ReviewComment;
+  measured: Rect | null | undefined;
+  geometry: FrameGeometry;
+  focused: string | null;
+  onFocus: (id: string | null) => void;
+}) {
+  const t = useT();
+  if (measured === undefined || comment.target.kind === "node") return null;
+  const moved = measured === null;
+  const normalized = comment.target.rectNormalized;
+  const rect = measured ?? {
+    x: normalized.x * geometry.width,
+    y: normalized.y * geometry.height,
+    width: normalized.width * geometry.width,
+    height: normalized.height * geometry.height,
+  };
+  const at = pinPosition(rect, geometry);
+  const number = commentNumber(comment);
+  const selected = comment.id === focused;
+  return (
+    <button
+      key={comment.id}
+      type="button"
+      data-testid="comment-pin"
+      data-comment={comment.id}
+      data-moved={moved || undefined}
+      aria-label={t(moved ? "comment.pinMoved" : "comment.pin", { number })}
+      aria-pressed={selected}
+      title={comment.thread[0]?.body}
+      onClick={() => onFocus(selected ? null : comment.id)}
+      className={cn(
+        "shell-pin pointer-events-auto absolute grid size-6 -translate-y-full place-items-center rounded-full rounded-bl-none bg-primary font-mono text-[11px] font-semibold text-primary-foreground shadow-md transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        selected && "scale-110 ring-2 ring-primary-foreground",
+        moved && "bg-muted text-muted-foreground ring-1 ring-dashed ring-primary/70"
+      )}
+      style={{ left: at.left, top: at.top }}
+    >
+      {number}
+      {moved && (
+        <span className="absolute top-full left-0 mt-0.5 rounded bg-[var(--shell-panel)] px-1 font-sans text-[9px] font-medium tracking-wide text-muted-foreground uppercase ring-1 ring-border">
+          {t("comment.moved")}
+        </span>
+      )}
+    </button>
   );
 }
 

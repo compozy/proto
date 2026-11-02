@@ -67,7 +67,21 @@ const screenTabs = [
 ];
 
 /** Draft: the gallery shell redesign, built with BnUI and React Flow on the real gallery. */
+const screenStates = new Set([
+  "screen",
+  "state-picker",
+  "comment-compose",
+  "compare",
+  "approve",
+  "approved",
+  "render-error",
+  "drawer",
+  "read-only",
+]);
+
+/** Select the authored gallery state without loading application data. */
 export default function Prototype({ state }: PrototypeProps) {
+  if (screenStates.has(state)) return <ScreenState state={state} />;
   switch (state) {
     case "overview":
     case "shortcuts":
@@ -131,39 +145,33 @@ export default function Prototype({ state }: PrototypeProps) {
       );
     case "sign-in":
       return <SignInPage />;
-    case "screen":
-    case "state-picker":
-    case "comment-compose":
-    case "compare":
-    case "approve":
-    case "approved":
-    case "render-error":
-    case "drawer":
-    case "read-only":
-      return <ScreenState state={state} />;
     default:
       return <FlowState state={state} />;
   }
 }
 
+/** Choose the compare, failure, composer or normal canvas for a screen draft state. */
+function ScreenStateCanvas({ state }: { state: string }) {
+  return state === "compare" ? (
+    <CompareCanvas state="error" />
+  ) : state === "render-error" ? (
+    <RenderErrorCanvas />
+  ) : state === "comment-compose" ? (
+    <ScreenCanvas state="error" tool="comment" extra={<ComposeOverlay />} />
+  ) : (
+    <ScreenCanvas
+      state="error"
+      pickerOpen={state === "state-picker"}
+      active={state === "screen" || state === "drawer" ? 7 : undefined}
+      tool={state === "read-only" ? null : "select"}
+    />
+  );
+}
+
+/** Compose screen chrome and review overlays from the selected presentation state. */
 function ScreenState({ state }: { state: string }) {
   const approved = state === "approved";
   const readOnly = state === "read-only";
-  const canvas =
-    state === "compare" ? (
-      <CompareCanvas state="error" />
-    ) : state === "render-error" ? (
-      <RenderErrorCanvas />
-    ) : state === "comment-compose" ? (
-      <ScreenCanvas state="error" tool="comment" extra={<ComposeOverlay />} />
-    ) : (
-      <ScreenCanvas
-        state="error"
-        pickerOpen={state === "state-picker"}
-        active={state === "screen" || state === "drawer" ? 7 : undefined}
-        tool={readOnly ? null : "select"}
-      />
-    );
   return (
     <Shell area="screens">
       <ShellTopBar
@@ -183,7 +191,7 @@ function ScreenState({ state }: { state: string }) {
         view={state === "compare" ? "compare" : "screen"}
       />
       <div className="relative flex min-h-0 flex-1">
-        {canvas}
+        <ScreenStateCanvas state={state} />
         {state === "comment-compose" && <ComposeHint />}
         <Inspector
           title={state === "render-error" ? "Submitting" : "Wrong password"}

@@ -18,7 +18,7 @@ import { useAllComments, useReviewData, useReviewMutation, useReviewState } from
 import { relativeTime } from "../format";
 
 /** The last approval event, for "Approved by … · commit". */
-export function lastApproval(events: readonly ReviewEvent[]) {
+function lastApproval(events: readonly ReviewEvent[]) {
   return events.findLast(event => event.type === "approved") ?? null;
 }
 

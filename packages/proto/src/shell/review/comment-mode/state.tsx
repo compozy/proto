@@ -1,10 +1,10 @@
 /**
  * Comment mode state (S8): the active canvas tool, whether picking started from the keyboard,
- * and the focused comment shared with the threads (S9).
+ * with URL-owned focus shared with the threads (S9).
  */
-import { createContext, use, useState, type ReactNode } from "react";
-
-import type { RenderMessage } from "../../../model/protocol";
+import { createContext, use, type ReactNode } from "react";
+import { createStoreLogic, useSelector, useStore } from "@xstate/store-react";
+import { go, useLocation } from "../../lib/navigation";
 
 export type CommentTool = "select" | "comment";
 
@@ -18,51 +18,54 @@ export type CommentModeValue = {
   focusComment: (id: string | null) => void;
 };
 
-const CommentModeContext = createContext<CommentModeValue | null>(null);
+const commentLogic = createStoreLogic({
+  context: { tool: "select" as CommentTool, keyboard: false },
+  on: {
+    toolChanged: (context, event: { tool: CommentTool; keyboard?: boolean }) => {
+      const keyboard = event.keyboard ?? false;
+      return context.tool === event.tool && context.keyboard === keyboard
+        ? context
+        : { tool: event.tool, keyboard };
+    },
+  },
+});
+
+const CommentModeContext = createContext<ReturnType<typeof commentLogic.createStore> | null>(null);
 
 export function CommentModeProvider({ children }: { children: ReactNode }) {
-  const [tool, setToolState] = useState<{ tool: CommentTool; keyboard: boolean }>({
-    tool: "select",
-    keyboard: false,
-  });
-  const [focused, setFocused] = useState<string | null>(null);
-  const value: CommentModeValue = {
-    tool: tool.tool,
-    keyboard: tool.keyboard,
-    setTool: (next, options) => setToolState({ tool: next, keyboard: options?.keyboard ?? false }),
-    focused,
-    focusComment: setFocused,
-  };
-  return <CommentModeContext value={value}>{children}</CommentModeContext>;
+  const store = useStore(commentLogic);
+  return <CommentModeContext value={store}>{children}</CommentModeContext>;
 }
 
-/** Comment mode state; outside a `CommentModeProvider` the tool stays "select". */
+/** Read the comment-tool store and reject use outside the owning provider. */
+function useCommentStore() {
+  const store = use(CommentModeContext);
+  if (!store) throw new Error("Comment mode requires its provider");
+  return store;
+}
+
+/** Tool controls do not subscribe to thread focus or frame messages. */
+export function useCommentTool() {
+  const store = useCommentStore();
+  return {
+    ...useSelector(store, state => state.context),
+    setTool: (tool: CommentTool, options?: { keyboard?: boolean }) =>
+      store.trigger.toolChanged({ tool, ...options }),
+  };
+}
+
+/** Read and replace comment focus in the screen/flow URL so links and history share one state. */
+export function useCommentFocusState() {
+  const { view } = useLocation();
+  const reviewable = view.area === "screen" || view.area === "flow";
+  return {
+    focused: reviewable ? (view.comment ?? null) : null,
+    focusComment: (id: string | null) => {
+      if (reviewable) go({ ...view, comment: id }, { replace: true });
+    },
+  };
+}
+
 export function useCommentMode(): CommentModeValue {
-  return (
-    use(CommentModeContext) ?? {
-      tool: "select",
-      keyboard: false,
-      setTool: () => {},
-      focused: null,
-      focusComment: () => {},
-    }
-  );
+  return { ...useCommentTool(), ...useCommentFocusState() };
 }
-
-/**
- * Validated render messages of the screen frame, fanned out to the mounted comment layers; each
- * layer keeps only the messages of its own frame nonce. One stable function, so the frame's
- * listener is not re-registered on every render.
- */
-const frameListeners = new Set<(message: RenderMessage) => void>();
-
-export function onFrameMessage(listener: (message: RenderMessage) => void) {
-  frameListeners.add(listener);
-  return () => {
-    frameListeners.delete(listener);
-  };
-}
-
-export const routeMessage = (message: RenderMessage) => {
-  for (const listener of frameListeners) listener(message);
-};

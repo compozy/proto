@@ -50,7 +50,7 @@ export function Preview({
   const slot = usePreviewSlot(id, {
     src,
     visible: enabled && visibility.visible,
-    near: enabled && visibility.near,
+    near: visibility.near,
     order,
   });
   const scale = box.width / width;
@@ -71,6 +71,7 @@ export function Preview({
           width={width}
           height={height}
           scale={scale}
+          hidden={!enabled}
         />
       )}
       {overlay}
@@ -78,6 +79,7 @@ export function Preview({
   );
 }
 
+/** Render an admitted sandboxed thumbnail with loading/error feedback and scaled source coordinates. */
 function PreviewFrame({
   id,
   src,
@@ -86,6 +88,7 @@ function PreviewFrame({
   width,
   height,
   scale,
+  hidden,
 }: {
   id: string;
   src: string;
@@ -94,6 +97,7 @@ function PreviewFrame({
   width: number;
   height: number;
   scale: number;
+  hidden: boolean;
 }) {
   const t = useT();
   const scheduler = usePreviewScheduler();
@@ -101,12 +105,14 @@ function PreviewFrame({
   const frame = useRenderFrame(iframe, { ...target, width }, { slugs: noSlugs });
   const settled = frame.status.kind !== "loading" || frame.status.slow;
   useEffect(() => {
-    if (settled) scheduler.settle(id, src);
+    if (settled) scheduler.trigger.settled({ id, src });
   }, [settled, scheduler, id, src]);
   return (
     <>
-      <div inert className="absolute inset-0">
+      <div inert className={cn("absolute inset-0", hidden && "invisible")}>
+        {/* oxlint-disable react-doctor/iframe-missing-sandbox -- Authored prototypes require scripts and real origins; dev/remote use separate origins and static builds trust bundled code. See docs/proto/performance.md. */}
         <iframe
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
           key={frame.nonce}
           ref={iframe}
           src={frame.src ?? undefined}
@@ -115,6 +121,7 @@ function PreviewFrame({
           className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-background"
           style={{ width, height, transform: `scale(${scale})` }}
         />
+        {/* oxlint-enable react-doctor/iframe-missing-sandbox */}
       </div>
       {frame.status.kind === "loading" && <FrameSkeleton className="p-[8%]" />}
       {frame.status.kind === "error" && (

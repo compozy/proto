@@ -16,6 +16,8 @@ import type { ReviewComment } from "../../../src/model/review.ts";
 import type { ReviewTarget } from "../../../src/shell/app/slots.tsx";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
+import { go } from "../../../src/shell/lib/navigation.ts";
+import { screenView, type View } from "../../../src/shell/lib/view.ts";
 import { ShellDataProvider, useShellData } from "../../../src/shell/lib/shell-data.tsx";
 import {
   commentModeSlots,
@@ -51,7 +53,10 @@ function Ready({ children }: { children: ReactNode }) {
   return state.status === "ready" ? children : null;
 }
 
-function mount(node: ReactNode) {
+function mount(node: ReactNode, view: View = screenView("card")) {
+  // Pins and threads share the shell URL, including in this component harness.
+  const previousUrl = window.location.href;
+  go(view, { replace: true });
   const container = document.createElement("div");
   container.style.cssText = "position: fixed; inset: 0; display: flex; flex-direction: column;";
   document.body.append(container);
@@ -72,6 +77,7 @@ function mount(node: ReactNode) {
   cleanups.push(() => {
     act(() => root.unmount());
     container.remove();
+    window.history.replaceState(null, "", previousUrl);
   });
   return container;
 }
@@ -408,13 +414,23 @@ describe("Composer", () => {
       attachments: [...backend.pending.keys()],
     });
     expect(cancelled).toBe(false);
+    // The composer owns releasing its busy state after success, even when the parent keeps it open.
+    await userEvent.fill(page.getByRole("textbox"), "Follow-up without attachments");
+    await expect.element(send).toBeEnabled();
+    await userEvent.click(send);
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ body: "Follow-up without attachments", attachments: [] });
+    // A later unsent draft still owns its pending uploads; claimed attachments stay with the message.
+    await userEvent.upload(page.getByTestId("composer-file"), [png("next.png")]);
+    await vi.waitFor(() => expect(backend.pending.size).toBe(2));
+    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await vi.waitFor(() => expect([...backend.pending.keys()]).toEqual(sent[0]!.attachments));
+    await expect.element(page.getByTestId("comment-composer")).not.toBeInTheDocument();
   });
 
   test("cancel discards pending uploads", async () => {
-    let open = true;
     function Harness() {
       const [shown, setShown] = useState(true);
-      open = shown;
       return shown ? (
         <Composer
           reviewKey="card"
@@ -429,7 +445,7 @@ describe("Composer", () => {
     await vi.waitFor(() => expect(backend.pending.size).toBe(1));
     await userEvent.click(page.getByRole("button", { name: "Cancel" }));
     await vi.waitFor(() => expect(backend.pending.size).toBe(0));
-    expect(open).toBe(false);
+    await expect.element(page.getByTestId("comment-composer")).not.toBeInTheDocument();
   });
 });
 
@@ -453,7 +469,7 @@ describe("E2E-004 (comment on a step): flow comments", () => {
         </div>
       );
     }
-    mount(<Flow />);
+    mount(<Flow />, { area: "flow", flow: "sign-in", node: "sign-up" });
     await userEvent.click(page.getByTestId("comment-tool"));
     await expect
       .element(page.getByRole("dialog", { name: "Comment on step 3 · Create account" }))

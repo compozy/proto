@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
 
 import type { RegistryFlow, RegistryPrototype } from "../../model/registry";
 import { Preview } from "../frames/preview";
@@ -193,7 +194,7 @@ export function CommandLine({ command }: { command: string }) {
       <button
         type="button"
         aria-label={copied ? t("common.copied") : t("common.copyCommand")}
-        onClick={() => void navigator.clipboard?.writeText(command).then(() => setCopied(true))}
+        onClick={async () => setCopied(await copyText(command))}
         className={cn(
           "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
           copied && "text-[var(--tone-end)]"

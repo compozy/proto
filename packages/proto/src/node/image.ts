@@ -1,3 +1,5 @@
+const jpegFrameMarkers = new Set([192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207]);
+
 /** Header-only image inspection for comment attachments (PNG, JPEG, GIF, WebP, at most 5 MB). */
 export function inspectImage(bytes: Uint8Array) {
   if (bytes.length > 5 * 1024 * 1024) throw new Error("attachment_too_large");
@@ -27,7 +29,7 @@ export function inspectImage(bytes: Uint8Array) {
         if (marker === 1 || (marker >= 208 && marker <= 215)) continue;
         const length = data.getUint16(offset);
         if (length < 2 || offset + length > bytes.length) break;
-        if ([192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker)) {
+        if (jpegFrameMarkers.has(marker)) {
           if (length < 7) break;
           height = data.getUint16(offset + 3);
           width = data.getUint16(offset + 5);

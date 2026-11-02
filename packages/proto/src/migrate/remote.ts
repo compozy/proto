@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../node/concurrency.ts";
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -18,9 +19,20 @@ type Row = Record<string, any>;
 export type RemoteSource = Record<(typeof tables)[number], Row[]> & { users: Row[] };
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const at = (value: Date | string | null) => (value == null ? null : new Date(value).toISOString());
+/** Retain legacy columns outside the explicit mapping under the preserved row metadata. */
 function unmapped(row: Row, mapped: readonly string[]) {
-  const rest = Object.fromEntries(Object.entries(row).filter(([key]) => !mapped.includes(key)));
+  const columns = new Set(mapped);
+  const rest = Object.fromEntries(Object.entries(row).filter(([key]) => !columns.has(key)));
   return Object.keys(rest).length ? { legacyRow: rest } : {};
+}
+// Compare PostgreSQL JSONB representations, including Date/Buffer.toJSON and omitted undefined.
+// Object key order is not significant; array order is. No clone is needed for comparison.
+function canonicalJson(value: unknown) {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+      : item
+  );
 }
 function stableId(value: string) {
   const h = hash(value);
@@ -156,14 +168,18 @@ export function upgradeRemoteKey(source: RemoteSource, review: Row, options: Upg
 }
 async function readSource(sql: Sql): Promise<RemoteSource> {
   return (await sql.begin("isolation level repeatable read read only", async tx => {
-    const source: Record<string, Row[]> = {};
-    for (const table of tables)
-      source[table] =
+    const rows = await Promise.all(
+      tables.map(table =>
         table === "prototype_credentials"
-          ? await tx`select id,user_id,created_at,encode(sha256(convert_to(token_hash,'UTF8')),'hex') as token_hash_fingerprint from prototype_credentials order by id`
-          : await tx.unsafe(
+          ? tx`select id,user_id,created_at,encode(sha256(convert_to(token_hash,'UTF8')),'hex') as token_hash_fingerprint from prototype_credentials order by id`
+          : tx.unsafe(
               `select * from ${table} order by ${table === "prototype_reviews" ? "slug" : "id"}`
-            );
+            )
+      )
+    );
+    const source: Record<string, Row[]> = Object.fromEntries(
+      tables.map((table, index) => [table, rows[index]!])
+    );
     source.users = await tx`select id,name,updated_at from "user" order by id`;
     return source as RemoteSource;
   })) as RemoteSource;
@@ -230,6 +246,7 @@ export type RemoteMigrationReport = {
   credentials: { source: number; copied: 0; note: string };
   errors: { code: ErrorCode; key?: string }[];
 };
+/** Copy legacy database reviews into the target with source-integrity and round-trip verification. */
 export async function migrateRemote(
   options: RemoteMigrationOptions
 ): Promise<RemoteMigrationReport> {
@@ -308,22 +325,19 @@ export async function migrateRemote(
         if (!options.dryRun) {
           const actual = await storage.readKey(file.key);
           if (!isDeepStrictEqual(actual, file)) throw new ProtoError("migration_unverified");
-          for (const image of attachments)
+          await mapConcurrent(attachments, async image => {
             if (
               hash((await storage.store.readAttachment(file.key, image.id)).bytes) !==
               hash(image.bytes)
             )
               throw new ProtoError("migration_unverified");
-          // Compare preserved columns directly with the source rows, not just the upgraded projection.
+          });
+          const sourceImages: { id: string; bytes: Uint8Array }[] = [];
+          /** Verify preserved legacy columns independently of the upgraded review projection. */
           const metadata = (row: Row, mapped: readonly string[], extra: unknown) => {
             const expected = unmapped(row, mapped);
             for (const [key, value] of Object.entries(expected))
-              if (
-                !isDeepStrictEqual(
-                  JSON.parse(JSON.stringify(value)),
-                  (extra as Row | undefined)?.[key]
-                )
-              )
+              if (canonicalJson(value) !== canonicalJson((extra as Row | undefined)?.[key]))
                 throw new ProtoError("migration_unverified", "Source metadata did not round-trip.");
           };
           metadata(review, ["slug", "next_comment", "approved_at", "approved_by"], actual.extra);
@@ -380,14 +394,17 @@ export async function migrateRemote(
                   ],
                   image.extra
                 );
-                if (
-                  hash((await storage.store.readAttachment(file.key, image.id)).bytes) !==
-                  hash(new Uint8Array(sourceImage.bytes))
-                )
-                  throw new ProtoError("migration_unverified");
+                sourceImages.push({ id: image.id, bytes: new Uint8Array(sourceImage.bytes) });
               }
             }
           }
+          await mapConcurrent(sourceImages, async image => {
+            if (
+              hash((await storage.store.readAttachment(file.key, image.id)).bytes) !==
+              hash(image.bytes)
+            )
+              throw new ProtoError("migration_unverified");
+          });
           for (const comment of record.verifiedComments) comment.verified = true;
         }
       } catch (error) {

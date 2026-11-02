@@ -1,85 +1,86 @@
-/**
- * A live store around the preview queue (`preview-queue.ts`): previews register their source and
- * visibility, the scheduler re-plans and each preview mounts its iframe only while planned. One
- * scheduler per surface (the flow canvas) or the shared one for card grids (overview, spec page,
- * drafts), so the whole shell never loads more than 3 previews at once per surface.
- */
-import { createContext, use, useEffect, useSyncExternalStore } from "react";
+/** One event-driven preview queue per surface; each frame subscribes only to its own slot. */
+import { createStoreLogic } from "@xstate/store";
+import { useSelector } from "@xstate/store-react";
+import { createContext, use, useEffect } from "react";
 
 import { schedulePreviews, settlePreview, type PreviewPlan } from "./preview-queue";
 
 type Registration = { src: string; visible: boolean; near: boolean; order: number };
 export type PreviewSlot = "idle" | "loading" | "loaded";
 
-export class PreviewScheduler {
-  #entries = new Map<string, Registration>();
-  #plan: PreviewPlan = [];
-  #listeners = new Set<() => void>();
-  #pending = false;
+type PreviewContext = { entries: Map<string, Registration>; plan: PreviewPlan; pending: boolean };
+type PreviewEvents = {
+  registered: { id: string; registration: Registration };
+  removed: { id: string };
+  settled: { id: string; src: string };
+  planned: Record<never, never>;
+};
 
-  subscribe = (listener: () => void) => {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  };
-
-  slot(id: string, src: string): PreviewSlot {
-    const entry = this.#plan.find(item => item.id === id && item.src === src);
-    return entry ? (entry.status === "loading" ? "loading" : "loaded") : "idle";
-  }
-
-  set(id: string, registration: Registration) {
-    this.#entries.set(id, registration);
-    this.#schedule();
-  }
-
-  remove(id: string) {
-    this.#entries.delete(id);
-    this.#schedule();
-  }
-
-  /** The preview reported ready or failed: its loading slot frees up. */
-  settle(id: string, src: string) {
-    this.#plan = settlePreview(this.#plan, id, src);
-    this.#schedule();
-  }
-
-  /** Re-plans in a microtask, so a batch of registrations (a grid mounting) plans once. */
-  #schedule() {
-    if (this.#pending) return;
-    this.#pending = true;
-    queueMicrotask(() => {
-      this.#pending = false;
-      const entries = [...this.#entries].sort(([, a], [, b]) => a.order - b.order);
+export const previewLogic = createStoreLogic<PreviewContext, PreviewEvents>({
+  context: {
+    entries: new Map<string, Registration>(),
+    plan: [] as PreviewPlan,
+    pending: false,
+  },
+  on: {
+    registered: (context, event: { id: string; registration: Registration }, enqueue) => {
+      const previous = context.entries.get(event.id);
+      const next = event.registration;
+      if (
+        previous?.src === next.src &&
+        previous.visible === next.visible &&
+        previous.near === next.near &&
+        previous.order === next.order
+      )
+        return context;
+      if (!context.pending)
+        enqueue.effect(({ trigger }) => queueMicrotask(() => trigger.planned()));
+      return { ...context, entries: new Map(context.entries).set(event.id, next), pending: true };
+    },
+    removed: (context, event: { id: string }, enqueue) => {
+      if (!context.entries.has(event.id)) return context;
+      const entries = new Map(context.entries);
+      entries.delete(event.id);
+      if (!context.pending)
+        enqueue.effect(({ trigger }) => queueMicrotask(() => trigger.planned()));
+      return { ...context, entries, pending: true };
+    },
+    settled: (context, event: { id: string; src: string }, enqueue) => {
+      if (!context.pending)
+        enqueue.effect(({ trigger }) => queueMicrotask(() => trigger.planned()));
+      return { ...context, plan: settlePreview(context.plan, event.id, event.src), pending: true };
+    },
+    planned: context => {
+      const entries = [...context.entries].sort(([, a], [, b]) => a.order - b.order);
       const sources = new Map(entries.map(([id, entry]) => [id, entry.src]));
       const view = {
         visible: entries.filter(([, entry]) => entry.visible).map(([id]) => id),
         near: new Set(entries.filter(([, entry]) => entry.near).map(([id]) => id)),
       };
-      const plan = schedulePreviews(this.#plan, view, sources);
-      const changed =
-        plan.length !== this.#plan.length ||
-        plan.some((entry, index) => entry !== this.#plan[index]);
-      this.#plan = plan;
-      if (changed) for (const listener of this.#listeners) listener();
-    });
-  }
-}
+      return { ...context, plan: schedulePreviews(context.plan, view, sources), pending: false };
+    },
+  },
+});
 
-const SchedulerContext = createContext(new PreviewScheduler());
-
+const SchedulerContext = createContext<ReturnType<typeof previewLogic.createStore> | null>(null);
 export const PreviewSchedulerProvider = SchedulerContext.Provider;
-
+/** Read the surface-owned preview scheduler and reject use outside its provider. */
 export function usePreviewScheduler() {
-  return use(SchedulerContext);
+  const scheduler = use(SchedulerContext);
+  if (!scheduler) throw new Error("usePreviewScheduler outside its provider");
+  return scheduler;
 }
 
-/** The slot of one preview; registers it while mounted. */
+/** Registers while mounted; unrelated slots never rerender this preview. */
 export function usePreviewSlot(id: string, registration: Registration): PreviewSlot {
   const scheduler = usePreviewScheduler();
   const { src, visible, near, order } = registration;
   useEffect(() => {
-    scheduler.set(id, { src, visible, near, order });
+    scheduler.trigger.registered({ id, registration: { src, visible, near, order } });
   }, [scheduler, id, src, visible, near, order]);
-  useEffect(() => () => scheduler.remove(id), [scheduler, id]);
-  return useSyncExternalStore(scheduler.subscribe, () => scheduler.slot(id, src));
+  useEffect(() => () => scheduler.trigger.removed({ id }), [scheduler, id]);
+  return useSelector(scheduler, snapshot => {
+    const entry = snapshot.context.plan.find(item => item.id === id && item.src === src);
+    return entry?.status ?? "idle";
+  });
 }

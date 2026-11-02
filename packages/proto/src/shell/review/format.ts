@@ -1,5 +1,7 @@
 /** How review data reads in the shell: numbers, authors, times, targets, waiting. Pure. */
 import type { CommentMessage, ReviewComment } from "../../model/review";
+import { flowOfKey } from "../../model/registry";
+import { screenView, type View } from "../lib/view";
 import type { Locale } from "../lib/i18n";
 
 /** `login-form-7` → 7. */
@@ -68,4 +70,20 @@ export function relativeTime(at: string, locale: Locale, now = Date.now()) {
 /** Newest activity first. */
 export function byActivity(a: ReviewComment, b: ReviewComment) {
   return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+}
+
+/** Where a comment opens: its prototype state, or its flow step. */
+export function commentView(comment: ReviewComment): View {
+  const flow = flowOfKey(comment.slug);
+  if (flow)
+    return {
+      area: "flow",
+      flow,
+      node: comment.target.kind === "node" ? comment.target.node : null,
+      comment: comment.id,
+    };
+  return screenView(comment.slug, comment.context.state, {
+    comment: comment.id,
+    role: comment.context.role,
+  });
 }

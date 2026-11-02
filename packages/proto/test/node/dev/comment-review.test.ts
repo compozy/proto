@@ -153,7 +153,7 @@ beforeAll(async () => {
     writeFileSync(join(app, file), content);
   }
   await build({
-    configFile: join(packageRoot, "vite.shell.config.ts"),
+    configFile: join(packageRoot, "vite.config.ts"),
     logLevel: "error",
     build: { outDir: shellDir, emptyOutDir: true },
   });

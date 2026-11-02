@@ -47,6 +47,7 @@ export function LivePreview({
   );
 }
 
+/** Keep the authored viewport inside a scaled sandboxed preview frame. */
 function Frame({
   src,
   title,
@@ -61,19 +62,24 @@ function Frame({
   scale: number;
 }) {
   return (
-    <iframe
-      src={src}
-      title={title}
-      tabIndex={-1}
-      loading="lazy"
-      className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-background"
-      style={{
-        width,
-        height,
-        transform: `scale(${scale})`,
-        visibility: scale > 0 ? "visible" : "hidden",
-      }}
-    />
+    <>
+      {/* oxlint-disable react-doctor/iframe-missing-sandbox -- Authored prototypes require scripts and real origins; dev/remote use separate origins and static builds trust bundled code. See docs/proto/performance.md. */}
+      <iframe
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+        src={src}
+        title={title}
+        tabIndex={-1}
+        loading="lazy"
+        className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-background"
+        style={{
+          width,
+          height,
+          transform: `scale(${scale})`,
+          visibility: scale > 0 ? "visible" : "hidden",
+        }}
+      />
+      {/* oxlint-enable react-doctor/iframe-missing-sandbox */}
+    </>
   );
 }
 

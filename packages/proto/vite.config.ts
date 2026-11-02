@@ -23,7 +23,7 @@ export default defineConfig({
     assetsDir: "assets",
     sourcemap: false,
     reportCompressedSize: true,
-    // One entry, no code splitting: the whole shell is one cached script (budget: slice 6).
+    // Heavy flow and settings pages load on intent; shared chunks stay cached.
     chunkSizeWarningLimit: 1200,
   },
 });

@@ -155,3 +155,8 @@ the shipped `proto` and `proto-apply-comments` skills into the repository's `.ag
 when the app is already set up (`bun run proto init --skills --app app`). For another legacy app,
 `proto migrate --from gallery/comments --dry-run` previews the local v3 migration; removing
 `--dry-run` writes the verified report and preserves its source until the operator deletes it.
+
+## Gallery performance
+
+Preview lifetime, query caching, intent prefetch, HMR and React Compiler checks are documented in
+[Gallery performance and React checks](../proto/performance.md).

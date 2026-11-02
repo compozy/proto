@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 
 import {
   readContextUrl,
+  parsePreviewRole,
   renderHref,
   type RenderMessage,
   type ShellMessage,
@@ -42,8 +43,13 @@ export type FrameContext = {
   w: number | null;
 };
 
-function readContext(url: string, slugs: ReadonlySet<string>): FrameContext | null {
-  const context = readContextUrl(url, slugs);
+/** Accept catalog-confined frame context and normalize unsupported themes to no selection. */
+function readContext(
+  url: string,
+  slugs: ReadonlySet<string>,
+  roles: ReadonlySet<string>
+): FrameContext | null {
+  const context = readContextUrl(url, slugs, roles);
   if (!context) return null;
   const theme = context.theme === "light" || context.theme === "dark" ? context.theme : null;
   return { ...context, theme };
@@ -78,15 +84,30 @@ type Frame = {
   status: FrameStatus;
 };
 
+/** Own frame tickets, nonce-scoped messaging and navigation without reloading unchanged documents. */
 export function useRenderFrame(
   iframe: RefObject<HTMLIFrameElement | null>,
   target: FrameTarget,
   options: Options
 ) {
-  const { renderUrl, renderOrigin } = useShellData();
+  const { renderUrl, renderOrigin, registry } = useShellData();
   // Remote galleries protect the render origin: each load carries a short-lived ticket.
   const tickets = useRenderTickets();
   const [ticket, setTicket] = useState<{ nonce: string; value: string } | null>(null);
+  const [messages] = useState(() => {
+    const listeners = new Set<(message: RenderMessage) => void>();
+    return {
+      emit: (message: RenderMessage) => {
+        for (const listener of listeners) listener(message);
+      },
+      listen: (listener: (message: RenderMessage) => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+  });
   const key = keyOf(target);
   const load = (nonce: string) =>
     renderHref(renderUrl, {
@@ -128,6 +149,15 @@ export function useRenderFrame(
   const { nonce } = frame;
   const { slugs, onContext, onMessage } = options;
   useEffect(() => {
+    const knownRoles = new Set(
+      registry.status === "ready"
+        ? [
+            ...Object.keys(registry.registry.roles),
+            ...registry.registry.prototypes.flatMap(prototype => prototype.roles),
+          ]
+        : []
+    );
+    /** Accept messages only from the current render window, origin and nonce before updating frame state. */
     const listen = (event: MessageEvent) => {
       const message = acceptRenderMessage(event, {
         source: windowOf(iframe),
@@ -144,13 +174,13 @@ export function useRenderFrame(
         return;
       }
       if (message.type === "context") {
-        const context = readContext(message.url, slugs);
+        const context = readContext(message.url, slugs, knownRoles);
         if (!context) return;
         const adopted = keyOf({
           slug: context.slug,
           state: context.state ?? message.state,
           theme: context.theme ?? message.theme,
-          role: context.role ?? message.role,
+          role: context.role ?? parsePreviewRole(message.role, knownRoles),
         });
         setFrame(current => (current.nonce === nonce ? { ...current, adopted } : current));
         onContext?.(context);
@@ -182,10 +212,11 @@ export function useRenderFrame(
         return;
       }
       onMessage?.(message);
+      messages.emit(message);
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [iframe, nonce, renderOrigin, slugs, onContext, onMessage, tickets]);
+  }, [iframe, nonce, renderOrigin, slugs, registry, onContext, onMessage, tickets, messages]);
 
   const loading = frame.status.kind === "loading" && !frame.status.slow;
   useEffect(() => {
@@ -238,7 +269,7 @@ export function useRenderFrame(
       ? `${frame.src}${frame.src.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket.value)}`
       : null;
 
-  return { src, nonce, status: frame.status, reload, send, focus };
+  return { src, nonce, status: frame.status, reload, send, focus, listen: messages.listen };
 }
 
 export type RenderFrameHandle = ReturnType<typeof useRenderFrame>;

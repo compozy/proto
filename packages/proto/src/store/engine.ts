@@ -135,15 +135,17 @@ export abstract class ReviewEngine {
       if (!message) throw new ProtoError("comment_not_found", "Message not found.");
       if (!owns(author, message.author, message.authorId))
         throw new ProtoError("message_not_owned");
-      for (const detached of change.detach ?? []) {
-        const image = message.attachments.find(item => item.id === detached);
+      const attachmentsById = new Map(message.attachments.map(image => [image.id, image]));
+      const detachedIds = new Set(change.detach ?? []);
+      for (const detached of detachedIds) {
+        const image = attachmentsById.get(detached);
         if (
           !image ||
           !owns(author, image.uploaderKind ?? message.author, image.uploaderId ?? message.authorId)
         )
           throw new ProtoError("message_not_owned");
       }
-      const kept = message.attachments.filter(image => !change.detach?.includes(image.id));
+      const kept = message.attachments.filter(image => !detachedIds.has(image.id));
       if (kept.length + (change.attach?.length ?? 0) > 6) throw new ProtoError("attachment_limit");
       const attached = await this.claim(file.key, file, change.attach ?? [], author, message.id);
       message.attachments = [...kept, ...attached];

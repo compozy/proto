@@ -10,6 +10,17 @@ import type { ProblemCode, WarningCode } from "./errors.ts";
 
 export type { ResolvedEdge, ResolvedNode } from "../flow.ts";
 
+/** Preserve authored edge order while visiting each edge only once during graph traversal. */
+export function outgoingEdges(edges: readonly ResolvedEdge[]) {
+  const outgoing = new Map<string, ResolvedEdge[]>();
+  for (const edge of edges) {
+    const group = outgoing.get(edge.from);
+    if (group) group.push(edge);
+    else outgoing.set(edge.from, [edge]);
+  }
+  return outgoing;
+}
+
 export type PrototypeKind = "component" | "draft";
 
 export type RegistryState = { id: string; label: string };
@@ -89,4 +100,12 @@ export const flowKeyPrefix = "flow-";
 export const flowKey = (flow: string) => `${flowKeyPrefix}${flow}`;
 export function flowOfKey(key: string) {
   return key.startsWith(flowKeyPrefix) ? key.slice(flowKeyPrefix.length) : null;
+}
+
+/** Every review key of the registry: prototype slugs and `flow-<id>`. */
+export function reviewKeys(registry: { prototypes: { slug: string }[]; flows: { id: string }[] }) {
+  return [
+    ...registry.prototypes.map(item => item.slug),
+    ...registry.flows.map(item => flowKey(item.id)),
+  ];
 }

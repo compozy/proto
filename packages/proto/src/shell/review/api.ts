@@ -87,7 +87,7 @@ export type CreatedCredential = Credential & { token: string };
 export type ReviewApi = {
   /** False for read-only snapshots: every write rejects with `read_only`. */
   readonly writable: boolean;
-  listComments(filter?: CommentFilter): Promise<ReviewComment[]>;
+  listComments(filter?: CommentFilter, signal?: AbortSignal): Promise<ReviewComment[]>;
   getComment(id: string): Promise<ReviewComment>;
   addComment(key: string, input: NewComment): Promise<ReviewComment>;
   reply(id: string, input: NewMessage): Promise<ReviewComment>;
@@ -101,7 +101,7 @@ export type ReviewApi = {
   discard(key: string, attachmentId: string): Promise<void>;
   /** URL of an attachment's bytes (served as a download, `nosniff`). */
   attachmentUrl(key: string, attachment: { id: string; type: string; url?: string }): string;
-  review(key: string): Promise<ReviewState>;
+  review(key: string, signal?: AbortSignal): Promise<ReviewState>;
   /** Approve (`confirmOpen` when comments are open) or reopen a key. */
   transition(
     key: string,
@@ -147,10 +147,16 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return target;
   };
 
+  /** Send review requests with same-origin credentials, preserving cancellation and HTTP/auth failures. */
   async function request(
     method: string,
     path: string,
-    init: { query?: Record<string, string | undefined>; json?: unknown; body?: BodyInit } = {}
+    init: {
+      query?: Record<string, string | undefined>;
+      json?: unknown;
+      body?: BodyInit;
+      signal?: AbortSignal;
+    } = {}
   ): Promise<unknown> {
     const headers = new Headers({ accept: "application/json" });
     if (method !== "GET") headers.set("X-Proto-Request", "1");
@@ -167,8 +173,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         body,
         credentials: "same-origin",
         redirect: "error",
+        signal: init.signal,
       });
     } catch (error) {
+      if (init.signal?.aborted) throw error;
       throw new ReviewApiError("network_error", String(error), null);
     }
     if (response.status === 204) return null;
@@ -194,14 +202,14 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   return {
     writable: true,
-    async listComments(filter = {}) {
+    async listComments(filter = {}, signal) {
       const query = Object.fromEntries(
         Object.entries(filter).map(([key, value]) => [
           key,
           value === undefined ? undefined : String(value),
         ])
       );
-      const body = await request("GET", "comments", { query });
+      const body = await request("GET", "comments", { query, signal });
       return z.object({ comments: z.array(commentSchema) }).parse(body).comments;
     },
     async getComment(commentId) {
@@ -240,8 +248,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     attachmentUrl(key, attachment) {
       return url(`attachments/${id(key)}/${id(attachment.id)}`).href;
     },
-    async review(key) {
-      return state(await request("GET", `reviews/${id(key)}`));
+    async review(key, signal) {
+      return state(await request("GET", `reviews/${id(key)}`, { signal }));
     },
     async transition(key, to, transition = {}) {
       return state(
@@ -333,8 +341,10 @@ export function snapshotApi(options: {
     new ReviewApiError("comment_not_found", errors.comment_not_found.message, 404);
   return {
     writable: false,
+    /** Filter retained static snapshots with the same comment-state semantics as the writable API. */
     async listComments(filter = {}) {
-      const comments = (await all()).flatMap(found => found.comments);
+      const snapshots = filter.key ? [await file(filter.key)] : await all();
+      const comments = snapshots.flatMap(found => found?.comments ?? []);
       return comments.filter(
         item =>
           (!filter.key || item.slug === filter.key) &&

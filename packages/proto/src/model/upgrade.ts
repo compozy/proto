@@ -12,6 +12,11 @@ export type UpgradeResult =
   | { ok: false; issues: string[] };
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+/** Rewrite legacy flow prefixes while preserving version 3 keys exactly. */
+export function reviewDestinationKey(version: unknown, key: string, flowPrefix = "fluxo-") {
+  return version !== 3 && key.startsWith(flowPrefix) ? `flow-${key.slice(flowPrefix.length)}` : key;
+}
+/** Validate or upgrade a review file without mutating it; retain unknown fields and report rewrites. */
 export function upgradeReviewFile(value: unknown, options: UpgradeOptions = {}): UpgradeResult {
   try {
     if (!record(value) || !(typeof value.version === "number" && [1, 2, 3].includes(value.version)))
@@ -26,9 +31,8 @@ export function upgradeReviewFile(value: unknown, options: UpgradeOptions = {}):
     if (input.version !== 3) {
       for (const key of ["key", "review", "events"])
         if (key in input) unknown[`/${key}`] = input[key];
-      const prefix = options.flowPrefix ?? "fluxo-";
       const key = String(input.slug ?? "");
-      const nextKey = key.startsWith(prefix) ? `flow-${key.slice(prefix.length)}` : key;
+      const nextKey = reviewDestinationKey(input.version, key, options.flowPrefix);
       input.key = rewrite("key", key, nextKey);
       const comments = Array.isArray(input.comments) ? input.comments : [];
       let maximum = 0;
