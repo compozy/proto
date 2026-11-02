@@ -6,6 +6,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Socket } from "node:net";
 import { execFile, execFileSync } from "node:child_process";
 import { createServer, type InlineConfig } from "vite";
 import { ProtoError } from "../model/errors.ts";
@@ -74,6 +75,9 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     throw new ProtoError("invalid_config", "dev.port must leave room for the render port");
   const origin = `http://127.0.0.1:${port}`;
   const clients = new Set<ServerResponse>();
+  // HTTP idle cleanup does not include TCP preconnects that have not sent a request yet.
+  const preconnects = new Set<Socket>();
+  let closing = false;
   let registryWatcherReady = false;
   const publish = (event: "registry" | "comments" | "review", data: unknown) => {
     for (const client of clients)
@@ -106,6 +110,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
 
   const shellDir = options.shellDir ?? fileURLToPath(new URL("../../dist/shell/", import.meta.url));
   const server = createHttpServer(async (req, res) => {
+    preconnects.delete(req.socket);
     if (!hostAllowed(req.headers.host, port, project.config.dev.allowedHosts)) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: { code: "host_not_allowed", message: "Host not allowed" } }));
@@ -209,6 +214,14 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       res.end(String(error));
     }
   });
+  server.on("connection", socket => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
+    preconnects.add(socket);
+    socket.once("close", () => preconnects.delete(socket));
+  });
   const vite = await createServer({
     ...renderViteConfig(project, port),
     ...(options.quiet ? { logLevel: "silent" as const } : {}),
@@ -231,12 +244,32 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       next();
     },
   });
-  /** Stop admission and flush SSE before closing remaining HTTP connections and the render server. */
+  /** Stop admission, bound SSE draining and release idle sockets while accepted requests finish. */
   const closeServers = async () => {
+    closing = true;
     const closed = new Promise<void>(resolve => server.close(() => resolve()));
+    for (const socket of preconnects) socket.destroy();
     const streamsEnded = Promise.all(
-      [...clients].map(client => new Promise<void>(resolve => client.end(resolve)))
-    ).then(() => server.closeAllConnections());
+      [...clients].map(
+        client =>
+          new Promise<void>(resolve => {
+            if (client.destroyed || client.writableFinished) {
+              resolve();
+              return;
+            }
+            const deadline = setTimeout(() => client.destroy(), 1000);
+            const finish = () => {
+              clearTimeout(deadline);
+              client.off("finish", finish);
+              client.off("close", finish);
+              resolve();
+            };
+            client.once("finish", finish);
+            client.once("close", finish);
+            client.end();
+          })
+      )
+    ).then(() => server.closeIdleConnections());
     await Promise.all([vite.close(), streamsEnded, closed]);
   };
   try {

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -147,6 +147,27 @@ it.each([
       rmSync(misplaced);
       await expect
         .poll(() => first.at(-1)?.problems.some(item => item.code === "flow_outside_root"))
+        .toBe(false);
+      // Directory-only native notifications must invalidate descendants in the shared snapshot.
+      const outside = mkdtempSync(join(tmpdir(), "proto-moved-"));
+      roots.push(outside);
+      const folder = join(root, "src/components/moving");
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, `moving.${extension}`), source());
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(true);
+      renameSync(folder, join(outside, "moving"));
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(false);
+      renameSync(join(outside, "moving"), folder);
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
+        .toBe(true);
+      rmSync(folder, { recursive: true });
+      await expect
+        .poll(() => first.at(-1)?.prototypes.some(item => item.slug === "moving"))
         .toBe(false);
       stopFirst();
       rmSync(file);

@@ -214,7 +214,7 @@ export async function migrateFiles(
     }
   }
   const locks = new KeyLocks(destination);
-  const planned = new Map<string, ReviewFileV3>();
+  const planned = new Map<string, { file: ReviewFileV3; attachments: Map<string, string> }>();
   const sources = await mapConcurrent(
     entries.filter(entry => entry.isDirectory()).sort((a, b) => a.name.localeCompare(b.name)),
     async entry => {
@@ -309,7 +309,12 @@ export async function migrateFiles(
       /** Verify existing destinations and source hashes before publishing a key under its lock. */
       const migrateKey = async () => {
         const prior = planned.get(file.key);
-        if (prior && !isDeepStrictEqual(prior, file))
+        const attachments = new Map(item.attachments.map(image => [image.id, image.sha256]));
+        if (
+          prior &&
+          (!isDeepStrictEqual(prior.file, file) ||
+            !isDeepStrictEqual(prior.attachments, attachments))
+        )
           throw new ProtoError(
             "migration_conflict",
             `Target key ${file.key} has different content.`
@@ -342,7 +347,7 @@ export async function migrateFiles(
         });
         const pending = checked.filter(image => image !== null);
         if (dryRun) {
-          planned.set(file.key, file);
+          planned.set(file.key, { file, attachments });
           item.status = existing && !pending.length ? "unchanged" : "planned";
           return;
         }

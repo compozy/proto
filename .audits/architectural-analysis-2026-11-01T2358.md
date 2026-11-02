@@ -285,3 +285,35 @@ Shutdown repair validation: all 13 verification tasks passed uncached with real 
 Chromium (279 package, 28 app, 5 API and 1 DB tests: 313 total), using the same reduced local
 concurrency as above. Doctor still reports no errors or warnings. The final rebuilt package
 also passed all 8 fresh-consumer tarball tests.
+
+The CodeRabbit review of `29610dc` passed docstring coverage at 98.11% (80% required)
+and reported four additional findings. Dry-run migration now compares attachment hashes for
+colliding destination keys, including an equal-byte positive control. Native registry watching
+invalidates directory moves/removals using the previous snapshot and discovers newly added
+authored directories. The canonical lifecycle regression fails against the old watcher on Linux
+when a directory leaves the app, and passes with the correction.
+
+Shutdown now drains accepted HTTP requests instead of destroying their connections. It tracks
+unclaimed TCP preconnects separately from active requests. SSE completion observes both finish
+and close, clears its deadline on completion, and destroys only stalled SSE streams after one
+second. Real regressions reproduce an accepted write losing its response and a non-reading SSE
+client blocking shutdown before the fixes; the corrected host returns 201 and persists the write.
+The new SSE cases use independent consumer fixtures; their first shared-app setup exposed Vite
+dependency-cache writes racing fixture removal, without changing the transport assertions.
+
+The three owning local suites pass all 32 tests. Linux validation uses an isolated container
+with a real native watcher; its minimal OS initially lacked `/etc/machine-id`, so a normal dbus
+machine identity was initialized before validating real FileStore writes. No source fallback
+or test assertion was added to bypass that environment prerequisite. Final full-gate receipts
+and the exact reviewed head remain on PR #16.
+
+The full gate then exposed a late Vite dependency optimization during E2E-007: the new picker
+portal imports `react-dom`, but only `react-dom/client` was pre-bundled. The render document
+reloaded during comment selection and the existing composer assertion timed out. The render
+plugin and its browser harness now include both entry points. The original comment journey
+and its timeout are unchanged; this repairs the dependency setup rather than retrying a lost pick.
+
+Third-review validation passed all 13 tasks uncached with real PostgreSQL and Chromium:
+283 package, 28 app, 5 API and 1 DB tests (317 total). The full React Doctor scan still reports
+zero errors and zero warnings with the same three documented iframe exceptions. The original
+comment journey passes after the pre-bundling repair, without changing its assertions or timeout.

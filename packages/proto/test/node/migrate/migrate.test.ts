@@ -8,6 +8,7 @@ import { afterEach, expect, it } from "vitest";
 import { migrateFiles } from "../../../src/migrate/index.ts";
 import { loadProject } from "../../../src/node/project.ts";
 import { emptyReviewFile } from "../../../src/model/review.ts";
+import { upgradeReviewFile } from "../../../src/model/upgrade.ts";
 import { png } from "../store/contract.ts";
 const fixtures = resolve(import.meta.dirname, "../../fixtures/review");
 const cli = resolve(import.meta.dirname, "../../../src/cli/main.ts");
@@ -147,6 +148,50 @@ it("legacy aliases and v3 keys keep source-order conflicts in dry and real migra
     emptyReviewFile("flow-a")
   );
 });
+it.each([false, true])(
+  "aliased attachment bytes agree in dry and real migrations (conflict=%s)",
+  async conflict => {
+    // Invariant: equal review descriptors cannot hide different attachment bytes at one destination.
+    // Owner: local migration; real source files compare planning with publication and preserve the winner.
+    const { root, source } = await setup();
+    const raw = JSON.parse(await readFile(join(source, "proto-shell/comments.json"), "utf8"));
+    await rm(join(source, "proto-shell"), { recursive: true });
+    raw.slug = "a";
+    raw.comments[0].slug = "a";
+    raw.comments[0].id = "a-1";
+    const id = crypto.randomUUID();
+    raw.comments[0].thread[0].attachments = [
+      { id, name: "shot.png", type: "image/png", size: png.length, width: 1, height: 1 },
+    ];
+    const upgraded = upgradeReviewFile(raw, { flowPrefix: "" });
+    if (!upgraded.ok) throw new Error(upgraded.issues.join("; "));
+    const other = Uint8Array.from(png, (byte, index) =>
+      conflict && index === png.length - 1 ? byte ^ 1 : byte
+    );
+    for (const [key, file, bytes] of [
+      ["a", raw, png],
+      ["flow-a", upgraded.file, other],
+    ] as const) {
+      await mkdir(join(source, key, "attachments"), { recursive: true });
+      await writeFile(join(source, key, "comments.json"), JSON.stringify(file));
+      await writeFile(join(source, key, "attachments", `${id}.png`), bytes);
+    }
+    for (const dryRun of [true, false]) {
+      const report = await migrateFiles(root, { from: source, flowPrefix: "", dryRun });
+      expect(report.keys.map(key => key.status)).toEqual([
+        dryRun ? "planned" : "migrated",
+        conflict ? "conflict" : dryRun ? "planned" : "unchanged",
+      ]);
+      expect(report.errors).toHaveLength(conflict ? 1 : 0);
+      if (conflict)
+        expect(report.errors[0]).toMatchObject({ key: "flow-a", code: "migration_conflict" });
+      if (dryRun) await expect(stat(join(root, "proto"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(
+      new Uint8Array(await readFile(join(root, "proto/review/flow-a/attachments", `${id}.png`)))
+    ).toEqual(png);
+  }
+);
 it("UT-083: rerun preserves verified key bytes and repairs an interrupted image copy", async () => {
   const { root, source } = await setup();
   const raw = JSON.parse(await readFile(join(source, "proto-shell/comments.json"), "utf8"));

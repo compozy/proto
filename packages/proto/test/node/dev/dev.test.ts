@@ -126,15 +126,20 @@ it("UT-069 busy ports name the pair", async () => {
     await new Promise<void>(r => occupied.close(() => r()));
   }
 }, 120000);
-it("shutdown refuses SSE reconnects while the consumer render server is still closing", async () => {
-  // Invariant: shutdown refuses reconnects and releases idle preconnects before consumer cleanup ends.
+it("shutdown drains accepted writes and refuses SSE reconnects while the render server closes", async () => {
+  // Invariant: shutdown drains accepted writes, refuses reconnects and releases idle preconnects.
   // Owner: dev server lifecycle; real HTTP/SSE and a consumer Vite plugin with a filesystem barrier.
-  const { writeFileSync } = await import("node:fs");
+  const { writeFileSync, mkdirSync } = await import("node:fs");
   const { join } = await import("node:path");
   const root = appFixture("proto-dev-shutdown-");
   const entered = join(root, "closing");
   const release = join(root, "release");
   writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Shutdown"};');
+  mkdirSync(join(root, "src"));
+  writeFileSync(
+    join(root, "src/login-form.proto.tsx"),
+    'export const meta=definePrototype({title:"Login",states:[{id:"default",label:"Default"}]}); export default function Prototype(){return null;}'
+  );
   writeFileSync(
     join(root, "vite.config.ts"),
     `
@@ -149,26 +154,106 @@ it("shutdown refuses SSE reconnects while the consumer render server is still cl
   let server: Awaited<ReturnType<typeof startDev>> | undefined;
   let closing: Promise<void> | undefined;
   let preconnect: ReturnType<typeof createConnection> | undefined;
+  let pendingRequest: ReturnType<typeof request> | undefined;
   try {
-    server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+    const project = await loadProject(root);
+    server = await startDev(project, { port: await port(), quiet: true });
     preconnect = createConnection(Number(new URL(server.origin).port), "127.0.0.1");
     await once(preconnect, "connect");
     const events = `${server.origin}/__proto/api/events`;
     const reader = (await fetch(events, { signal: abort.signal })).body!.getReader();
     await readEvent(reader, ": registry-watcher-ready");
+    const body = JSON.stringify({
+      key: "login-form",
+      body: "Accepted before shutdown",
+      context: {
+        state: "default",
+        theme: "light",
+        role: null,
+        viewport: { width: 1440, height: 900 },
+      },
+      target: { kind: "node", node: null, label: "Whole view" },
+    });
+    const response = new Promise<{ status?: number; body?: string; error?: Error }>(resolve => {
+      pendingRequest = request(
+        `${server!.origin}/__proto/api/comments`,
+        {
+          method: "POST",
+          headers: {
+            Origin: server!.origin,
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+            Expect: "100-continue",
+          },
+        },
+        result => {
+          let body = "";
+          result.setEncoding("utf8");
+          result.on("data", chunk => {
+            body += chunk;
+          });
+          result.once("end", () => resolve({ status: result.statusCode, body }));
+        }
+      );
+      pendingRequest.once("error", error => resolve({ error }));
+    });
+    const accepted = once(pendingRequest!, "continue");
+    pendingRequest!.flushHeaders();
+    await accepted;
     closing = server.close();
     await expect.poll(() => existsSync(entered)).toBe(true);
     expect((await reader.read()).done).toBe(true);
     await expect.poll(() => preconnect!.destroyed).toBe(true);
     await expect(fetch(events, { signal: abort.signal })).rejects.toThrow();
+    pendingRequest!.end(body);
+    const outcome = await response;
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({ status: 201 });
+    expect(await project.store().list()).toHaveLength(1);
   } finally {
     abort.abort();
     preconnect?.destroy();
+    pendingRequest?.destroy();
     writeFileSync(release, "continue");
     await (closing ?? server?.close());
     rmSync(root, { recursive: true, force: true });
   }
 }, 120000);
+it.each([false, true])(
+  "shutdown finishes when a stalled SSE client disconnects=%s",
+  async disconnect => {
+    // Invariant: an unread SSE backlog or disconnect cannot hold shutdown indefinitely.
+    // Owner: dev lifecycle; a real HTTP socket stops reading while the host publishes a large event.
+    const { writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const root = appFixture("proto-dev-sse-shutdown-");
+    writeFileSync(join(root, "proto.config.ts"), 'export default {title:"SSE shutdown"};');
+    writeFileSync(join(root, "vite.config.ts"), "export default {};");
+    const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+    const client = request(`${server.origin}/__proto/api/events`);
+    const received = once(client, "response");
+    client.end();
+    const [stream] = (await received) as [import("node:http").IncomingMessage];
+    let closing: Promise<void> | undefined;
+    try {
+      stream.pause();
+      stream.socket.pause();
+      server.publish("registry", { backlog: "x".repeat(16 * 1024 * 1024) });
+      let closed = false;
+      closing = server.close().then(() => {
+        closed = true;
+      });
+      if (disconnect) stream.destroy();
+      await expect.poll(() => closed, { timeout: 5000 }).toBe(true);
+      await closing;
+    } finally {
+      stream.destroy();
+      client.destroy();
+      if (!closing) await server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+  120000
+);
 it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");

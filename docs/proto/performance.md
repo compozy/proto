@@ -158,12 +158,13 @@ The canonical suites own the behavior:
   request; key-specific invalidation retains cached data and leaves unrelated reads fresh;
   notification bursts share a read and edits arriving during it are reconciled afterward.
 - `test/node/registry/registry.test.ts` and `test/node/store/file-store.test.ts`: real filesystem
-  snapshot/watch lifetimes, configured prototype globs in polling and native watchers, and
+  snapshot/watch lifetimes, configured prototype globs and directory moves in polling/native watchers, and
   notifications only after a subsequent edit. Dev startup establishes the review baseline before
   accepting HTTP requests or SSE connections.
-- `test/node/dev/dev.test.ts`: dev shutdown stops accepting HTTP connections before ending SSE
-  streams, then closes remaining connections alongside consumer Vite cleanup. Neither automatic
-  reconnects nor idle preconnects can keep shutdown open.
+- `test/node/dev/dev.test.ts`: dev shutdown stops accepting HTTP connections, releases idle
+  preconnects and lets accepted review writes return their response. SSE drains on finish or
+  disconnect; a stream that stops reading is destroyed after one second. Consumer Vite cleanup
+  runs alongside HTTP cleanup, and automatic reconnects cannot keep shutdown open.
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
   missed edit; deep links, pins and browser history agree on focused comments.
 - `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,
@@ -174,10 +175,13 @@ The canonical suites own the behavior:
   rerenders of the same component preserve state; context roles are confined to the catalog.
   A picker popover inside the active native modal receives pointer and keyboard input without
   removing the authored modal's focus trap; Escape cancels picking without closing the modal.
+  Both `react-dom` entry points are pre-bundled so opening the picker does not trigger a late
+  dependency optimization and reload the render document.
 - `test/node/concurrency.test.ts`: bounded, ordered work drains on failure before the caller exits
   and reports the lowest failing input index regardless of worker completion order.
 - `test/node/migrate/migrate.test.ts`: legacy aliases and v3 keys sharing a destination remain
-  ordered, including dry-run conflict reports. Prefix rewriting never rewrites an existing v3 key.
+  ordered, including dry-run conflicts for identical descriptors with different attachment bytes.
+  Prefix rewriting never rewrites an existing v3 key.
 - `test/browser/shell/render-frame.test.tsx`: clipboard denial remains retryable without false
   success or an unhandled rejection.
 - `apps/api/tests/proto.it.test.ts`: real Postgres, Better Auth, built SPA and remote review loop,

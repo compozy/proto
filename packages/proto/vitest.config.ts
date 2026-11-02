@@ -45,7 +45,9 @@ export default defineConfig({
         server: { host: "127.0.0.1" },
         // The render host page loads its own dependencies; optimizing them up front avoids a
         // mid-test reload of the frame on a cold cache.
-        optimizeDeps: { include: ["react", "react/jsx-dev-runtime", "react-dom/client", "zod"] },
+        optimizeDeps: {
+          include: ["react", "react/jsx-dev-runtime", "react-dom", "react-dom/client", "zod"],
+        },
         resolve: {
           alias: {
             "virtual:proto/render-config": harness("render-config.ts"),
