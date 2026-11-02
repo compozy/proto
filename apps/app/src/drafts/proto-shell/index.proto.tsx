@@ -79,6 +79,7 @@ const screenStates = new Set([
   "read-only",
 ]);
 
+/** Select the authored gallery state without loading application data. */
 export default function Prototype({ state }: PrototypeProps) {
   if (screenStates.has(state)) return <ScreenState state={state} />;
   switch (state) {
@@ -149,6 +150,7 @@ export default function Prototype({ state }: PrototypeProps) {
   }
 }
 
+/** Choose the compare, failure, composer or normal canvas for a screen draft state. */
 function ScreenStateCanvas({ state }: { state: string }) {
   return state === "compare" ? (
     <CompareCanvas state="error" />
@@ -166,6 +168,7 @@ function ScreenStateCanvas({ state }: { state: string }) {
   );
 }
 
+/** Compose screen chrome and review overlays from the selected presentation state. */
 function ScreenState({ state }: { state: string }) {
   const approved = state === "approved";
   const readOnly = state === "read-only";

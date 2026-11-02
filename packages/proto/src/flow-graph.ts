@@ -3,6 +3,7 @@ import { outgoingEdges } from "./model/registry.ts";
 
 export type { Occurrence } from "./flow.ts";
 
+/** Visit reachable nodes once in breadth-first order, preserving start and outgoing-edge order. */
 export function bfsOrder(start: readonly string[], edges: readonly ResolvedEdge[]): string[] {
   const order = [...new Set(start)];
   const seen = new Set(order);

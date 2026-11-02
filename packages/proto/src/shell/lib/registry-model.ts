@@ -25,6 +25,7 @@ export type Groups = {
   drafts: RegistryPrototype[];
 };
 
+/** Index the first descriptor for each slug so duplicate diagnostics do not change navigation identity. */
 export function prototypeIndex(registry: Registry) {
   const index = new Map<string, RegistryPrototype>();
   for (const prototype of registry.prototypes)

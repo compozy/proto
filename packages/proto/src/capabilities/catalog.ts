@@ -128,6 +128,7 @@ const required = (value: string | undefined, name: string) => {
   if (!value) throw new UsageError(`${name} is required`);
   return value;
 };
+/** Dispatch the shared CLI/MCP capability contract while enforcing transport and remote authority. */
 export async function executeCapability(
   capability: Capability,
   args: Arguments,

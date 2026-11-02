@@ -31,6 +31,7 @@ export type ShellEnv = {
   renderOrigin: string;
 };
 
+/** Fetch and validate the shell bootstrap, resolving render URLs against the document base. */
 async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Promise<ShellEnv> {
   const response = await fetch(new URL(bootstrapHref, base), {
     headers: { accept: "application/json" },
@@ -49,6 +50,7 @@ function isRegistry(value: unknown): value is Registry {
   return [prototypes, flows, problems, warnings].every(Array.isArray);
 }
 
+/** Fetch a cancellable registry snapshot and reject unsuccessful or malformed responses. */
 async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Registry> {
   const url = new URL(env.bootstrap.registryUrl, document.baseURI);
   const response = await fetch(url, {
@@ -78,6 +80,7 @@ class ShellEvents {
     this.#url = url;
   }
 
+  /** Open the shared event stream and reconcile observed data after a reconnect gap. */
   #connect() {
     if (!this.#url || this.#source) return;
     this.#source = new EventSource(new URL(this.#url, document.baseURI));
@@ -150,6 +153,7 @@ const registryQuery = (env: ShellEnv) =>
     staleTime: Infinity,
   });
 
+/** Own query and preview-scheduler lifetimes for one mounted gallery surface. */
 export function ShellDataProvider({
   env,
   client,
@@ -170,6 +174,7 @@ export function ShellDataProvider({
   );
 }
 
+/** Keep the registry query fresh from SSE while retaining the last successful snapshot on failure. */
 function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNode }) {
   const client = useQueryClient();
   const [events] = useState(() => new ShellEvents(env.bootstrap.eventsUrl));

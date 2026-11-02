@@ -44,6 +44,7 @@ export function Root() {
   );
 }
 
+/** Load the shell environment, exposing retry before mounting data-dependent routes. */
 function BootstrapApp() {
   const client = useQueryClient();
   const boot = useBootstrap();
@@ -113,6 +114,7 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: unknown }
   static getDerivedStateFromError(error: unknown) {
     return { error };
   }
+  /** Recover a failed lazy page with a document reload that clears the cached import rejection. */
   render() {
     return this.state.error ? (
       <Fatal
@@ -178,6 +180,7 @@ function Slots({ children }: { children: ReactNode }) {
 
 type Page = { crumbs: Crumb[]; target: ReviewTarget | null; share: boolean; body: ReactNode };
 
+/** Compose the current page, review chrome and transient search/shortcut overlays from URL state. */
 function Browse({
   view,
   choice,

@@ -90,6 +90,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     this.opening ??= this.initialize();
     await this.opening;
   }
+  /** Create local store metadata and expire pending uploads under their per-key locks. */
   private async initialize() {
     await mkdir(this.directory, { recursive: true });
     try {
@@ -181,6 +182,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
       return result;
     });
   }
+  /** Read matching review files with bounded I/O and apply the shared comment filters. */
   async list(filter: CommentFilter = {}) {
     filter = commentFilterSchema.parse(filter);
     await this.ready();
@@ -248,6 +250,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     await rm(this.pendingPath(key, image.id), { force: true });
     await rm(this.imagePath(key, image, true), { force: true });
   }
+  /** Validate pending-upload ownership and copy bodies before the atomic review-file commit. */
   protected async claim(
     key: string,
     file: ReviewFileV3,
@@ -374,6 +377,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
       listener({ type: "comments", key });
       listener({ type: "review", key });
     };
+    /** Compare published-file fingerprints, suppress the initial baseline and stop notifications on teardown. */
     const scan = async () => {
       if (stopped || scanning) return;
       scanning = true;

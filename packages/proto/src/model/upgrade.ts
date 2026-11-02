@@ -12,9 +12,11 @@ export type UpgradeResult =
   | { ok: false; issues: string[] };
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+/** Rewrite legacy flow prefixes while preserving version 3 keys exactly. */
 export function reviewDestinationKey(version: unknown, key: string, flowPrefix = "fluxo-") {
   return version !== 3 && key.startsWith(flowPrefix) ? `flow-${key.slice(flowPrefix.length)}` : key;
 }
+/** Validate or upgrade a review file without mutating it; retain unknown fields and report rewrites. */
 export function upgradeReviewFile(value: unknown, options: UpgradeOptions = {}): UpgradeResult {
   try {
     if (!record(value) || !(typeof value.version === "number" && [1, 2, 3].includes(value.version)))

@@ -34,6 +34,7 @@ export interface ProtoProject {
   evidence(target: CaptureTarget): Promise<{ path: string }>;
   migrate(options: MigrateOptions): Promise<MigrationReport>;
 }
+/** Load configuration and expose discovery, watched snapshots, stores and authoring operations. */
 export async function loadProject(
   cwd: string,
   configFile = "proto.config.ts"
@@ -52,6 +53,7 @@ export async function loadProject(
   const listeners = new Set<(registry: Registry) => void>();
   let cached: Registry | undefined;
   let stopWatch: (() => void) | undefined;
+  /** Share one authored-file watcher across subscribers and debounce registry refresh notifications. */
   const observe = () => {
     const patterns = [
       ...(typeof config.prototypes === "string" ? [config.prototypes] : config.prototypes),
@@ -115,6 +117,7 @@ export async function loadProject(
   const project: ProtoProject = {
     root,
     config,
+    /** Discover a registry snapshot, reusing it only while a watcher can invalidate stale entries. */
     async registry() {
       if (cached) return cached;
       const legacy = {
@@ -203,6 +206,7 @@ export async function loadProject(
         }
       };
     },
+    /** Build a local or remote presentation URL, validating the remote base before adding context. */
     url(target, options) {
       const base = options?.remote
         ? process.env.PROTO_REMOTE_URL || config.review.remote?.url

@@ -40,6 +40,7 @@ function hoverOf(point: Point): { rect: Rect; label: string } | null {
 
 const viewportOf = () => ({ width: window.innerWidth, height: window.innerHeight });
 
+/** Capture element, region or keyboard targets above authored content, including active native modals. */
 export function Picker({
   mode,
   roots,

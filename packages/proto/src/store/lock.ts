@@ -173,6 +173,7 @@ export class KeyLocks {
     }
   }
 
+  /** Acquire an exclusive key lock with owner identity; retry contention and return an owner-checked release. */
   async acquire(key: string): Promise<() => Promise<void>> {
     await mkdir(this.directory, { recursive: true });
     const started = performance.now();

@@ -12,6 +12,7 @@ type Vars = Record<string, string | number>;
 
 const catalogs: Record<Locale, Record<string, string>> = { en, "pt-BR": ptBR };
 
+/** Choose the locale/plural template and substitute variables with English/key fallbacks. */
 function translate(locale: Locale, key: MessageKey | PluralKey, vars: Vars = {}) {
   const catalog = catalogs[locale];
   const variant =

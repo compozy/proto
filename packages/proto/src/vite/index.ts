@@ -128,6 +128,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
       resolveId(id) {
         if (ids.includes(id)) return `\0${id}`;
       },
+      /** Generate render config, prototype imports or the current Canvas module for a virtual entry. */
       async load(id) {
         if (id === `\0${ids[0]}`)
           return `export const config = { ...${JSON.stringify(renderConfig)}${renderConfig.mode === "read-only" ? ", shellOrigin: window.location.origin" : ""} }; export default config; export const renderConfig = config;`;

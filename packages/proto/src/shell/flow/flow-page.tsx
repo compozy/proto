@@ -36,6 +36,7 @@ import { ArrowRight, ExternalLink } from "../ui/icons";
 import { useStepBadge } from "../review/review-ui";
 import { FlowCanvas } from "./flow-canvas";
 
+/** Group uncovered state labels by prototype using the same first-entry identity as navigation. */
 function uncoveredStates(registry: Registry, coverage: ReturnType<typeof flowCoverage>) {
   const prototypesBySlug = prototypeIndex(registry);
   const uncovered = new Map<string, string[]>();
@@ -49,6 +50,7 @@ function uncoveredStates(registry: Registry, coverage: ReturnType<typeof flowCov
   return uncovered;
 }
 
+/** Combine a flow graph, coverage diagnostics and URL-focused review details. */
 export function FlowPage({
   flow,
   node,

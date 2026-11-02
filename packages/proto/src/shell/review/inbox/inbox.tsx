@@ -51,6 +51,7 @@ function previewTarget(registry: Registry, comment: ReviewComment) {
     : null;
 }
 
+/** Resolve inbox titles and specs through catalog indexes, retaining identity when an entry is missing. */
 function describe(
   prototypes: ReadonlyMap<string, Registry["prototypes"][number]>,
   flows: ReadonlyMap<string, Registry["flows"][number]>,
@@ -70,6 +71,7 @@ function describe(
   };
 }
 
+/** Filter the shared comments collection and show a selected thread without per-key list requests. */
 export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" | "dark" }) {
   const t = useT();
   const locale = useLocale();
@@ -257,6 +259,7 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   );
 }
 
+/** Show the selected thread with its captured preview context and a link back to focused review. */
 function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
   const t = useT();
   const registry = useRegistry();

@@ -46,6 +46,7 @@ export function hostAllowed(
     )
   );
 }
+/** Configure the consumer render server on the adjacent loopback port with the project watch policy. */
 export function renderViteConfig(project: ProtoProject, port: number): InlineConfig {
   return {
     root: project.root,
@@ -66,6 +67,7 @@ export function renderViteConfig(project: ProtoProject, port: number): InlineCon
     },
   };
 }
+/** Start review/SSE and render servers after the review baseline is ready; close both on shutdown. */
 export async function startDev(project: ProtoProject, options: DevOptions = {}) {
   const port = options.port ?? project.config.dev.port;
   if (!Number.isInteger(port) || port < 1 || port > 65534)

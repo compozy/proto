@@ -259,3 +259,15 @@ Second-review validation: `bun run verify` passed all 13 tasks without cache (27
 28 app, 5 API and 1 DB tests: 312 total), with real PostgreSQL and Chromium. The full Doctor
 scan reported zero errors and zero warnings across 223 files, including the three documented
 local iframe exceptions. A fresh tarball consumer passed all 8 tests after this package build.
+
+The complete CodeRabbit walkthrough also reported 38.24% docstring coverage against its 80%
+minimum. Function-level contracts now document the touched operations and state owners,
+including migration ordering, query consistency, frame trust and error recovery. Comparing the
+TypeScript syntax trees before and after this documentation pass confirmed no executable changes.
+The subsequent review and its documentation-check result remain recorded on PR #16.
+
+The documentation candidate passed `bun run verify --concurrency=2` with
+`VITEST_MAX_WORKERS=2`, real PostgreSQL/Chromium, all 13 tasks uncached and the same 312 tests.
+An earlier run during concurrent workstation test activity timed out in the existing registry
+check and Chromium teardown; its failed receipt is retained separately. No assertion, test
+timeout or repository configuration was changed to obtain the passing run.

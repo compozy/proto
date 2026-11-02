@@ -37,6 +37,7 @@ export function CommentModeProvider({ children }: { children: ReactNode }) {
   return <CommentModeContext value={store}>{children}</CommentModeContext>;
 }
 
+/** Read the comment-tool store and reject use outside the owning provider. */
 function useCommentStore() {
   const store = use(CommentModeContext);
   if (!store) throw new Error("Comment mode requires its provider");
@@ -53,6 +54,7 @@ export function useCommentTool() {
   };
 }
 
+/** Read and replace comment focus in the screen/flow URL so links and history share one state. */
 export function useCommentFocusState() {
   const { view } = useLocation();
   const reviewable = view.area === "screen" || view.area === "flow";

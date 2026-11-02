@@ -47,6 +47,7 @@ export function LivePreview({
   );
 }
 
+/** Keep the authored viewport inside a scaled sandboxed preview frame. */
 function Frame({
   src,
   title,

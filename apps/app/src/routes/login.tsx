@@ -12,6 +12,7 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  /** Submit the selected auth action, preserve failures for retry and always release pending state. */
   async function submit({ name, email, password }: LoginValues) {
     setPending(true);
     setError(null);

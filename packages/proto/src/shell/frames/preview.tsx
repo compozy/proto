@@ -79,6 +79,7 @@ export function Preview({
   );
 }
 
+/** Render an admitted sandboxed thumbnail with loading/error feedback and scaled source coordinates. */
 function PreviewFrame({
   id,
   src,

@@ -147,6 +147,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return target;
   };
 
+  /** Send review requests with same-origin credentials, preserving cancellation and HTTP/auth failures. */
   async function request(
     method: string,
     path: string,
@@ -340,6 +341,7 @@ export function snapshotApi(options: {
     new ReviewApiError("comment_not_found", errors.comment_not_found.message, 404);
   return {
     writable: false,
+    /** Filter retained static snapshots with the same comment-state semantics as the writable API. */
     async listComments(filter = {}) {
       const snapshots = filter.key ? [await file(filter.key)] : await all();
       const comments = snapshots.flatMap(found => found?.comments ?? []);

@@ -66,6 +66,7 @@ function actionItems(t: Translate, options: { compare: boolean }): SearchItem[] 
   return actions.map(item => ({ ...item, title: item.label }));
 }
 
+/** Search the live catalog and review comments while the palette is mounted. */
 export function SearchPalette({
   compare,
   onAction,

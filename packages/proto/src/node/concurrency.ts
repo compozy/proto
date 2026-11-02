@@ -7,6 +7,7 @@ export async function mapConcurrent<T, R>(
   const results: R[] = [];
   let next = 0;
   const failures: { index: number; reason: unknown }[] = [];
+  /** Claim inputs in order until a failure, retaining each started operation's error for final selection. */
   async function worker() {
     while (!failures.length && next < items.length) {
       const index = next++;

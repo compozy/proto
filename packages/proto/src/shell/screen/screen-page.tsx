@@ -44,6 +44,7 @@ import { ViewportControl } from "./viewport-control";
 
 type ScreenView = Extract<View, { area: "screen" }>;
 
+/** Compose one prototype's render, comparison and review panels from URL presentation state. */
 export function ScreenPage({
   view,
   theme,
@@ -202,6 +203,7 @@ export function ScreenPage({
   );
 }
 
+/** Bind viewport/state controls and review tools to the current frame fit width. */
 function ScreenToolbar({
   prototype,
   view,

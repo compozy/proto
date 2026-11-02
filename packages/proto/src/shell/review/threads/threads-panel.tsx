@@ -23,6 +23,7 @@ function inScope(comment: ReviewComment, scope: ThreadScope) {
   return scope.node === null || commentNode(comment) === scope.node;
 }
 
+/** Filter one shared key collection by scope/status and reveal the URL-focused thread. */
 export function ThreadsPanel({
   reviewKey,
   scope,
@@ -98,6 +99,7 @@ export function ThreadsPanel({
   );
 }
 
+/** Explain loading, read-only and empty-thread states for the current status filter. */
 function ThreadStatus({
   writable,
   loaded,
@@ -141,6 +143,7 @@ function ThreadStatus({
   );
 }
 
+/** Switch between the current state/step and all comments without changing the review key. */
 function ScopeToggle({
   scope,
   all,

@@ -24,6 +24,7 @@ function signInHref(
   return url.origin === location.origin ? `${url.pathname}${url.search}` : url.href;
 }
 
+/** Explain the review sign-in requirement and link to the configured application auth entry. */
 export function SignInPage() {
   const t = useT();
   const { bootstrap } = useShellData();

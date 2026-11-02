@@ -30,6 +30,7 @@ const results = [1000, 10000].map(count => {
       kind: "navigate",
     })),
   };
+  /** Warm the traversal, verify complete output and record five elapsed-time samples. */
   const measure = (run: () => number) => {
     if (run() !== count) throw new Error("Incomplete graph");
     return Array.from({ length: 5 }, () => {

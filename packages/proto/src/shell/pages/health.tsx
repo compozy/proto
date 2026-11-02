@@ -18,6 +18,7 @@ function location(item: RegistryProblem | RegistryWarning) {
   return `${item.file}${line}`;
 }
 
+/** Present the current registry problems and warnings, including the empty healthy state. */
 export function Health() {
   const t = useT();
   const registry = useRegistry();
@@ -51,6 +52,7 @@ export function Health() {
   );
 }
 
+/** Show a diagnostic location and report clipboard success only after copying succeeds. */
 function HealthItem({ entry }: { entry: Entry }) {
   const t = useT();
   const [copied, setCopied] = useState(false);

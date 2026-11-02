@@ -97,6 +97,7 @@ function OpenCount({ reviewKey }: { reviewKey: string }) {
   );
 }
 
+/** Bind prototype threads to the selected state and URL-owned comment focus. */
 function PrototypeThreads({ target }: { target: Extract<ReviewTarget, { kind: "prototype" }> }) {
   const { view } = useLocation();
   const comment = view.area === "screen" ? view.comment : null;
@@ -112,6 +113,7 @@ function PrototypeThreads({ target }: { target: Extract<ReviewTarget, { kind: "p
   );
 }
 
+/** Bind flow threads to the selected step and URL-owned comment focus. */
 function FlowThreads({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> }) {
   const { view } = useLocation();
   return (

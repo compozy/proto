@@ -27,6 +27,7 @@ export function useVisibility(ref: { current: Element | null }) {
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
+    /** Publish visibility changes only when the observer reports a different intersection state. */
     const update = (key: "visible" | "near", entry?: IntersectionObserverEntry) => {
       const value = entry?.isIntersecting ?? false;
       setVisibility(current => (current[key] === value ? current : { ...current, [key]: value }));

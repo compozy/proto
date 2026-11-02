@@ -16,6 +16,7 @@ export const externalHeight = 96;
 export type LaidOutNode = { id: string; x: number; y: number; column: number; height: number };
 export type EdgeRoute = "forward" | "back" | "same";
 
+/** Assign breadth-first columns and stable step rows, placing unreachable nodes in a final column. */
 export function layoutFlow(flow: RegistryFlow) {
   const depth = new Map<string, number>();
   const nodeIds = new Set(flow.nodes.map(node => node.id));

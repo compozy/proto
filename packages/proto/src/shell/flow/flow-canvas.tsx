@@ -88,6 +88,7 @@ type StepData = {
 type StepNode = Node<StepData, "step">;
 type LinkEdge = Edge<{ on: string; kind: EdgeKind; lit: boolean }, "link">;
 
+/** Show a flow node and retain its admitted preview document when zoom hides the thumbnail. */
 function StepCard({ data }: NodeProps<StepNode>) {
   const t = useT();
   const { node, kind, selected, lit, problem, uncovered, theme, badge } = data;
@@ -219,6 +220,7 @@ export type FlowCanvasProps = {
   tools?: ReactNode;
 };
 
+/** Lay out flow nodes, route connections and coordinate selection within one preview surface. */
 function FlowSurface({
   flow,
   selected,

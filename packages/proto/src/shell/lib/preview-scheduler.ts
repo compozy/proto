@@ -64,6 +64,7 @@ export const previewLogic = createStoreLogic<PreviewContext, PreviewEvents>({
 
 const SchedulerContext = createContext<ReturnType<typeof previewLogic.createStore> | null>(null);
 export const PreviewSchedulerProvider = SchedulerContext.Provider;
+/** Read the surface-owned preview scheduler and reject use outside its provider. */
 export function usePreviewScheduler() {
   const scheduler = use(SchedulerContext);
   if (!scheduler) throw new Error("usePreviewScheduler outside its provider");

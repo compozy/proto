@@ -33,6 +33,7 @@ const group =
   "flex items-center gap-0.5 rounded-xl border border-border bg-[var(--shell-panel)] p-1";
 const active = "bg-[var(--shell-primary-soft)] text-primary";
 
+/** Toggle pointer/keyboard commenting and leave comment mode when the review key changes. */
 function ScreenTools({ reviewKey }: { reviewKey: string }) {
   const t = useT();
   const mode = useCommentTool();
@@ -73,6 +74,7 @@ function ScreenTools({ reviewKey }: { reviewKey: string }) {
   );
 }
 
+/** Compose a node or whole-flow comment with the current presentation context and focused result. */
 function FlowTool({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> }) {
   const t = useT();
   const mode = useCommentFocusState();

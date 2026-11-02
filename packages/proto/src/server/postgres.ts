@@ -34,6 +34,7 @@ const optionalAuthor = (row: Row) => ({
   ...(row.author_name ? { authorName: row.author_name } : {}),
 });
 const ownerId = (author: Author) => author.id ?? `local:${author.kind}`;
+/** Index relation rows once while retaining their database order within each group. */
 function groupRows(rows: readonly Row[], key: (row: Row) => string) {
   const groups = new Map<string, Row[]>();
   for (const row of rows) {
@@ -85,10 +86,12 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   private connection() {
     return this.transaction.getStore() ?? this.sql;
   }
+  /** Read one validated review key, returning an empty v3 history when it has not been written. */
   async readFile(key: string): Promise<ReviewFileV3> {
     keySchema.parse(key);
     return (await this.readFiles([key]))[0] ?? emptyReviewFile(key);
   }
+  /** Hydrate review keys with a bounded set of consistent relation reads, excluding image bodies. */
   private async readFiles(keys?: readonly string[]): Promise<ReviewFileV3[]> {
     if (keys?.length === 0) return [];
     for (const key of keys ?? []) keySchema.parse(key);
@@ -173,6 +176,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       return result;
     });
   }
+  /** Persist validated review relations in batches inside the caller's transaction. */
   private async save(sql: TransactionSql, file: ReviewFileV3) {
     const key = file.key;
     reviewFileSchema.parse(file);
@@ -284,6 +288,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       });
     return outcome;
   }
+  /** Atomically claim owned, unexpired attachments and return descriptors in requested order. */
   protected async claim(
     key: string,
     file: ReviewFileV3,
@@ -316,6 +321,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     return ids.map(id => byId.get(id)!);
   }
 
+  /** Filter hydrated comments by key, spec and thread state without fetching attachment bodies. */
   async list(filter: CommentFilter = {}) {
     filter = commentFilterSchema.parse(filter);
     const registry = filter.spec ? await this.registry?.() : undefined;

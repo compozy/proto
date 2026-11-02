@@ -85,8 +85,8 @@ class RenderBoundary extends Component<
     component: this.props.component,
   };
 
+  /** Clear a failed render when the component changes without remounting a healthy Canvas subtree. */
   static getDerivedStateFromProps(props: BoundaryProps, state: RenderBoundary["state"]) {
-    // A new component can recover a failed render without remounting a healthy Refresh subtree.
     return props.component !== state.component ? { error: null, component: props.component } : null;
   }
 
@@ -134,6 +134,7 @@ type Loaded = {
   error: unknown;
 };
 
+/** Load the selected prototype and ignore results from an entry that has already been replaced. */
 function useModule(entry: RenderPrototype | undefined, onFailure: (error: unknown) => void) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const fail = useEffectEvent(onFailure);
@@ -240,6 +241,7 @@ function PrototypeContent({
   return null;
 }
 
+/** Coordinate URL context, prototype rendering and trusted shell messages for one render document. */
 function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & { bridge: Bridge }) {
   const search = useSearch();
   const { theme } = useTheme();

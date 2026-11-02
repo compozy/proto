@@ -38,6 +38,7 @@ import { useCommentMode } from "./state";
 
 type PrototypeTarget = Extract<ReviewTarget, { kind: "prototype" }>;
 
+/** Coordinate frame picking, anchor measurements, pins and the composer for the active prototype. */
 export function ScreenCommentLayer({
   target,
   frame,
@@ -217,6 +218,7 @@ export function ScreenCommentLayer({
   );
 }
 
+/** Announce pointer/keyboard picking instructions or a refused selection without owning picker state. */
 function PickFeedback({
   picking,
   keyboard,
@@ -253,6 +255,7 @@ function PickFeedback({
   );
 }
 
+/** Project a measured or stored comment anchor into the scaled frame and expose URL-owned focus. */
 function CommentPin({
   comment,
   measured,

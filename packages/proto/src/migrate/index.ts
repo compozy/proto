@@ -163,6 +163,7 @@ async function migrateConfig(root: string, dryRun: boolean, report: MigrationRep
     }
   }
 }
+/** Copy and verify legacy review histories without deleting sources or overwriting conflicting targets. */
 export async function migrateFiles(
   root: string,
   options: MigrateOptions
@@ -234,6 +235,7 @@ export async function migrateFiles(
       return { entry, bytes, key };
     }
   );
+  /** Upgrade one captured source and report its copy, conflict or verification failure. */
   async function migrateEntry({ entry, bytes }: (typeof sources)[number]) {
     const sourcePath = join(source, entry.name, "comments.json");
     if (!bytes) return;
@@ -304,6 +306,7 @@ export async function migrateFiles(
         images.set(image.report.id, image);
       }
       item.attachments = [...images.values()].map(image => image.report);
+      /** Verify existing destinations and source hashes before publishing a key under its lock. */
       const migrateKey = async () => {
         const prior = planned.get(file.key);
         if (prior && !isDeepStrictEqual(prior, file))

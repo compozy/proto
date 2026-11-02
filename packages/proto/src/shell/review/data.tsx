@@ -164,6 +164,7 @@ export function useAllComments() {
   return useComments({ status: "all" });
 }
 
+/** Subscribe to one review-status query, remaining inactive when no review provider is mounted. */
 export function useReviewState(key: string): Query<ReviewState> {
   const context = use(ReviewContext);
   const query = useQuery((context?.queries ?? inactive).state(key));

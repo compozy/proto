@@ -19,6 +19,7 @@ type Row = Record<string, any>;
 export type RemoteSource = Record<(typeof tables)[number], Row[]> & { users: Row[] };
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const at = (value: Date | string | null) => (value == null ? null : new Date(value).toISOString());
+/** Retain legacy columns outside the explicit mapping under the preserved row metadata. */
 function unmapped(row: Row, mapped: readonly string[]) {
   const columns = new Set(mapped);
   const rest = Object.fromEntries(Object.entries(row).filter(([key]) => !columns.has(key)));
@@ -245,6 +246,7 @@ export type RemoteMigrationReport = {
   credentials: { source: number; copied: 0; note: string };
   errors: { code: ErrorCode; key?: string }[];
 };
+/** Copy legacy database reviews into the target with source-integrity and round-trip verification. */
 export async function migrateRemote(
   options: RemoteMigrationOptions
 ): Promise<RemoteMigrationReport> {
@@ -331,7 +333,7 @@ export async function migrateRemote(
               throw new ProtoError("migration_unverified");
           });
           const sourceImages: { id: string; bytes: Uint8Array }[] = [];
-          // Compare preserved columns directly with the source rows, not just the upgraded projection.
+          /** Verify preserved legacy columns independently of the upgraded review projection. */
           const metadata = (row: Row, mapped: readonly string[], extra: unknown) => {
             const expected = unmapped(row, mapped);
             for (const [key, value] of Object.entries(expected))

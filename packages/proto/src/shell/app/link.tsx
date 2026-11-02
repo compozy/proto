@@ -15,6 +15,7 @@ export function Link({
   ...props
 }: { to: View } & ComponentProps<"a">) {
   const prefetchReview = usePrefetchReview();
+  /** Warm the destination chunk and review key when link intent is expressed. */
   const preload = () => {
     preloadView(to);
     if (to.area === "screen") prefetchReview(to.slug);

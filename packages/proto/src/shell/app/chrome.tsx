@@ -227,6 +227,7 @@ export function ShellTopBar({
   );
 }
 
+/** Copy the current deep link and show temporary success only after the clipboard write succeeds. */
 function ShareButton() {
   const t = useT();
   const [copied, setCopied] = useState(false);

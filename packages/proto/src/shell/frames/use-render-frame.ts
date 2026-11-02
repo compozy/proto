@@ -43,6 +43,7 @@ export type FrameContext = {
   w: number | null;
 };
 
+/** Accept catalog-confined frame context and normalize unsupported themes to no selection. */
 function readContext(
   url: string,
   slugs: ReadonlySet<string>,
@@ -83,6 +84,7 @@ type Frame = {
   status: FrameStatus;
 };
 
+/** Own frame tickets, nonce-scoped messaging and navigation without reloading unchanged documents. */
 export function useRenderFrame(
   iframe: RefObject<HTMLIFrameElement | null>,
   target: FrameTarget,
@@ -155,6 +157,7 @@ export function useRenderFrame(
           ]
         : []
     );
+    /** Accept messages only from the current render window, origin and nonce before updating frame state. */
     const listen = (event: MessageEvent) => {
       const message = acceptRenderMessage(event, {
         source: windowOf(iframe),

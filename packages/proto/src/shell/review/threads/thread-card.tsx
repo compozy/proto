@@ -241,6 +241,7 @@ function Source({ comment }: { comment: ReviewComment }) {
   );
 }
 
+/** Present a review thread with explicit focus controls and authorized reply/edit actions. */
 export function ThreadCard({
   comment,
   active,
