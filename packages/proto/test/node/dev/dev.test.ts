@@ -254,6 +254,40 @@ it.each([false, true])(
   },
   120000
 );
+it("shutdown rejects an SSE request pipelined on an accepted HTTP connection", async () => {
+  // Invariant: no event stream can join shutdown after its initial SSE drain, even on a reused socket.
+  // Owner: dev lifecycle; real HTTP pipelining behind an accepted, unfinished upload.
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-pipelined-sse-");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Pipelined SSE"};');
+  writeFileSync(join(root, "vite.config.ts"), "export default {};");
+  const server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+  const host = new URL(server.origin).host;
+  const client = createConnection(Number(new URL(server.origin).port), "127.0.0.1");
+  let response = "";
+  client.setEncoding("utf8");
+  client.on("data", chunk => {
+    response += chunk;
+  });
+  let closing: Promise<void> | undefined;
+  try {
+    await once(client, "connect");
+    client.write(
+      `POST /__proto/api/unknown HTTP/1.1\r\nHost: ${host}\r\nContent-Length: 1\r\nExpect: 100-continue\r\n\r\n`
+    );
+    await expect.poll(() => response.includes("HTTP/1.1 100 Continue")).toBe(true);
+    closing = server.close();
+    client.write(`xGET /__proto/api/events HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
+    await expect.poll(() => response).toContain("HTTP/1.1 503");
+    expect(response).not.toContain("text/event-stream");
+    await closing;
+  } finally {
+    client.destroy();
+    await (closing ?? server.close());
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120000);
 it("shutdown bounds an accepted HTTP request that never completes", async () => {
   // Invariant: an accepted but stalled upload cannot keep the dev host open indefinitely.
   // Owner: dev lifecycle; real HTTP 100 Continue confirms acceptance before shutdown starts.

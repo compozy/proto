@@ -165,7 +165,8 @@ The canonical suites own the behavior:
   preconnects and gives accepted review requests ten seconds to return their response before
   closing any remaining connections. SSE drains on finish or
   disconnect; a stream that stops reading is destroyed after one second. Consumer Vite cleanup
-  runs alongside HTTP cleanup, and automatic reconnects cannot keep shutdown open.
+  runs alongside HTTP cleanup. New event-stream requests receive 503 after shutdown starts,
+  including requests pipelined on an already accepted HTTP connection.
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
   missed edit; deep links, pins and browser history agree on focused comments.
 - `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,

@@ -124,6 +124,11 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     try {
       const url = new URL(req.url ?? "/", origin);
       if (url.pathname === "/__proto/api/events") {
+        if (closing) {
+          res.writeHead(503, { Connection: "close" });
+          res.end();
+          return;
+        }
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",

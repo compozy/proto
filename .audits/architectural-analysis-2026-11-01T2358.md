@@ -329,3 +329,14 @@ within the grace period. SSE keeps its independent one-second drain deadline.
 CLI follow-up validation passed all 13 verification tasks uncached with real PostgreSQL and
 Chromium (284 package, 28 app, 5 API and 1 DB tests: 318 total). The rebuilt package passed
 all 8 fresh-consumer tests, and React Doctor still reports no errors or warnings.
+
+The CLI follow-up review of `56e2291` identified a reused-socket admission gap: a new SSE
+request could arrive on an accepted HTTP connection after the initial stream drain. The event
+endpoint now returns 503 once shutdown starts, before registering a stream. The canonical dev
+suite pipelines an SSE request behind a real accepted upload; it failed against the prior
+implementation and passes with the admission guard. Accepted review writes retain their grace
+period, and the event-stream rejection is independent of whether TCP connection setup is new.
+
+The complete gate with the reused-connection guard passed all 13 tasks uncached: 285 package,
+28 app, 5 API and 1 DB tests (319 total), using real PostgreSQL and Chromium. React Doctor
+reports zero errors and zero warnings under the unchanged warning-blocking policy.
