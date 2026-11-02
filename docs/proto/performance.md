@@ -161,6 +161,9 @@ The canonical suites own the behavior:
   snapshot/watch lifetimes, configured prototype globs in polling and native watchers, and
   notifications only after a subsequent edit. Dev startup establishes the review baseline before
   accepting HTTP requests or SSE connections.
+- `test/node/dev/dev.test.ts`: dev shutdown stops accepting HTTP connections before ending SSE
+  streams, then closes remaining connections alongside consumer Vite cleanup. Neither automatic
+  reconnects nor idle preconnects can keep shutdown open.
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
   missed edit; deep links, pins and browser history agree on focused comments.
 - `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,

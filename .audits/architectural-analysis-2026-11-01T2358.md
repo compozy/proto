@@ -271,3 +271,17 @@ The documentation candidate passed `bun run verify --concurrency=2` with
 An earlier run during concurrent workstation test activity timed out in the existing registry
 check and Chromium teardown; its failed receipt is retained separately. No assertion, test
 timeout or repository configuration was changed to obtain the passing run.
+
+CI on `d935b0b` exposed a separate shutdown race in the real reconnect journey: closing SSE
+before stopping HTTP admission allowed a reconnect while Vite cleanup was still running. The
+dev host now stops HTTP admission first, flushes SSE and closes remaining HTTP connections
+alongside Vite, including startup failure cleanup. The existing dev lifecycle suite reproduces the defect with a real consumer
+cleanup barrier: the old host accepted a new SSE connection during shutdown, while the fixed
+host refuses it and releases idle preconnects. Tracing isolated the remaining wait to HTTP
+connections after Vite had already closed; the unchanged browser reconnect test now passes.
+Its original assertions and timeout remain unchanged.
+
+Shutdown repair validation: all 13 verification tasks passed uncached with real PostgreSQL and
+Chromium (279 package, 28 app, 5 API and 1 DB tests: 313 total), using the same reduced local
+concurrency as above. Doctor still reports no errors or warnings. The final rebuilt package
+also passed all 8 fresh-consumer tarball tests.

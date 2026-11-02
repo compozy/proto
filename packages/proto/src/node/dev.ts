@@ -231,6 +231,14 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       next();
     },
   });
+  /** Stop admission and flush SSE before closing remaining HTTP connections and the render server. */
+  const closeServers = async () => {
+    const closed = new Promise<void>(resolve => server.close(() => resolve()));
+    const streamsEnded = Promise.all(
+      [...clients].map(client => new Promise<void>(resolve => client.end(resolve)))
+    ).then(() => server.closeAllConnections());
+    await Promise.all([vite.close(), streamsEnded, closed]);
+  };
   try {
     // Capture the review baseline before clients can read data or connect to SSE.
     if (store instanceof FileStore)
@@ -243,8 +251,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
   } catch (error) {
     stopReviews();
     stopEvents();
-    await vite.close();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await closeServers();
     if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
       throw new ProtoError("port_in_use", `Ports ${port} and ${port + 1} must both be available`);
     throw error;
@@ -272,9 +279,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       stop();
       stopReviews();
       stopEvents();
-      for (const client of clients) client.end();
-      await vite.close();
-      await new Promise<void>(resolve => server.close(() => resolve()));
+      await closeServers();
     },
   };
 }

@@ -22,7 +22,8 @@ async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expect
     clearTimeout(timer);
   }
 }
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
+import { once } from "node:events";
 import { request } from "node:http";
 import { beforeAll, afterAll, expect, it } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
@@ -123,6 +124,49 @@ it("UT-069 busy ports name the pair", async () => {
     });
   } finally {
     await new Promise<void>(r => occupied.close(() => r()));
+  }
+}, 120000);
+it("shutdown refuses SSE reconnects while the consumer render server is still closing", async () => {
+  // Invariant: shutdown refuses reconnects and releases idle preconnects before consumer cleanup ends.
+  // Owner: dev server lifecycle; real HTTP/SSE and a consumer Vite plugin with a filesystem barrier.
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = appFixture("proto-dev-shutdown-");
+  const entered = join(root, "closing");
+  const release = join(root, "release");
+  writeFileSync(join(root, "proto.config.ts"), 'export default {title:"Shutdown"};');
+  writeFileSync(
+    join(root, "vite.config.ts"),
+    `
+    import {existsSync, writeFileSync} from "node:fs";
+    export default {plugins: [{name: "consumer-cleanup", async closeBundle() {
+      writeFileSync(${JSON.stringify(entered)}, "ready");
+      while (!existsSync(${JSON.stringify(release)})) await new Promise(done => setTimeout(done, 10));
+    }}]};
+  `
+  );
+  const abort = new AbortController();
+  let server: Awaited<ReturnType<typeof startDev>> | undefined;
+  let closing: Promise<void> | undefined;
+  let preconnect: ReturnType<typeof createConnection> | undefined;
+  try {
+    server = await startDev(await loadProject(root), { port: await port(), quiet: true });
+    preconnect = createConnection(Number(new URL(server.origin).port), "127.0.0.1");
+    await once(preconnect, "connect");
+    const events = `${server.origin}/__proto/api/events`;
+    const reader = (await fetch(events, { signal: abort.signal })).body!.getReader();
+    await readEvent(reader, ": registry-watcher-ready");
+    closing = server.close();
+    await expect.poll(() => existsSync(entered)).toBe(true);
+    expect((await reader.read()).done).toBe(true);
+    await expect.poll(() => preconnect!.destroyed).toBe(true);
+    await expect(fetch(events, { signal: abort.signal })).rejects.toThrow();
+  } finally {
+    abort.abort();
+    preconnect?.destroy();
+    writeFileSync(release, "continue");
+    await (closing ?? server?.close());
+    rmSync(root, { recursive: true, force: true });
   }
 }, 120000);
 it("IT-011 registry SSE follows prototype changes within two seconds", async () => {
