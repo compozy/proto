@@ -9,7 +9,7 @@ import { ShellModal } from "./shell";
 /** Approve with open comments: say how many are still open and record them. */
 export function ApproveDialog() {
   return (
-    <ShellModal>
+    <ShellModal label="Approve Sign in?">
       <div className="p-6">
         <span className="grid size-10 place-items-center rounded-xl bg-[var(--shell-primary-soft)] text-primary">
           <Check className="size-5" />
@@ -55,7 +55,7 @@ const shortcuts: [string, string[]][] = [
 
 export function ShortcutsSheet() {
   return (
-    <ShellModal width={480}>
+    <ShellModal label="Keyboard shortcuts" width={480}>
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <h2 className="text-[15px] font-semibold">Keyboard shortcuts</h2>
         <Button variant="ghost" size="icon-xs" aria-label="Close" className="text-muted-foreground">

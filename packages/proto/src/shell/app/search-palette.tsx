@@ -3,7 +3,9 @@ import { useId, useState } from "react";
 
 import { useT, type Translate } from "../lib/i18n";
 import { go } from "../lib/navigation";
-import { searchItems, type SearchGroup, type SearchItem } from "../lib/search";
+import { registryItems, searchItems, type SearchGroup, type SearchItem } from "../lib/search";
+import { useRegistry } from "../lib/shell-data";
+import { useCommentSearchItems } from "../review/review-ui";
 import { Kbd } from "../ui/kbd";
 import {
   Columns2,
@@ -34,7 +36,7 @@ const actionIcons: Record<string, typeof Monitor> = {
 };
 
 /** The shell actions reachable from search. */
-export function actionItems(t: Translate, options: { compare: boolean }): SearchItem[] {
+function actionItems(t: Translate, options: { compare: boolean }): SearchItem[] {
   const actions: SearchItem[] = [
     {
       id: "a:theme",
@@ -65,15 +67,21 @@ export function actionItems(t: Translate, options: { compare: boolean }): Search
 }
 
 export function SearchPalette({
-  items,
+  compare,
   onAction,
   onClose,
 }: {
-  items: SearchItem[];
+  compare: boolean;
   onAction: (action: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
+  const registry = useRegistry();
+  const items = [
+    ...registryItems(registry),
+    ...useCommentSearchItems(),
+    ...actionItems(t, { compare }),
+  ];
   const id = useId();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);

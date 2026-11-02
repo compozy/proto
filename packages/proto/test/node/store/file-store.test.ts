@@ -76,6 +76,27 @@ describe("FileStore filesystem invariants", () => {
     cleanup.push(h.dispose);
     return h;
   }
+  it("watching existing reviews publishes only subsequent changes", async () => {
+    // Invariant: subscribing does not replay unchanged files as new mutations.
+    // Owner: FileStore filesystem event adapter; real files and the production polling loop.
+    const { store } = await harness();
+    const comment = await store.add("login-form", input, reviewer);
+    const events: { type: string; key: string }[] = [];
+    const stop = await store.subscribe(event => events.push(event));
+    try {
+      await delay(350);
+      expect(events).toEqual([]);
+      await store.reply(comment.id, { body: "Updated after subscribing" }, reviewer);
+      await expect
+        .poll(() => events)
+        .toEqual([
+          { type: "comments", key: "login-form" },
+          { type: "review", key: "login-form" },
+        ]);
+    } finally {
+      stop();
+    }
+  });
   it("UT-026: v3 commits use full git HEAD and support node targets", async () => {
     const { root, store } = await harness();
     await exec("git", ["init", "--quiet", root]);

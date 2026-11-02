@@ -16,6 +16,8 @@ import type { ReviewComment } from "../../../src/model/review.ts";
 import type { ReviewTarget } from "../../../src/shell/app/slots.tsx";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
+import { go } from "../../../src/shell/lib/navigation.ts";
+import { screenView, type View } from "../../../src/shell/lib/view.ts";
 import { ShellDataProvider, useShellData } from "../../../src/shell/lib/shell-data.tsx";
 import {
   commentModeSlots,
@@ -51,7 +53,10 @@ function Ready({ children }: { children: ReactNode }) {
   return state.status === "ready" ? children : null;
 }
 
-function mount(node: ReactNode) {
+function mount(node: ReactNode, view: View = screenView("card")) {
+  // Pins and threads share the shell URL, including in this component harness.
+  const previousUrl = window.location.href;
+  go(view, { replace: true });
   const container = document.createElement("div");
   container.style.cssText = "position: fixed; inset: 0; display: flex; flex-direction: column;";
   document.body.append(container);
@@ -72,6 +77,7 @@ function mount(node: ReactNode) {
   cleanups.push(() => {
     act(() => root.unmount());
     container.remove();
+    window.history.replaceState(null, "", previousUrl);
   });
   return container;
 }
@@ -463,7 +469,7 @@ describe("E2E-004 (comment on a step): flow comments", () => {
         </div>
       );
     }
-    mount(<Flow />);
+    mount(<Flow />, { area: "flow", flow: "sign-in", node: "sign-up" });
     await userEvent.click(page.getByTestId("comment-tool"));
     await expect
       .element(page.getByRole("dialog", { name: "Comment on step 3 · Create account" }))

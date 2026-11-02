@@ -64,13 +64,49 @@ function comment(state: string, body: string): NewComment {
 
 const reviewer = { kind: "reviewer" } as const;
 
-async function open(path: string) {
+async function open(path: string, origin = dev.origin) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${dev.origin}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${origin}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   return page;
 }
 
 describe("review journeys against proto dev", () => {
+  it("the URL owns thread and pin focus across links, navigation and browser history", async () => {
+    // Invariant: focus survives a deep link/back navigation and never leaks to another review.
+    // Owner: the shell review journey, with the real FileStore and render frame.
+    const focusApp = join(work.dir, "focus-app");
+    writeApp(focusApp, reviewFixture);
+    const focusDev = await startProtoDev(focusApp, shellDir);
+    const thread = await focusDev.store.add(
+      "login-form",
+      comment("sign-in", "Focus stays with this review"),
+      reviewer
+    );
+    const page = await open(`/?p=login-form&state=sign-in&comment=${thread.id}`, focusDev.origin);
+    try {
+      const pin = page.locator(`[data-testid="comment-pin"][data-comment="${thread.id}"]`);
+      await expect.poll(() => pin.getAttribute("aria-pressed"), { timeout: 15_000 }).toBe("true");
+      await pin.click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("comment")).toBeNull();
+      await pin.click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("comment")).toBe(thread.id);
+      await page.getByRole("link", { name: "Screens", exact: true }).click();
+      await page
+        .getByRole("link", { name: /Welcome home/ })
+        .first()
+        .click();
+      await page.getByRole("tab", { name: /Comments/ }).click();
+      expect(await page.getByText(/was deleted elsewhere/).count()).toBe(0);
+      expect(new URL(page.url()).searchParams.get("comment")).toBeNull();
+      await page.goBack();
+      await page.goBack();
+      await expect.poll(() => pin.getAttribute("aria-pressed"), { timeout: 15_000 }).toBe("true");
+    } finally {
+      await page.close();
+      await focusDev.close();
+    }
+  });
+
   it("E2E-008 / US-020: approve with an open comment confirms; a new comment reopens with its event", async () => {
     await dev.store.add("login-form", comment("error", "Spacing too tight"), reviewer);
     const page = await open("/?p=login-form&state=error");

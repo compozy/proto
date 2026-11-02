@@ -66,13 +66,17 @@ function previewTarget(registry: Registry, comment: ReviewComment) {
     : null;
 }
 
-function describe(registry: Registry, comment: ReviewComment): Item {
+function describe(
+  prototypes: ReadonlyMap<string, Registry["prototypes"][number]>,
+  flows: ReadonlyMap<string, Registry["flows"][number]>,
+  comment: ReviewComment
+): Item {
   const flow = flowOfKey(comment.slug);
   if (flow) {
-    const found = registry.flows.find(item => item.id === flow);
+    const found = flows.get(flow);
     return { comment, title: found?.title ?? flow, spec: found?.spec ?? null, kind: "flow" };
   }
-  const prototype = registry.prototypes.find(item => item.slug === comment.slug);
+  const prototype = prototypes.get(comment.slug);
   return {
     comment,
     title: prototype?.title ?? comment.slug,
@@ -90,31 +94,32 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   const [spec, setSpec] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const comments = query.data ?? [];
+  const prototypes = new Map(registry.prototypes.map(item => [item.slug, item]));
+  const flows = new Map(registry.flows.map(item => [item.id, item]));
+  const described = comments.map(item => describe(prototypes, flows, item));
   const counts = {
     open: comments.filter(item => item.status === "open").length,
     waiting: comments.filter(isWaiting).length,
     resolved: comments.filter(item => item.status === "resolved").length,
   };
-  const items = comments
-    .filter(item =>
+  const items = described
+    .filter(({ comment: item }) =>
       filter === "waiting"
         ? isWaiting(item)
         : item.status === (filter === "resolved" ? "resolved" : "open")
     )
-    .filter(item => !author || item.thread[0]?.author === author)
-    .map(item => describe(registry, item))
+    .filter(({ comment: item }) => !author || item.thread[0]?.author === author)
     .filter(item => !spec || item.spec === spec)
     .sort((a, b) => byActivity(a.comment, b.comment));
-  const groups: { key: string; items: Item[] }[] = [];
+  const grouped = new Map<string, Item[]>();
   for (const item of items) {
-    const group = groups.find(entry => entry.key === item.comment.slug);
-    if (group) group.items.push(item);
-    else groups.push({ key: item.comment.slug, items: [item] });
+    const group = grouped.get(item.comment.slug);
+    if (group) group.push(item);
+    else grouped.set(item.comment.slug, [item]);
   }
+  const groups = [...grouped].map(([key, items]) => ({ key, items }));
   const active = items.find(item => item.comment.id === selected) ?? items[0];
-  const specs = [
-    ...new Set(comments.map(item => describe(registry, item).spec).filter(Boolean)),
-  ] as string[];
+  const specs = [...new Set(described.map(item => item.spec).filter(Boolean))] as string[];
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex w-full max-w-[420px] min-w-0 shrink-0 flex-col border-r border-border bg-[var(--shell-panel)] max-md:max-w-none">

@@ -10,7 +10,7 @@ import { createContext, use, useEffect, useState, type ReactNode } from "react";
 import { flowKey } from "../../model/registry";
 import { useShellData } from "../lib/shell-data";
 import { permissionsOf, type Permissions } from "./permissions";
-import { createReviewQueries, invalidateReview, type ReviewQueries } from "./queries";
+import { createReviewQueries, createReviewInvalidator, type ReviewQueries } from "./queries";
 import {
   createReviewApi,
   snapshotApi,
@@ -59,6 +59,7 @@ export class RenderTickets {
 type ReviewContextValue = {
   api: ReviewApi;
   queries: ReviewQueries;
+  refresh: (key?: string) => Promise<void>;
   /** Set when a request answered 401 `auth_required` (session expired, S18). */
   expired: { signInUrl: string | null } | null;
   /** True when this shell may write (dev, or remote with a principal); false read-only. */
@@ -112,22 +113,23 @@ export function ReviewProvider({
   const [tickets] = useState(() =>
     bootstrap.mode === "remote" && api ? new RenderTickets(api) : null
   );
+  const [refresh] = useState(() => createReviewInvalidator(client, queries));
   useEffect(() => {
-    const refresh = ({ key }: { key?: string }) => {
-      void invalidateReview(client, queries, key);
+    const changed = ({ key }: { key?: string }) => {
+      void refresh(key);
     };
-    const stopComments = events.subscribe("comments", refresh);
-    const stopReview = events.subscribe("review", refresh);
+    const stopComments = events.subscribe("comments", changed);
+    const stopReview = events.subscribe("review", changed);
     return () => {
       stopComments();
       stopReview();
     };
-  }, [events, client, queries]);
+  }, [events, refresh]);
   if (!api) return children;
   const writable = api.writable && bootstrap.mode !== "read-only";
   const permissions = permissionsOf(bootstrap, writable);
   return (
-    <ReviewContext value={{ api, queries, expired, writable, permissions, tickets }}>
+    <ReviewContext value={{ api, queries, refresh, expired, writable, permissions, tickets }}>
       {children}
     </ReviewContext>
   );
@@ -203,14 +205,13 @@ export function useReviewStates(keys: readonly string[]): Query<ReviewState[]> {
 /** Refresh all affected read models, including after ambiguous network failures. */
 export function useReviewMutation() {
   const context = use(ReviewContext);
-  const client = useQueryClient();
   const { mutateAsync } = useMutation({
     mutationFn: ({ run }: { key: string; run: (api: ReviewApi) => Promise<unknown> }) => {
       if (!context) throw new Error("No review data in this build");
       return run(context.api);
     },
     onSettled: (_data, _error, { key }) => {
-      if (context) return invalidateReview(client, context.queries, key);
+      return context?.refresh(key);
     },
   });
   return <T,>(key: string, run: (api: ReviewApi) => Promise<T>) =>

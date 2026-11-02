@@ -10,6 +10,17 @@ import type { ProblemCode, WarningCode } from "./errors.ts";
 
 export type { ResolvedEdge, ResolvedNode } from "../flow.ts";
 
+/** Preserve authored edge order while visiting each edge only once during graph traversal. */
+export function outgoingEdges(edges: readonly ResolvedEdge[]) {
+  const outgoing = new Map<string, ResolvedEdge[]>();
+  for (const edge of edges) {
+    const group = outgoing.get(edge.from);
+    if (group) group.push(edge);
+    else outgoing.set(edge.from, [edge]);
+  }
+  return outgoing;
+}
+
 export type PrototypeKind = "component" | "draft";
 
 export type RegistryState = { id: string; label: string };

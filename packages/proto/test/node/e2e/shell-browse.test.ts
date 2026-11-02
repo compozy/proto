@@ -9,6 +9,7 @@ import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startDev } from "../../../src/node/dev.ts";
 
 import {
   buildShell,
@@ -235,6 +236,41 @@ describe("browsing apps/app", () => {
 });
 
 describe("browsing a fixture", () => {
+  it("reconnecting the event stream reconciles edits missed while the server was offline", async () => {
+    // Invariant: an infinite-stale-time registry must reconcile lost events after reconnect.
+    // Owner: shell event/cache lifecycle; actual EventSource, Chromium network and dev watcher.
+    const page = await browser.newPage();
+    const root = join(work.dir, "reconnect");
+    writeApp(root, fixture);
+    let server = await startProtoDev(root, join(work.dir, "shell"));
+    const flowPath = join(root, "flows/preview.flow.ts");
+    try {
+      const connected = page.waitForResponse(response =>
+        response.url().endsWith("/__proto/api/events")
+      );
+      await page.goto(server.origin + "/?flow=preview");
+      await connected;
+      await page.getByRole("heading", { level: 1, name: "Preview journey", exact: true }).waitFor();
+      await server.close();
+      writeFileSync(
+        flowPath,
+        fixture["flows/preview.flow.ts"]!.replace('title: "Preview"', 'title: "Offline edit"')
+      );
+      const restarted = await startDev(server.project, {
+        port: Number(new URL(server.origin).port),
+        shellDir: join(work.dir, "shell"),
+        quiet: true,
+      });
+      server = { ...server, ...restarted };
+      await page
+        .getByRole("heading", { level: 1, name: "Offline edit journey", exact: true })
+        .waitFor({ timeout: 15_000 });
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  }, 90_000);
+
   it("flow and prototype edits update live previews without reloading their documents", async () => {
     // Invariant: authored updates preserve iframe documents; owner: Vite render HMR.
     const page = await open(local.origin, "/?flow=preview");

@@ -359,6 +359,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     await this.ready();
     let stopped = false;
     let scanning = false;
+    let initialized = false;
     let previous = new Map<string, string>();
     const notify = (name: string) => {
       if (!name.endsWith(".json")) return;
@@ -381,14 +382,16 @@ export class FileStore extends ReviewEngine implements ReviewStore {
             if (!absent(error)) throw error;
           }
         }
-        if (!stopped)
+        if (!stopped && initialized)
           for (const name of new Set([...previous.keys(), ...next.keys()]))
             if (previous.get(name) !== next.get(name)) notify(name);
         previous = next;
+        initialized = true;
       } finally {
         scanning = false;
       }
     };
+    await scan();
     // Directory notifications can be dropped on mounted worktrees; poll only published files.
     const polling = setInterval(() => {
       void scan().catch(() => {});

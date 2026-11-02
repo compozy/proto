@@ -87,6 +87,20 @@ export function useRenderFrame(
   // Remote galleries protect the render origin: each load carries a short-lived ticket.
   const tickets = useRenderTickets();
   const [ticket, setTicket] = useState<{ nonce: string; value: string } | null>(null);
+  const [messages] = useState(() => {
+    const listeners = new Set<(message: RenderMessage) => void>();
+    return {
+      emit: (message: RenderMessage) => {
+        for (const listener of listeners) listener(message);
+      },
+      listen: (listener: (message: RenderMessage) => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+  });
   const key = keyOf(target);
   const load = (nonce: string) =>
     renderHref(renderUrl, {
@@ -182,10 +196,11 @@ export function useRenderFrame(
         return;
       }
       onMessage?.(message);
+      messages.emit(message);
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [iframe, nonce, renderOrigin, slugs, onContext, onMessage, tickets]);
+  }, [iframe, nonce, renderOrigin, slugs, onContext, onMessage, tickets, messages]);
 
   const loading = frame.status.kind === "loading" && !frame.status.slow;
   useEffect(() => {
@@ -238,7 +253,7 @@ export function useRenderFrame(
       ? `${frame.src}${frame.src.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket.value)}`
       : null;
 
-  return { src, nonce, status: frame.status, reload, send, focus };
+  return { src, nonce, status: frame.status, reload, send, focus, listen: messages.listen };
 }
 
 export type RenderFrameHandle = ReturnType<typeof useRenderFrame>;

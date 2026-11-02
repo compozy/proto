@@ -1,5 +1,6 @@
 /** S15 Health: discovery, flow and guard problems and warnings with codes and files. */
 import { useState } from "react";
+import { copyText } from "../lib/clipboard";
 
 import type { RegistryProblem, RegistryWarning } from "../../model/registry";
 import { useT } from "../lib/i18n";
@@ -76,7 +77,7 @@ function HealthItem({ entry }: { entry: Entry }) {
             variant="ghost"
             size="xs"
             className="ml-auto text-muted-foreground"
-            onClick={() => void navigator.clipboard?.writeText(path).then(() => setCopied(true))}
+            onClick={async () => setCopied(await copyText(path))}
           >
             {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
             {copied ? t("common.copied") : t("health.copyPath")}

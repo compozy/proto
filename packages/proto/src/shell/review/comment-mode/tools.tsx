@@ -17,7 +17,7 @@ import { cn } from "../../ui/utils";
 import { useReviewData, useReviewMutation } from "../data";
 import { Composer } from "./composer";
 import { MessageSquarePlus, MousePointer2 } from "./icons";
-import { useCommentMode } from "./state";
+import { useCommentFocusState, useCommentTool } from "./state";
 
 export function CommentTools({ target }: { target: ReviewTarget }) {
   const review = useReviewData();
@@ -35,7 +35,7 @@ const active = "bg-[var(--shell-primary-soft)] text-primary";
 
 function ScreenTools({ reviewKey }: { reviewKey: string }) {
   const t = useT();
-  const mode = useCommentMode();
+  const mode = useCommentTool();
   const commenting = mode.tool === "comment";
 
   // Another prototype is another review: leave comment mode.
@@ -75,7 +75,7 @@ function ScreenTools({ reviewKey }: { reviewKey: string }) {
 
 function FlowTool({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> }) {
   const t = useT();
-  const mode = useCommentMode();
+  const mode = useCommentFocusState();
   const mutate = useReviewMutation();
   const registry = useRegistry();
   const location = useLocation();

@@ -7,7 +7,7 @@
  */
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import type { ElementTarget, Rect } from "../../../model/protocol";
+import type { ElementTarget, Rect, RenderMessage } from "../../../model/protocol";
 import type { ReviewTarget } from "../../app/slots";
 import type { FrameGeometry } from "../../frames/screen-frame";
 import type { RenderFrameHandle } from "../../frames/use-render-frame";
@@ -33,7 +33,7 @@ import {
   type ActivePick,
   type PickSession,
 } from "./pick";
-import { onFrameMessage, useCommentMode } from "./state";
+import { useCommentMode } from "./state";
 
 type PrototypeTarget = Extract<ReviewTarget, { kind: "prototype" }>;
 
@@ -58,10 +58,12 @@ export function ScreenCommentLayer({
   const role = prototype ? resolveRole(registry, prototype, requestedRole) : null;
   const writable = Boolean(review?.writable);
 
-  const open = useComments({ key: target.key, status: "open" }).data ?? [];
-  const all = useComments({ key: target.key, status: "all" }).data ?? open;
-  const pinned = open.filter(
-    comment => comment.context.state === target.state && comment.target.kind !== "node"
+  const all = useComments({ key: target.key, status: "all" }).data ?? [];
+  const pinned = all.filter(
+    comment =>
+      comment.status === "open" &&
+      comment.context.state === target.state &&
+      comment.target.kind !== "node"
   );
 
   const [rects, setRects] = useState<ReadonlyMap<string, Rect | null>>(new Map());
@@ -109,7 +111,7 @@ export function ScreenCommentLayer({
   });
   useEffect(() => scrollTo(), [focusedId, nonce]);
 
-  const receive = useEffectEvent((message: Parameters<Parameters<typeof onFrameMessage>[0]>[0]) => {
+  const receive = useEffectEvent((message: RenderMessage) => {
     if (message.frame !== nonce) return;
     if (message.type === "anchors") {
       setRects(new Map(message.rects.map(item => [item.id, item.rect])));
@@ -136,7 +138,8 @@ export function ScreenCommentLayer({
     setRefused(false);
     setDraft(confined.target);
   });
-  useEffect(() => onFrameMessage(message => receive(message)), []);
+  const listen = frame.listen;
+  useEffect(() => listen(message => receive(message)), [listen]);
 
   useShortcuts({ escape: () => mode.setTool("select") }, picking);
 

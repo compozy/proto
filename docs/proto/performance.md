@@ -4,6 +4,10 @@ The shell keeps server data in TanStack Query and preview admission in XState St
 owns its cache and grid scheduler; each flow canvas owns a separate scheduler. Local component
 state stays in React when it does not need cross-component subscriptions.
 
+Comment tools also use a provider-owned XState Store. Thread and pin focus live in the URL, so
+direct links, navigation and browser history have one authority. Render messages are delivered
+through the owning frame's validated subscription, without a module-global comment message bus.
+
 ## Preview lifetime
 
 Ready previews remain in a bounded least-recently-used queue: at most 12 frames are retained and
@@ -23,6 +27,11 @@ consumer's normal refresh pipeline. Saving a prototype or flow no longer broadca
 to every iframe. The Vite and registry watchers use the same polling fallback on macOS; other
 platforms can opt into polling with `dev.poll`.
 
+One project observer serves all registry subscribers. While watched, repeated registry reads
+share a snapshot until an authored file changes; the last unsubscribe stops observation and clears
+it. Watchless CLI reads remain fresh. Polling scans configured prototypes/canvas and authored flow
+files, including misplaced flows whose location must appear in live diagnostics.
+
 ## Loading and server data
 
 Bootstrap and registry have canonical query options. Reviews share keys between single-item and
@@ -36,6 +45,16 @@ SSE and mutations invalidate the changed review and comment lists that include i
 unrelated entries. Render tickets retain their short-lived, session-local sharing and existing
 origin/nonce validation.
 
+The provider batches nearby review notifications for 50 ms and serializes subsequent refreshes,
+so an event arriving during a read is reconciled after that read. EventSource reconnect triggers
+reconciliation because the server does not replay missed events. FileStore establishes a fingerprint
+baseline before polling, avoiding synthetic changes for every preexisting review on startup.
+
+Pins and threads share the all-comments query for their key. Search derives and subscribes to its
+index only while open; inbox descriptors/groups and graph adjacency use maps instead of repeated
+linear scans. PostgreSQL lists read all matching keys in one repeatable-read transaction, assemble
+relations using indexes, and select attachment metadata without transferring image bytes.
+
 Hover, keyboard focus and touch intent prefetch the destination's canonical review queries. Flow
 and settings code are separate chunks, loaded on intent or when visited. Existing query-string
 URLs and browser history continue to use the shell's navigation contract.
@@ -46,12 +65,32 @@ each emitted asset. Initial JavaScript includes the entry and every module prelo
 
 | Compressed bytes       |  Before |   After | Change |
 | ---------------------- | ------: | ------: | -----: |
-| Initial JavaScript     | 337,000 | 279,356 | -17.1% |
-| All JavaScript and CSS | 354,230 | 378,327 |  +6.8% |
+| Initial JavaScript     | 337,000 | 279,114 | -17.2% |
+| All JavaScript and CSS | 354,230 | 378,060 |  +6.7% |
 
 The cache libraries add code to the complete distribution; deferred flow and settings chunks
 reduce the initial load. These are transfer-size measurements, not a latency benchmark. The
 complete compressed shell remains below its existing 400 KiB build budget.
+
+The [expanded audit](../../.audits/architectural-analysis-2026-11-01T2358.md) contains the full
+82-warning baseline disposition ledger, inspected boundaries, regressions and limitations.
+[Raw synthetic samples](performance-samples.json) include runtime versions and two real Chromium
+workloads. Reproduce from `packages/proto` after `bun run build:shell`:
+
+```sh
+bun run scripts/benchmark-gallery.ts 120 flat
+bun run scripts/benchmark-gallery.ts 120 reviews
+bun run scripts/benchmark-graph.ts
+```
+
+At 120 prototypes, repeated watched registry reads reuse their snapshot instead of taking another
+8–13 ms parsing pass. In the 10,000-node CPU workload, median BFS decreases from 320.65 to 0.78 ms
+and layout from 261.00 to 2.70 ms. These isolate the algorithm; they do not imply that rendering
+10,000 cards is inexpensive. Browser startup samples vary and do not establish a latency reduction.
+
+Cold spec status still makes one request per review key (121 in the 120-prototype reviews sample).
+Comment lists are not paginated, and a later filesystem notification may cause a second refresh
+after an HTTP mutation because events carry no revision identifier. These costs remain explicit.
 
 ## React Compiler and Doctor
 
@@ -82,7 +121,16 @@ The canonical suites own the behavior:
 - `test/browser/shell/preview-queue.test.ts`: bounded admission/eviction, reuse, source changes,
   settlement notification and rejection of late readiness for an obsolete source.
 - `test/browser/shell/review.test.tsx`: intent prefetch and concurrent readers share one HTTP
-  request; key-specific invalidation retains cached data and leaves unrelated reads fresh.
+  request; key-specific invalidation retains cached data and leaves unrelated reads fresh;
+  notification bursts share a read and edits arriving during it are reconciled afterward.
+- `test/node/registry/registry.test.ts` and `test/node/store/file-store.test.ts`: real filesystem
+  snapshot/watch lifetimes and notifications only after a subsequent edit.
+- `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
+  missed edit; deep links, pins and browser history agree on focused comments.
+- `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,
+  image bodies are not transferred and thread/attachment ownership is preserved.
+- `test/browser/shell/render-frame.test.tsx`: clipboard denial remains retryable without false
+  success or an unhandled rejection.
 - `apps/api/tests/proto.it.test.ts`: real Postgres, Better Auth, built SPA and remote review loop,
   including retrying sign-in after the browser reconnects.
 

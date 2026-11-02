@@ -284,11 +284,20 @@ export function StatusPill({ open, approved = false }: { open: number; approved?
  * Inline modal scoped to the shell (portaled dialogs would leave the `.proto-shell` tokens): a
  * dimmed backdrop over the whole shell and a centered panel.
  */
-export function ShellModal({ children, width = 440 }: { children: ReactNode; width?: number }) {
+export function ShellModal({
+  children,
+  label,
+  width = 440,
+}: {
+  children: ReactNode;
+  label: string;
+  width?: number;
+}) {
   return (
     <div className="absolute inset-0 z-50 grid place-items-center bg-background/65 p-6 backdrop-blur-[2px]">
       <div
         role="dialog"
+        aria-label={label}
         aria-modal="true"
         className="w-full rounded-2xl border border-border bg-[var(--shell-panel)] shadow-2xl"
         style={{ maxWidth: width }}

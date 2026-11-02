@@ -10,6 +10,7 @@ import "../../../src/shell/theme.css";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { QueryObserver } from "@tanstack/react-query";
 
 import type { Bootstrap } from "../../../src/model/bootstrap.ts";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
@@ -21,7 +22,11 @@ import {
 import { createReviewApi, isReviewApiError } from "../../../src/shell/review/api.ts";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
 import { createShellQueryClient } from "../../../src/shell/lib/query.ts";
-import { createReviewQueries, invalidateReview } from "../../../src/shell/review/queries.ts";
+import {
+  createReviewQueries,
+  createReviewInvalidator,
+  invalidateReview,
+} from "../../../src/shell/review/queries.ts";
 import { permissionsOf } from "../../../src/shell/review/permissions.ts";
 import { confinePick } from "../../../src/shell/review/comment-mode/pick.ts";
 import { registrySourceRoots } from "../../../src/shell/lib/registry-model.ts";
@@ -48,6 +53,46 @@ function fakeFetch(answer: (call: Call) => Response | Promise<Response>) {
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 describe("review query ownership", () => {
+  test("paired events and mutation settlement share one refresh without losing later edits", async () => {
+    // Invariant: a notification burst is one read; an edit during that read is reconciled afterward.
+    // Owner: review query lifecycle. Only the HTTP response boundary is delayed.
+    let open = 0;
+    let release: (() => void) | undefined;
+    const network = fakeFetch(async () => {
+      const snapshot = open;
+      if (snapshot === 1)
+        await new Promise<void>(resolve => {
+          release = resolve;
+        });
+      return json({
+        review: { key: "one", status: "in_review", updatedAt: null, open: snapshot, events: [] },
+      });
+    });
+    const api = createReviewApi({ apiBase: "http://127.0.0.1/api/", fetch: network.fetch });
+    const client = createShellQueryClient();
+    const queries = createReviewQueries(api, "local");
+    const refresh = createReviewInvalidator(client, queries);
+    const observer = new QueryObserver(client, queries.state("one"));
+    const stop = observer.subscribe(() => {});
+    try {
+      await client.fetchQuery(queries.state("one"));
+      open = 1;
+      const burst = [refresh("one"), refresh("one"), refresh("one")];
+      await vi.waitFor(() => expect(release).toBeDefined());
+      expect(network.calls).toHaveLength(2);
+      open = 2;
+      const later = refresh("one");
+      release!();
+      await Promise.all([...burst, later]);
+      expect(client.getQueryData(queries.state("one").queryKey)?.open).toBe(2);
+      expect(network.calls).toHaveLength(3);
+    } finally {
+      release?.();
+      stop();
+      client.clear();
+    }
+  });
+
   test("a review change retains cached data and invalidates only its dependent reads", async () => {
     // Invariant: a key change refreshes its detail and matching lists, not unrelated reviews.
     // Owner: review data queries; canonical browser client suite, mocked only at HTTP.

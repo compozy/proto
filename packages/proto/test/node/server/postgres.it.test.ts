@@ -8,6 +8,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
   "IT-020 / IT-022: HttpStore + Postgres with session administrative setup",
   () => {
     let sql: postgres.Sql, drop: () => Promise<void>;
+    let reads: { queries: number; attachmentBytes: number } | null = null;
     beforeAll(async () => {
       const base = process.env.TEST_DATABASE_URL!;
       const name = `it_proto_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -16,7 +17,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       await admin.end();
       const url = new URL(base);
       url.pathname = `/${name}`;
-      sql = postgres(url.href, { max: 6, onnotice: () => {} });
+      sql = postgres(url.href, {
+        max: 6,
+        onnotice: () => {},
+        debug: () => {
+          if (reads) reads.queries++;
+        },
+        transform: {
+          value: {
+            from: (value, column) => {
+              if (reads && column.name === "data" && value instanceof Uint8Array)
+                reads.attachmentBytes += value.byteLength;
+              return value;
+            },
+          },
+        },
+      });
       drop = async () => {
         await sql.end();
         const cleanup = postgres(base, { max: 1, onnotice: () => {} });
@@ -34,6 +50,47 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
     runStoreContract(async () => {
       await sql`truncate proto_keys,proto_comments,proto_messages,proto_events,proto_attachments,proto_credentials cascade`;
       return httpContract(postgresStorage(sql), true);
+    });
+    it("listing more review keys keeps database reads bounded and transfers only attachment metadata", async () => {
+      // Invariant: collection reads do not create a transaction per key or download image bodies.
+      // Owner: SQL adapter; actual queries and decoded bytes from the disposable Postgres database.
+      await sql`truncate proto_keys,proto_comments,proto_messages,proto_events,proto_attachments cascade`;
+      const store = postgresStorage(sql).store;
+      const author = { kind: "reviewer" as const, id: "listing-reviewer" };
+      const seed = async (index: number) => {
+        const key = `screen-${index}`;
+        const upload = await store.upload(key, { name: `${key}.png`, bytes: png }, author);
+        const comment = await store.add(
+          key,
+          { ...input, body: key, attachments: [upload.id] },
+          author
+        );
+        await store.reply(comment.id, { body: `Reply to ${key}` }, author);
+      };
+      const measure = async () => {
+        reads = { queries: 0, attachmentBytes: 0 };
+        try {
+          return { comments: await store.list({ status: "all" }), ...reads };
+        } finally {
+          reads = null;
+        }
+      };
+      await seed(0);
+      await seed(1);
+      const small = await measure();
+      for (let index = 2; index < 12; index++) await seed(index);
+      const larger = await measure();
+      expect(larger.queries).toBeLessThanOrEqual(small.queries + 2);
+      expect(larger.attachmentBytes).toBe(0);
+      expect(larger.comments).toHaveLength(12);
+      for (const comment of larger.comments) {
+        expect(comment.thread.map(message => message.body)).toEqual([
+          comment.slug,
+          `Reply to ${comment.slug}`,
+        ]);
+        expect(comment.thread[0]!.attachments[0]!.name).toBe(`${comment.slug}.png`);
+        expect(comment.thread[1]!.attachments).toEqual([]);
+      }
     });
     it("UT-074: every route refuses older/newer DDL; concurrent migrations apply once", async () => {
       expect(await sql`select version from proto_schema`).toHaveLength(1);

@@ -11,7 +11,6 @@ import { LocaleProvider, useT } from "../lib/i18n";
 import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
-import { registryItems } from "../lib/search";
 import { bootstrapQuery, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
@@ -24,24 +23,14 @@ import { RotateCcw, TriangleAlert } from "../ui/icons";
 import { Skeleton } from "../ui/skeleton";
 import { Shell, ShellSubHeader, ShellTopBar, type Crumb } from "./chrome";
 import { Link } from "./link";
-import { actionItems, SearchPalette } from "./search-palette";
+import { SearchPalette } from "./search-palette";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
 import { reviewKeys, ReviewProvider, useReviewData } from "../review/data";
 import { Inbox } from "../review/inbox/inbox";
-import { KeysStatus, readOnlySlots, reviewSlots, useCommentSearchItems } from "../review/review-ui";
-import {
-  CommentModeProvider,
-  commentModeSlots,
-  Composer,
-  useCommentMode,
-} from "../review/comment-mode";
-import {
-  CommentFocusProvider,
-  ShellSlotsProvider,
-  type ReviewTarget,
-  type ShellSlots,
-} from "./slots";
+import { KeysStatus, readOnlySlots, reviewSlots } from "../review/review-ui";
+import { CommentModeProvider, commentModeSlots, Composer } from "../review/comment-mode";
+import { ShellSlotsProvider, type ReviewTarget, type ShellSlots } from "./slots";
 
 const FlowPage = lazy(loadFlowPage);
 const Settings = lazy(loadSettings);
@@ -171,17 +160,9 @@ function Slots({ children }: { children: ReactNode }) {
   if (!review) return <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>;
   return (
     <CommentModeProvider>
-      <FocusBridge>
-        <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>
-      </FocusBridge>
+      <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>
     </CommentModeProvider>
   );
-}
-
-/** Threads and pins share one focused comment: comment mode's. */
-function FocusBridge({ children }: { children: ReactNode }) {
-  const { focused, focusComment } = useCommentMode();
-  return <CommentFocusProvider value={{ focused, focusComment }}>{children}</CommentFocusProvider>;
 }
 
 type Page = { crumbs: Crumb[]; target: ReviewTarget | null; share: boolean; body: ReactNode };
@@ -211,11 +192,6 @@ function Browse({
   );
   const review = useReviewData() !== null;
   const page = pageFor(view, registry, theme, choice, t, review);
-  const searchable = [
-    ...registryItems(registry),
-    ...useCommentSearchItems(),
-    ...actionItems(t, { compare: view.area === "screen" && !view.compare }),
-  ];
   const onAction = (action: string) => {
     if (action === "theme") toggleTheme();
     else if (action === "health") go({ area: "settings", section: "health" });
@@ -248,7 +224,11 @@ function Browse({
         </Suspense>
       </main>
       {overlay === "search" && (
-        <SearchPalette items={searchable} onAction={onAction} onClose={() => setOverlay(null)} />
+        <SearchPalette
+          compare={view.area === "screen" && !view.compare}
+          onAction={onAction}
+          onClose={() => setOverlay(null)}
+        />
       )}
       {overlay === "shortcuts" && <ShortcutsSheet onClose={() => setOverlay(null)} />}
     </Shell>

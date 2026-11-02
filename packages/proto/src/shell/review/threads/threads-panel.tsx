@@ -6,7 +6,7 @@
 import { useState } from "react";
 
 import type { ReviewComment } from "../../../model/review";
-import { useCommentFocus, useSlots } from "../../app/slots";
+import { useSlots } from "../../app/slots";
 import { useT } from "../../lib/i18n";
 import { Kbd } from "../../ui/kbd";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
@@ -21,21 +21,6 @@ export type ThreadScope = { kind: "state"; state: string } | { kind: "step"; nod
 function inScope(comment: ReviewComment, scope: ThreadScope) {
   if (scope.kind === "state") return comment.context.state === scope.state;
   return scope.node === null || commentNode(comment) === scope.node;
-}
-
-/** The thread focus: comment mode's when plugged in, else the caller's. */
-export function useThreadFocus(local: {
-  focused: string | null;
-  focus: (id: string | null) => void;
-}) {
-  const shared = useCommentFocus();
-  return {
-    focused: shared?.focused ?? local.focused,
-    focus: (id: string | null) => {
-      shared?.focusComment(id);
-      local.focus(id);
-    },
-  };
 }
 
 export function ThreadsPanel({

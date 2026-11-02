@@ -26,14 +26,46 @@ export type ReviewQueries = ReturnType<typeof createReviewQueries>;
 
 /** Invalidate the changed review and comment lists that include it, retaining their last data. */
 export function invalidateReview(client: QueryClient, queries: ReviewQueries, key?: string) {
+  return invalidateReviews(client, queries, new Set([key]));
+}
+
+function invalidateReviews(
+  client: QueryClient,
+  queries: ReviewQueries,
+  keys: ReadonlySet<string | undefined>
+) {
   return client.invalidateQueries({
     queryKey: queries.root,
     predicate: query => {
-      if (!key) return true;
+      if (keys.has(undefined)) return true;
       const [, , kind, target] = query.queryKey;
-      if (kind === "state") return target === key;
+      if (kind === "state") return keys.has(target as string);
       const filter = target as CommentFilter;
-      return !filter.key || filter.key === key;
+      return !filter.key || keys.has(filter.key);
     },
   });
+}
+
+/** One owner per provider. Join paired SSE events and mutation settlement into one read.
+ * Serialize later batches: an event received during a read must refresh after that read,
+ * rather than canceling it repeatedly or treating its older result as current.
+ */
+export function createReviewInvalidator(client: QueryClient, queries: ReviewQueries) {
+  let batch: { keys: Set<string | undefined>; done: Promise<void> } | null = null;
+  let previous = Promise.resolve();
+  return (key?: string) => {
+    if (!batch) {
+      const keys = new Set<string | undefined>();
+      const earlier = previous;
+      const done = new Promise<void>(resolve => setTimeout(resolve, 50)).then(async () => {
+        batch = null;
+        await earlier;
+        await invalidateReviews(client, queries, keys);
+      });
+      previous = done.catch(() => {});
+      batch = { keys, done };
+    }
+    batch.keys.add(key);
+    return batch.done;
+  };
 }

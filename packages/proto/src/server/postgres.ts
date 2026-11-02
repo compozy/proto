@@ -33,6 +33,16 @@ const optionalAuthor = (row: Row) => ({
   ...(row.author_name ? { authorName: row.author_name } : {}),
 });
 const ownerId = (author: Author) => author.id ?? `local:${author.kind}`;
+function groupRows(rows: readonly Row[], key: (row: Row) => string) {
+  const groups = new Map<string, Row[]>();
+  for (const row of rows) {
+    const id = key(row);
+    const group = groups.get(id);
+    if (group) group.push(row);
+    else groups.set(id, [row]);
+  }
+  return groups;
+}
 function image(row: Row): CommentAttachment {
   return {
     id: row.id,
@@ -76,48 +86,63 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   }
   async readFile(key: string): Promise<ReviewFileV3> {
     keySchema.parse(key);
+    return (await this.readFiles([key]))[0] ?? emptyReviewFile(key);
+  }
+  private async readFiles(keys?: readonly string[]): Promise<ReviewFileV3[]> {
+    if (keys?.length === 0) return [];
+    for (const key of keys ?? []) keySchema.parse(key);
     if (!this.transaction.getStore())
       return (await this.sql.begin("isolation level repeatable read read only", sql =>
-        this.transaction.run(sql, () => this.readFile(key))
-      )) as ReviewFileV3;
+        this.transaction.run(sql, () => this.readFiles(keys))
+      )) as ReviewFileV3[];
     const sql = this.connection();
-    const [row] = await sql`select * from proto_keys where key=${key}`;
-    if (!row) return emptyReviewFile(key);
-    const comments = await sql`select * from proto_comments where key=${key} order by number`;
-    const messages = await sql`select * from proto_messages where key=${key} order by position`;
+    const rows = keys
+      ? await sql`select * from proto_keys where key in ${sql(keys)} order by key`
+      : await sql`select * from proto_keys order by key`;
+    if (!rows.length) return [];
+    const selected = rows.map(row => String(row.key));
+    const comments =
+      await sql`select * from proto_comments where key in ${sql(selected)} order by key,number`;
+    const messages =
+      await sql`select * from proto_messages where key in ${sql(selected)} order by key,number,position`;
+    // List/review reads need descriptors, never the potentially megabyte-sized image bodies.
     const images =
-      await sql`select * from proto_attachments where key=${key} and message_id is not null order by position,id`;
-    const events = await sql`select * from proto_events where key=${key} order by position,id`;
-    return reviewFileSchema.parse({
-      version: 3,
-      key,
-      sequence: row.next_comment - 1,
-      review: { status: row.review_status, updatedAt: iso(row.review_updated_at) },
-      ...extra(row.extra),
-      events: events.map(e => ({
-        id: e.id,
-        type: e.type,
-        at: iso(e.at),
-        author: e.author_kind,
-        ...optionalAuthor(e),
-        commit: e.commit,
-        openCount: e.open_count,
-        ...(e.comment_id ? { commentId: e.comment_id } : {}),
-        ...extra(e.extra),
-      })),
-      comments: comments.map(c => ({
-        id: `${key}-${c.number}`,
-        slug: key,
-        status: c.status,
-        createdAt: iso(c.created_at),
-        updatedAt: iso(c.updated_at),
-        resolvedAt: iso(c.resolved_at),
-        context: c.context,
-        target: c.target,
-        ...extra(c.extra),
-        thread: messages
-          .filter(m => m.number === c.number)
-          .map(m => ({
+      await sql`select id,key,message_id,uploader_id,uploader_kind,name,type,size,width,height,extra from proto_attachments where key in ${sql(selected)} and message_id is not null order by key,position,id`;
+    const events =
+      await sql`select * from proto_events where key in ${sql(selected)} order by key,position,id`;
+    const commentsByKey = groupRows(comments, row => row.key);
+    const messagesByComment = groupRows(messages, row => `${row.key}:${row.number}`);
+    const imagesByMessage = groupRows(images, row => row.message_id);
+    const eventsByKey = groupRows(events, row => row.key);
+    return rows.map(row =>
+      reviewFileSchema.parse({
+        version: 3,
+        key: row.key,
+        sequence: row.next_comment - 1,
+        review: { status: row.review_status, updatedAt: iso(row.review_updated_at) },
+        ...extra(row.extra),
+        events: (eventsByKey.get(row.key) ?? []).map(e => ({
+          id: e.id,
+          type: e.type,
+          at: iso(e.at),
+          author: e.author_kind,
+          ...optionalAuthor(e),
+          commit: e.commit,
+          openCount: e.open_count,
+          ...(e.comment_id ? { commentId: e.comment_id } : {}),
+          ...extra(e.extra),
+        })),
+        comments: (commentsByKey.get(row.key) ?? []).map(c => ({
+          id: `${row.key}-${c.number}`,
+          slug: row.key,
+          status: c.status,
+          createdAt: iso(c.created_at),
+          updatedAt: iso(c.updated_at),
+          resolvedAt: iso(c.resolved_at),
+          context: c.context,
+          target: c.target,
+          ...extra(c.extra),
+          thread: (messagesByComment.get(`${row.key}:${c.number}`) ?? []).map(m => ({
             id: m.id,
             at: iso(m.at),
             editedAt: iso(m.edited_at),
@@ -125,10 +150,11 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
             author: m.author_kind,
             ...optionalAuthor(m),
             ...extra(m.extra),
-            attachments: images.filter(a => a.message_id === m.id).map(image),
+            attachments: (imagesByMessage.get(m.id) ?? []).map(image),
           })),
-      })),
-    });
+        })),
+      })
+    );
   }
   private async locked<T>(key: string, action: (sql: TransactionSql) => Promise<T>): Promise<T> {
     keySchema.parse(key);
@@ -250,17 +276,19 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   }
   async list(filter: CommentFilter = {}) {
     filter = commentFilterSchema.parse(filter);
-    const keys = filter.key
-      ? [{ key: filter.key }]
-      : await this.sql`select key from proto_keys order by key`;
     const registry = filter.spec ? await this.registry?.() : undefined;
     const specKeys = new Set([
       ...(registry?.prototypes.filter(p => p.spec === filter.spec).map(p => p.slug) ?? []),
       ...(registry?.flows.filter(p => p.spec === filter.spec).map(p => `flow-${p.id}`) ?? []),
     ]);
-    const files = await Promise.all(
-      keys.filter(k => !filter.spec || specKeys.has(k.key)).map(k => this.readFile(k.key))
-    );
+    const keys = filter.key
+      ? !filter.spec || specKeys.has(filter.key)
+        ? [filter.key]
+        : []
+      : filter.spec
+        ? [...specKeys]
+        : undefined;
+    const files = await this.readFiles(keys);
     return files
       .flatMap(f => f.comments)
       .filter(

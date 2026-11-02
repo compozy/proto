@@ -84,6 +84,17 @@ export class ShellEvents {
   #connect() {
     if (!this.#url || this.#source) return;
     this.#source = new EventSource(new URL(this.#url, document.baseURI));
+    let interrupted = false;
+    this.#source.addEventListener("error", () => {
+      interrupted = true;
+    });
+    this.#source.addEventListener("open", () => {
+      if (!interrupted) return;
+      interrupted = false;
+      // The server does not replay missed events. Reconcile every observed slice after a gap.
+      for (const listeners of this.#listeners.values())
+        for (const listener of listeners) listener({});
+    });
     for (const type of ["registry", "comments", "review"] as const) {
       this.#source.addEventListener(type, event => {
         let data: { key?: string } = {};

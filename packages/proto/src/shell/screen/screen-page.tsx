@@ -20,6 +20,7 @@ import { useSlots, type InspectorTab, type ReviewTarget } from "../app/slots";
 import { ScreenFrame, type FrameGeometry } from "../frames/screen-frame";
 import type { FrameContext } from "../frames/use-render-frame";
 import { useT } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 import { go, navigate } from "../lib/navigation";
 import {
   occurrences,
@@ -364,9 +365,7 @@ function SourcePanel({ prototype }: { prototype: RegistryPrototype }) {
             variant="ghost"
             size="icon-xs"
             aria-label={copied ? t("common.copied") : t("health.copyPath")}
-            onClick={() =>
-              void navigator.clipboard?.writeText(prototype.file).then(() => setCopied(true))
-            }
+            onClick={async () => setCopied(await copyText(prototype.file))}
           >
             {copied ? <Check /> : <Copy />}
           </Button>

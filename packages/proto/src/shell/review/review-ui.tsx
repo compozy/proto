@@ -20,7 +20,7 @@ import { ReviewActions, ReviewMenu, ReviewStatus, StatusPill } from "./approval/
 import { useAllComments, useReviewData, useReviewState, useReviewStates } from "./data";
 import { byActivity, commentNode, commentNumber, isWaiting, relativeTime } from "./format";
 import { commentView } from "./inbox/inbox";
-import { ThreadsPanel, useThreadFocus } from "./threads/threads-panel";
+import { ThreadsPanel } from "./threads/threads-panel";
 
 /** Slots of the review slice; merge comment mode's (`canvasTools`, `screenFrame`, …) on top. */
 export function reviewSlots(t: Translate): ShellSlots {
@@ -86,36 +86,28 @@ function OpenCount({ reviewKey }: { reviewKey: string }) {
 function PrototypeThreads({ target }: { target: Extract<ReviewTarget, { kind: "prototype" }> }) {
   const { view } = useLocation();
   const comment = view.area === "screen" ? view.comment : null;
-  const focus = useThreadFocus({
-    focused: comment,
-    focus: id => {
-      if (view.area === "screen") go({ ...view, comment: id }, { replace: true });
-    },
-  });
   return (
     <ThreadsPanel
       reviewKey={target.key}
       scope={{ kind: "state", state: target.state }}
-      focused={focus.focused}
-      onFocus={focus.focus}
+      focused={comment}
+      onFocus={id => {
+        if (view.area === "screen") go({ ...view, comment: id }, { replace: true });
+      }}
     />
   );
 }
 
 function FlowThreads({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> }) {
   const { view } = useLocation();
-  const focus = useThreadFocus({
-    focused: view.area === "flow" ? (view.comment ?? null) : null,
-    focus: id => {
-      if (view.area === "flow") go({ ...view, comment: id }, { replace: true });
-    },
-  });
   return (
     <ThreadsPanel
       reviewKey={target.key}
       scope={{ kind: "step", node: target.node }}
-      focused={focus.focused}
-      onFocus={focus.focus}
+      focused={view.area === "flow" ? (view.comment ?? null) : null}
+      onFocus={id => {
+        if (view.area === "flow") go({ ...view, comment: id }, { replace: true });
+      }}
     />
   );
 }

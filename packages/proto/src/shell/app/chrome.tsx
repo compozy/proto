@@ -6,6 +6,7 @@ import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { useT, type Translate } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 import { setTheme } from "../lib/navigation";
 import { useShellData } from "../lib/shell-data";
 import { nextTheme } from "../lib/theme";
@@ -234,8 +235,8 @@ function ShareButton() {
     const timer = setTimeout(() => setCopied(false), 1600);
     return () => clearTimeout(timer);
   }, [copied]);
-  const share = () => {
-    void navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true));
+  const share = async () => {
+    setCopied(await copyText(window.location.href));
   };
   return (
     <Button
