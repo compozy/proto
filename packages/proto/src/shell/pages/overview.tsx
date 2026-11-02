@@ -258,13 +258,7 @@ export function Drafts({ theme }: { theme: "light" | "dark" }) {
       <h2 className="sr-only">{t("overview.drafts")}</h2>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {drafts.map((draft, index) => (
-          <ScreenCard
-            key={draft.slug}
-            prototype={draft}
-            theme={theme}
-            order={index}
-            showStates={false}
-          />
+          <ScreenCard key={draft.slug} prototype={draft} theme={theme} order={index} />
         ))}
         <article className="flex min-h-[220px] flex-col justify-center gap-3 rounded-2xl border border-dashed border-border p-5">
           <span className="grid size-9 place-items-center rounded-lg bg-[var(--shell-primary-soft)] text-primary">

@@ -11,17 +11,15 @@ import { ArrowUpRight, Check, Copy, TriangleAlert, Workflow } from "../ui/icons"
 import { cn } from "../ui/utils";
 import { Link } from "./link";
 
-/** A prototype as a card: live preview of its default state, identity and its state chips. */
+/** A prototype as a card: live preview of its default state, identity and its state count. */
 export function ScreenCard({
   prototype,
   theme,
   order,
-  showStates = true,
 }: {
   prototype: RegistryPrototype;
   theme: "light" | "dark";
   order: number;
-  showStates?: boolean;
 }) {
   const t = useT();
   const first = prototype.states[0];
@@ -53,24 +51,9 @@ export function ScreenCard({
         <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
           {[prototype.surface, prototype.route, prototype.slug].filter(Boolean).join(" · ")}
         </div>
-        {showStates ? (
-          <ul className="relative mt-3 flex flex-wrap gap-1.5">
-            {prototype.states.map(state => (
-              <li key={state.id}>
-                <Link
-                  to={screenView(prototype.slug, state.id)}
-                  className="flex h-6 items-center rounded-md border border-border bg-background px-2 text-[11.5px] whitespace-nowrap hover:border-primary/50 hover:text-primary"
-                >
-                  {state.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-            {t("count.states", { count: prototype.states.length })}
-          </p>
-        )}
+        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+          {t("count.states", { count: prototype.states.length })}
+        </p>
       </div>
     </article>
   );
