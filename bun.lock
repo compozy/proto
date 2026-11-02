@@ -85,7 +85,7 @@
     },
     "packages/proto": {
       "name": "@compozy/proto",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "bin": {
         "proto": "./src/cli/main.ts",
       },
