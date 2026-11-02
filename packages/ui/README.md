@@ -6,8 +6,8 @@ The BnUI library (BN Tecnologia), vendored from `reui-blocks` at commit `646b796
   and the BnUI modules from ReUI (MIT, `LICENSES/reui-MIT.txt`). Multi-file modules keep their
   folder (`data-grid/`, `filters/`, `cascader/`, `event-calendar/`, `gantt/`, `code-block/`).
   Where both sources ship a name (`alert`, `badge`), the BnUI module is the one kept.
-- `src/hooks/*`, `src/lib/utils.ts`, `src/lib/icons.ts` (Reicon behind Lucide names: import
-  icons from `@proto/ui/lib/icons`, never `lucide-react`).
+- `src/hooks/*`, `src/lib/utils.ts`, `src/lib/icons.ts` (Reicon behind Lucide names, from BnUI
+  v0.1.2: import icons from `@proto/ui/lib/icons`, never `lucide-react`).
 - `src/styles/contract.css`: the BnUI stylesheet contract (Tailwind, state variants, `defaults:`
   layer, token mapping). `src/styles/theme.css`: the neutral default theme; replace its values
   with the project brand.
