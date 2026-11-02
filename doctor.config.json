@@ -2,7 +2,7 @@
     "$schema": "https://react.doctor/schema/config.json",
     "projects": ["apps/app", "packages/proto"],
     "scope": "full",
-    "blocking": "error",
+    "blocking": "warning",
     "ignore": {
         "files": [
             "**/src/generated/**",

@@ -7,12 +7,13 @@ export function createShellQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
+        networkMode: "always",
         staleTime: 30_000,
         gcTime: 10 * 60_000,
         retry: (count, error) =>
           !(isReviewApiError(error) && error.status !== null && error.status < 500) && count < 1,
       },
-      mutations: { retry: false },
+      mutations: { networkMode: "always", retry: false },
     },
   });
 }

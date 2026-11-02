@@ -24,7 +24,10 @@ also preserves unchanged flow and prototype objects after SSE updates.
 Development edits use Vite HMR. Flow edits update the shell registry; prototype metadata changes
 reload only the virtual prototype registry, accepted by the render entry. Component edits use the
 consumer's normal refresh pipeline. Saving a prototype or flow no longer broadcasts a full reload
-to every iframe. The Vite and registry watchers use the same polling fallback on macOS; other
+to every iframe. Canvas creation/removal separately invalidates the virtual canvas. A replacement
+prototype component clears a failed error boundary without remounting the unchanged Canvas.
+Rerenders of the same component preserve its state; replacement components follow React/Refresh semantics.
+The Vite and registry watchers use the same polling fallback on macOS; other
 platforms can opt into polling with `dev.poll`.
 
 One project observer serves all registry subscribers. While watched, repeated registry reads
@@ -45,6 +48,10 @@ SSE and mutations invalidate the changed review and comment lists that include i
 unrelated entries. Render tickets retain their short-lived, session-local sharing and existing
 origin/nonce validation.
 
+Queries and mutations use `networkMode: "always"`: a browser offline event does not pause a
+reachable local server. Real transport failures retain the normal error/retry behavior. Lazy
+page import failures show a retry that reloads the document, clearing rejected import promises.
+
 The provider batches nearby review notifications for 50 ms and serializes subsequent refreshes,
 so an event arriving during a read is reconciled after that read. EventSource reconnect triggers
 reconciliation because the server does not replay missed events. FileStore establishes a fingerprint
@@ -53,7 +60,10 @@ baseline before polling, avoiding synthetic changes for every preexisting review
 Pins and threads share the all-comments query for their key. Search derives and subscribes to its
 index only while open; inbox descriptors/groups and graph adjacency use maps instead of repeated
 linear scans. PostgreSQL lists read all matching keys in one repeatable-read transaction, assemble
-relations using indexes, and select attachment metadata without transferring image bytes.
+relations using indexes, and select attachment metadata without transferring image bytes. Saves
+batch each relation in foreign-key order inside the existing transaction. File operations use
+four concurrent workers per batch, preserve result order and drain in-flight work on failure
+before releasing locks. Migration aliases targeting the same key remain serialized.
 
 Hover, keyboard focus and touch intent prefetch the destination's canonical review queries. Flow
 and settings code are separate chunks, loaded on intent or when visited. Existing query-string
@@ -65,8 +75,8 @@ each emitted asset. Initial JavaScript includes the entry and every module prelo
 
 | Compressed bytes       |  Before |   After | Change |
 | ---------------------- | ------: | ------: | -----: |
-| Initial JavaScript     | 337,000 | 279,114 | -17.2% |
-| All JavaScript and CSS | 354,230 | 378,060 |  +6.7% |
+| Initial JavaScript     | 337,000 | 280,590 | -16.7% |
+| All JavaScript and CSS | 354,230 | 379,518 |  +7.1% |
 
 The cache libraries add code to the complete distribution; deferred flow and settings chunks
 reduce the initial load. These are transfer-size measurements, not a latency benchmark. The
@@ -95,8 +105,7 @@ after an HTTP mutation because events carry no revision identifier. These costs 
 ## React Compiler and Doctor
 
 `bun run doctor:check` scans owned app and package code with React Doctor 0.9.18, the version used
-by Compozy. It runs inside `bun run verify` and in the React Doctor workflow. Errors block delivery;
-warning diagnostics remain visible for review. The vendored BnUI package and shell primitives are
+by Compozy. It runs inside `bun run verify` and in the React Doctor workflow. Errors and warnings both block delivery. The vendored BnUI package and shell primitives are
 outside this owned-code scan, consistent with their update policy. Prototype `meta` and canvas
 exports are exempt only from the Fast Refresh export-shape heuristic because they are public
 Proto contracts.
@@ -112,12 +121,37 @@ composer that stayed busy after a successful submission. Both paths now release 
 state; the deployed login journey exercises a real offline/reconnect cycle. A retained composer
 also releases claimed image previews and starts the next draft without reusing attachment IDs.
 
+## Iframe capability boundary
+
+Every owned iframe now has an explicit sandbox: scripts, real origins, forms, popups, modals and
+downloads are allowed for authored prototypes; top navigation is not allowed. A real Chromium
+click verifies that a prototype on the separate render origin cannot navigate the gallery.
+The source/origin/frame-nonce checks remain unchanged, and role values from context URLs are
+confined to the catalog's presentation roles.
+
+There are **three local Doctor exceptions**, each surrounding one literal sandbox attribute
+(two package frames and the app draft preview). Doctor 0.9.18 flags the scripts/origin combination
+without considering the configured origin or the trust boundary. Dev and remote rendering use
+a separate origin. Static builds intentionally contain trusted application code on the same
+origin; this sandbox does **not** isolate malicious same-origin code. Removing `allow-same-origin`
+would make the document opaque, breaking module loading on ordinary static servers and the
+origin-checked protocol. The [HTML iframe standard](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox)
+describes this same-origin limitation.
+
+The missing-sandbox rule remains enabled elsewhere: a temporary un-sandboxed iframe was rejected
+with exit code 1 under the warning-blocking gate, then removed. Remove these local exceptions when the
+analyzer supports this explicit trusted-render policy, or when static rendering gains a separate
+origin and the rule can recognize it. They must not be copied to untrusted embeds. The reported
+zero-warning result includes these exceptions; it is not an independent security approval.
+
 ## Regression evidence
 
 The canonical suites own the behavior:
 
 - `test/node/e2e/shell-browse.test.ts`: real Chromium, real consumer Vite, zoom round trip and
-  flow/prototype body/metadata edits retain iframe documents without navigation requests.
+  flow/prototype body/metadata edits retain iframe documents; canvas creation/removal updates
+  without restart, failed page chunks retry, local writes survive offline events, and sandboxed
+  render-origin scripts cannot navigate the shell even after user activation.
 - `test/browser/shell/preview-queue.test.ts`: bounded admission/eviction, reuse, source changes,
   settlement notification and rejection of late readiness for an obsolete source.
 - `test/browser/shell/review.test.tsx`: intent prefetch and concurrent readers share one HTTP
@@ -128,7 +162,11 @@ The canonical suites own the behavior:
 - `test/node/e2e/shell-browse.test.ts` and `shell-review.test.ts`: real server restart recovers a
   missed edit; deep links, pins and browser history agree on focused comments.
 - `test/node/server/postgres.it.test.ts`: collection query count remains bounded as keys grow,
-  image bodies are not transferred and thread/attachment ownership is preserved.
+  image bodies are not transferred (with a positive control that detects an attachment read)
+  and thread/attachment ownership is preserved.
+- `test/browser/render/protocol.test.ts`: replacement components recover failed rendering while
+  rerenders of the same component preserve state; context roles are confined to the catalog.
+- `test/node/concurrency.test.ts`: bounded, ordered work drains on failure before the caller exits.
 - `test/browser/shell/render-frame.test.tsx`: clipboard denial remains retryable without false
   success or an unhandled rejection.
 - `apps/api/tests/proto.it.test.ts`: real Postgres, Better Auth, built SPA and remote review loop,

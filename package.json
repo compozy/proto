@@ -25,7 +25,7 @@
         "prepare": "husky",
         "postinstall": "bash scripts/postinstall.sh",
         "doctor": "react-doctor",
-        "doctor:check": "react-doctor . --scope full --blocking error --no-score --yes"
+        "doctor:check": "react-doctor . --scope full --blocking warning --no-score --yes"
     },
     "devDependencies": {
         "@commitlint/cli": "21.2.4",

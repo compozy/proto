@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../node/concurrency.ts";
 import { isDeepStrictEqual } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
@@ -101,15 +102,14 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
       : await sql`select * from proto_keys order by key`;
     if (!rows.length) return [];
     const selected = rows.map(row => String(row.key));
-    const comments =
-      await sql`select * from proto_comments where key in ${sql(selected)} order by key,number`;
-    const messages =
-      await sql`select * from proto_messages where key in ${sql(selected)} order by key,number,position`;
-    // List/review reads need descriptors, never the potentially megabyte-sized image bodies.
-    const images =
-      await sql`select id,key,message_id,uploader_id,uploader_kind,name,type,size,width,height,extra from proto_attachments where key in ${sql(selected)} and message_id is not null order by key,position,id`;
-    const events =
-      await sql`select * from proto_events where key in ${sql(selected)} order by key,position,id`;
+    // These relation reads share the same repeatable-read transaction and have no data dependency.
+    const [comments, messages, images, events] = await Promise.all([
+      sql`select * from proto_comments where key in ${sql(selected)} order by key,number`,
+      sql`select * from proto_messages where key in ${sql(selected)} order by key,number,position`,
+      // List/review reads need descriptors, never the potentially megabyte-sized image bodies.
+      sql`select id,key,message_id,uploader_id,uploader_kind,name,type,size,width,height,extra from proto_attachments where key in ${sql(selected)} and message_id is not null order by key,position,id`,
+      sql`select * from proto_events where key in ${sql(selected)} order by key,position,id`,
+    ]);
     const commentsByKey = groupRows(comments, row => row.key);
     const messagesByComment = groupRows(messages, row => `${row.key}:${row.number}`);
     const imagesByMessage = groupRows(images, row => row.message_id);
@@ -177,30 +177,67 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     const key = file.key;
     reviewFileSchema.parse(file);
     await sql`update proto_keys set next_comment=${file.sequence + 1}, review_status=${file.review.status}, review_updated_at=${file.review.updatedAt}, extra=${JSON.stringify(file.extra ?? null)}::text::jsonb where key=${key}`;
-    const numbers: number[] = [],
-      messageIds: string[] = [],
-      imageIds: string[] = [];
-    for (const comment of file.comments) {
-      const number = Number(comment.id.slice(key.length + 1));
-      numbers.push(number);
-      await sql`insert into proto_comments (key,number,status,created_at,updated_at,resolved_at,context,target,extra) values (${key},${number},${comment.status},${comment.createdAt},${comment.updatedAt},${comment.resolvedAt},${JSON.stringify(comment.context)}::text::jsonb,${JSON.stringify(comment.target)}::text::jsonb,${JSON.stringify(comment.extra ?? null)}::text::jsonb) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
-      for (const [position, message] of comment.thread.entries()) {
-        messageIds.push(message.id);
-        await sql`insert into proto_messages (id,key,number,position,author_kind,author_id,author_name,body,at,edited_at,extra) values (${message.id},${key},${number},${position},${message.author},${message.authorId ?? null},${message.authorName ?? null},${message.body},${message.at},${message.editedAt},${JSON.stringify(message.extra ?? null)}::text::jsonb) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
-        for (const [imagePosition, attachment] of message.attachments.entries()) {
-          imageIds.push(attachment.id);
-          const updated =
-            await sql`update proto_attachments set message_id=${message.id},expires_at=null,position=${imagePosition} where id=${attachment.id} and key=${key} and (message_id=${message.id} or message_id is null) returning id`;
-          if (updated.length !== 1) throw new ProtoError("attachment_expired");
-        }
-      }
-    }
-    await sql`delete from proto_attachments where key=${key} and message_id is not null and not (id=any(${imageIds}))`;
-    await sql`delete from proto_messages where key=${key} and not (id=any(${messageIds}))`;
-    await sql`delete from proto_comments where key=${key} and not (number=any(${numbers}))`;
-    for (const [eventPosition, e] of file.events.entries())
-      await sql`insert into proto_events (id,key,position,type,at,author_kind,author_id,author_name,commit,open_count,comment_id,extra) values (${e.id},${key},${eventPosition},${e.type},${e.at},${e.author},${e.authorId ?? null},${e.authorName ?? null},${e.commit},${e.openCount},${e.commentId ?? null},${JSON.stringify(e.extra ?? null)}::text::jsonb) on conflict do nothing`;
+    const comments = file.comments.map(comment => ({
+      key,
+      number: Number(comment.id.slice(key.length + 1)),
+      status: comment.status,
+      created_at: comment.createdAt,
+      updated_at: comment.updatedAt,
+      resolved_at: comment.resolvedAt,
+      context: comment.context,
+      target: comment.target,
+      extra: comment.extra ?? null,
+    }));
+    const messages = file.comments.flatMap(comment =>
+      comment.thread.map((message, position) => ({
+        id: message.id,
+        key,
+        number: Number(comment.id.slice(key.length + 1)),
+        position,
+        author_kind: message.author,
+        author_id: message.authorId ?? null,
+        author_name: message.authorName ?? null,
+        body: message.body,
+        at: message.at,
+        edited_at: message.editedAt,
+        extra: message.extra ?? null,
+      }))
+    );
+    const images = file.comments.flatMap(comment =>
+      comment.thread.flatMap(message =>
+        message.attachments.map((attachment, position) => ({
+          id: attachment.id,
+          message_id: message.id,
+          position,
+        }))
+      )
+    );
+    // One statement per relation, in foreign-key order, independent of thread/history length.
+    await sql`insert into proto_comments select * from jsonb_populate_recordset(null::proto_comments, ${JSON.stringify(comments)}::text::jsonb) on conflict (key,number) do update set status=excluded.status,updated_at=excluded.updated_at,resolved_at=excluded.resolved_at,context=excluded.context,target=excluded.target,extra=excluded.extra`;
+    await sql`insert into proto_messages select * from jsonb_populate_recordset(null::proto_messages, ${JSON.stringify(messages)}::text::jsonb) on conflict (id) do update set body=excluded.body,edited_at=excluded.edited_at,extra=excluded.extra`;
+    const updated =
+      await sql`update proto_attachments a set message_id=i.message_id,expires_at=null,position=i.position from jsonb_to_recordset(${JSON.stringify(images)}::text::jsonb) as i(id text,message_id text,position integer) where a.id=i.id and a.key=${key} and (a.message_id=i.message_id or a.message_id is null) returning a.id`;
+    if (updated.length !== images.length) throw new ProtoError("attachment_expired");
+    await sql`delete from proto_attachments where key=${key} and message_id is not null and not (id=any(${images.map(image => image.id)}))`;
+    await sql`delete from proto_messages where key=${key} and not (id=any(${messages.map(message => message.id)}))`;
+    await sql`delete from proto_comments where key=${key} and not (number=any(${comments.map(comment => comment.number)}))`;
+    const events = file.events.map((event, position) => ({
+      id: event.id,
+      key,
+      position,
+      type: event.type,
+      at: event.at,
+      author_kind: event.author,
+      author_id: event.authorId ?? null,
+      author_name: event.authorName ?? null,
+      commit: event.commit,
+      open_count: event.openCount,
+      comment_id: event.commentId ?? null,
+      extra: event.extra ?? null,
+    }));
+    await sql`insert into proto_events select * from jsonb_populate_recordset(null::proto_events, ${JSON.stringify(events)}::text::jsonb) on conflict do nothing`;
   }
+
   async importKey(
     file: ReviewFileV3,
     attachments: ImportedAttachment[],
@@ -216,23 +253,25 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
           if (!inserted.length) {
             if (!isDeepStrictEqual(await this.readFile(file.key), file))
               throw new ProtoError("migration_conflict");
-            for (const attachment of attachments) {
+            await mapConcurrent(attachments, async attachment => {
               const [row] =
                 await sql`select data from proto_attachments where key=${file.key} and id=${attachment.id}`;
               if (!row || !Buffer.from(row.data).equals(Buffer.from(attachment.bytes)))
                 throw new ProtoError("migration_conflict");
-            }
+            });
             return "unchanged" as const;
           }
           if (dryRun) throw new PlannedImport();
-          for (const c of file.comments)
-            for (const m of c.thread)
-              for (const a of m.attachments) {
-                const payload = attachments.find(value => value.id === a.id);
-                if (!payload || payload.bytes.byteLength !== a.size)
-                  throw new ProtoError("migration_unverified");
-                await sql`insert into proto_attachments(id,key,uploader_id,uploader_kind,name,type,size,width,height,data,created_at,expires_at,extra) values (${a.id},${file.key},${a.uploaderId ?? "legacy:unknown"},${a.uploaderKind ?? m.author},${a.name},${a.type},${a.size},${a.width},${a.height},${Buffer.from(payload.bytes)},${payload.createdAt},null,${JSON.stringify(a.extra ?? null)}::text::jsonb)`;
-              }
+          const payloads = new Map(attachments.map(value => [value.id, value]));
+          const imported = file.comments.flatMap(c =>
+            c.thread.flatMap(m => m.attachments.map(a => ({ a, m })))
+          );
+          await mapConcurrent(imported, async ({ a, m }) => {
+            const payload = payloads.get(a.id);
+            if (!payload || payload.bytes.byteLength !== a.size)
+              throw new ProtoError("migration_unverified");
+            await sql`insert into proto_attachments(id,key,uploader_id,uploader_kind,name,type,size,width,height,data,created_at,expires_at,extra) values (${a.id},${file.key},${a.uploaderId ?? "legacy:unknown"},${a.uploaderKind ?? m.author},${a.name},${a.type},${a.size},${a.width},${a.height},${Buffer.from(payload.bytes)},${payload.createdAt},null,${JSON.stringify(a.extra ?? null)}::text::jsonb)`;
+          });
           await this.save(sql, file);
           if (!isDeepStrictEqual(await this.readFile(file.key), file))
             throw new ProtoError("migration_unverified");
@@ -258,22 +297,25 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     const claimed = new Set(
       file.comments.flatMap(c => c.thread.flatMap(m => m.attachments.map(a => a.id)))
     );
-    const result: CommentAttachment[] = [];
     for (const id of ids) {
       z.uuid().parse(id);
-      const [row] =
-        await sql`select * from proto_attachments where id=${id} and key=${key} and message_id is null and expires_at > now()`;
-      if (!row || claimed.has(id)) throw new ProtoError("attachment_expired");
-      if (row.uploader_id !== ownerId(author)) throw new ProtoError("message_not_owned");
-      // A deferred FK permits the conditional claim before the new message is inserted.
-      const rows =
-        await sql`update proto_attachments set message_id=${messageId} where id=${id} and key=${key} and uploader_id=${ownerId(author)} and message_id is null and expires_at > now() returning *`;
-      if (rows.length !== 1) throw new ProtoError("attachment_expired");
-      result.push(image(row));
+      if (claimed.has(id)) throw new ProtoError("attachment_expired");
       claimed.add(id);
     }
-    return result;
+    if (!ids.length) return [];
+    const rows =
+      await sql`select * from proto_attachments where id=any(${ids}) and key=${key} and message_id is null and expires_at > now()`;
+    if (rows.length !== ids.length) throw new ProtoError("attachment_expired");
+    if (rows.some(row => row.uploader_id !== ownerId(author)))
+      throw new ProtoError("message_not_owned");
+    // The key lock and deferred FK make the entire conditional claim atomic before message insertion.
+    const updated =
+      await sql`update proto_attachments set message_id=${messageId} where id=any(${ids}) and key=${key} and uploader_id=${ownerId(author)} and message_id is null and expires_at > now() returning *`;
+    if (updated.length !== ids.length) throw new ProtoError("attachment_expired");
+    const byId = new Map(updated.map(row => [row.id, image(row)]));
+    return ids.map(id => byId.get(id)!);
   }
+
   async list(filter: CommentFilter = {}) {
     filter = commentFilterSchema.parse(filter);
     const registry = filter.spec ? await this.registry?.() : undefined;

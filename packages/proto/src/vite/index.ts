@@ -88,6 +88,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
   };
   const ids = ["virtual:proto/render-config", "virtual:proto/prototypes", "virtual:proto/canvas"];
   let prototypeSnapshot: string | undefined;
+  let canvasExists = existsSync(resolve(project.root, project.config.canvas));
   return [
     sourceTags(project.root, project.root),
     ...protoPresentation(),
@@ -137,7 +138,8 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
         }
         if (id === `\0${ids[2]}`) {
           const canvas = resolve(project.root, project.config.canvas);
-          return existsSync(canvas)
+          canvasExists = existsSync(canvas);
+          return canvasExists
             ? `import * as canvas from ${JSON.stringify(canvas)}; export const Canvas = canvas.Canvas; export const Frame = canvas.Frame ?? null;`
             : "export const Canvas = ({children}) => children; export const Frame = null;";
         }
@@ -145,12 +147,18 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
       configureServer(server) {
         const stop = project.watch(registry => {
           const next = JSON.stringify(registry.prototypes);
-          if (next === prototypeSnapshot) return;
+          const exists = existsSync(resolve(project.root, project.config.canvas));
+          const prototypesChanged = next !== prototypeSnapshot;
+          const canvasChanged = exists !== canvasExists;
+          if (!prototypesChanged && !canvasChanged) return;
           prototypeSnapshot = next;
-          // Flow edits belong to the shell. Prototype body edits already use React Refresh;
-          // metadata/add/remove changes update only this virtual module, without reloading frames.
-          const module = server.moduleGraph.getModuleById(`\0${ids[1]}`);
-          if (module) void server.reloadModule(module);
+          canvasExists = exists;
+          // Body edits use React Refresh; registry and canvas-existence changes update their virtual modules.
+          for (const id of [prototypesChanged ? ids[1] : null, canvasChanged ? ids[2] : null]) {
+            if (!id) continue;
+            const module = server.moduleGraph.getModuleById(`\0${id}`);
+            if (module) void server.reloadModule(module);
+          }
         });
         server.httpServer?.once("close", stop);
         server.middlewares.use(async (req, res, next) => {

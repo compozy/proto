@@ -2,16 +2,16 @@
  * The prebuilt shell (ADR-002): bootstrap → registry → the area the URL names. It imports only
  * `src/model` and its own `ui/`, and talks to prototypes only through the render protocol.
  */
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
-import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 
-import type { Registry } from "../../model/registry";
+import { reviewKeys, type Registry } from "../../model/registry";
 import { loadFlowPage, loadSettings } from "../lib/preload";
 import { LocaleProvider, useT } from "../lib/i18n";
 import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
-import { bootstrapQuery, ShellDataProvider, useShellData } from "../lib/shell-data";
+import { useBootstrap, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
 import type { View } from "../lib/view";
@@ -26,11 +26,11 @@ import { Link } from "./link";
 import { SearchPalette } from "./search-palette";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
-import { reviewKeys, ReviewProvider, useReviewData } from "../review/data";
+import { ReviewProvider, useReviewData } from "../review/data";
 import { Inbox } from "../review/inbox/inbox";
-import { KeysStatus, readOnlySlots, reviewSlots } from "../review/review-ui";
+import { KeysStatus, useReviewSlots } from "../review/review-ui";
 import { CommentModeProvider, commentModeSlots, Composer } from "../review/comment-mode";
-import { ShellSlotsProvider, type ReviewTarget, type ShellSlots } from "./slots";
+import { ShellSlotsProvider, type ReviewTarget } from "./slots";
 
 const FlowPage = lazy(loadFlowPage);
 const Settings = lazy(loadSettings);
@@ -46,7 +46,7 @@ export function Root() {
 
 function BootstrapApp() {
   const client = useQueryClient();
-  const boot = useQuery(bootstrapQuery());
+  const boot = useBootstrap();
   if (boot.isPending) return <BootSkeleton />;
   if (boot.isError)
     return (
@@ -108,6 +108,24 @@ function Fatal({
   );
 }
 
+class PageBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+  state: { error: unknown } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
+  }
+  render() {
+    return this.state.error ? (
+      <Fatal
+        title="This page could not load"
+        message={String(this.state.error)}
+        onRetry={() => window.location.reload()}
+      />
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 function App() {
   const t = useT();
   const { bootstrap, registry, reload } = useShellData();
@@ -147,16 +165,9 @@ function App() {
 
 /** Review slots (threads, approval) and comment mode (tools, picking, pins, composer). */
 function Slots({ children }: { children: ReactNode }) {
-  const t = useT();
   const review = useReviewData();
-  const { bootstrap } = useShellData();
-  const [slots] = useState<ShellSlots>(() =>
-    review
-      ? { ...reviewSlots(t), ...commentModeSlots, composer: Composer }
-      : bootstrap.mode === "read-only"
-        ? readOnlySlots(t)
-        : {}
-  );
+  const base = useReviewSlots();
+  const slots = review ? { ...base, ...commentModeSlots, composer: Composer } : base;
   if (!review) return <ShellSlotsProvider value={slots}>{children}</ShellSlotsProvider>;
   return (
     <CommentModeProvider>
@@ -209,19 +220,21 @@ function Browse({
       />
       <SessionExpiredBanner />
       <main id="shell-main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-        <Suspense
-          fallback={
-            <div
-              role="status"
-              aria-label={t("frame.loading")}
-              className="grid flex-1 place-items-center"
-            >
-              <Skeleton className="h-40 w-80" />
-            </div>
-          }
-        >
-          {page.body}
-        </Suspense>
+        <PageBoundary key={view.area}>
+          <Suspense
+            fallback={
+              <div
+                role="status"
+                aria-label={t("frame.loading")}
+                className="grid flex-1 place-items-center"
+              >
+                <Skeleton className="h-40 w-80" />
+              </div>
+            }
+          >
+            {page.body}
+          </Suspense>
+        </PageBoundary>
       </main>
       {overlay === "search" && (
         <SearchPalette

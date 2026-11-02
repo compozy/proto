@@ -7,7 +7,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
 
-import { flowKey } from "../../model/registry";
 import { useShellData } from "../lib/shell-data";
 import { permissionsOf, type Permissions } from "./permissions";
 import { createReviewQueries, createReviewInvalidator, type ReviewQueries } from "./queries";
@@ -31,7 +30,7 @@ export type Query<T> = {
  * Render tickets of a remote gallery (`GET render-ticket`): a ticket lives 60 s and is not bound
  * to a slug, so frames loading together share one; `auth:expired` invalidates it.
  */
-export class RenderTickets {
+class RenderTickets {
   #pending: { value: Promise<string>; at: number } | null = null;
   #api: ReviewApi;
 
@@ -59,7 +58,7 @@ export class RenderTickets {
 type ReviewContextValue = {
   api: ReviewApi;
   queries: ReviewQueries;
-  refresh: (key?: string) => Promise<void>;
+  invalidateReview: (key?: string) => Promise<void>;
   /** Set when a request answered 401 `auth_required` (session expired, S18). */
   expired: { signInUrl: string | null } | null;
   /** True when this shell may write (dev, or remote with a principal); false read-only. */
@@ -70,14 +69,6 @@ type ReviewContextValue = {
 };
 
 const ReviewContext = createContext<ReviewContextValue | null>(null);
-
-/** Every review key of the registry: prototype slugs and `flow-<id>`. */
-export function reviewKeys(registry: { prototypes: { slug: string }[]; flows: { id: string }[] }) {
-  return [
-    ...registry.prototypes.map(item => item.slug),
-    ...registry.flows.map(item => flowKey(item.id)),
-  ];
-}
 
 /**
  * Review data for the shell. Absent (children rendered without it) in a read-only build that
@@ -113,10 +104,10 @@ export function ReviewProvider({
   const [tickets] = useState(() =>
     bootstrap.mode === "remote" && api ? new RenderTickets(api) : null
   );
-  const [refresh] = useState(() => createReviewInvalidator(client, queries));
+  const [invalidateReview] = useState(() => createReviewInvalidator(client, queries));
   useEffect(() => {
     const changed = ({ key }: { key?: string }) => {
-      void refresh(key);
+      void invalidateReview(key);
     };
     const stopComments = events.subscribe("comments", changed);
     const stopReview = events.subscribe("review", changed);
@@ -124,12 +115,14 @@ export function ReviewProvider({
       stopComments();
       stopReview();
     };
-  }, [events, refresh]);
+  }, [events, invalidateReview]);
   if (!api) return children;
   const writable = api.writable && bootstrap.mode !== "read-only";
   const permissions = permissionsOf(bootstrap, writable);
   return (
-    <ReviewContext value={{ api, queries, refresh, expired, writable, permissions, tickets }}>
+    <ReviewContext
+      value={{ api, queries, invalidateReview, expired, writable, permissions, tickets }}
+    >
       {children}
     </ReviewContext>
   );
@@ -211,7 +204,7 @@ export function useReviewMutation() {
       return run(context.api);
     },
     onSettled: (_data, _error, { key }) => {
-      return context?.refresh(key);
+      return context?.invalidateReview(key);
     },
   });
   return <T,>(key: string, run: (api: ReviewApi) => Promise<T>) =>

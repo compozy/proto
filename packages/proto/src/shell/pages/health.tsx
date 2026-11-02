@@ -41,8 +41,8 @@ export function Health() {
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
-          {entries.map((entry, index) => (
-            <HealthItem key={`${entry.item.code}-${index}`} entry={entry} />
+          {entries.map(entry => (
+            <HealthItem key={`${entry.severity}:${JSON.stringify(entry.item)}`} entry={entry} />
           ))}
         </ul>
       )}

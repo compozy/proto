@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../node/concurrency.ts";
 import { ReviewEngine } from "./engine.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,7 +19,6 @@ import {
   type Author,
   type CommentAttachment,
   type ReviewFileV3,
-  type ReviewComment,
 } from "../model/review.ts";
 import { sourceRoots, type SourceRoots } from "../model/source.ts";
 import { inspectImage } from "../node/image.ts";
@@ -107,17 +107,20 @@ export class FileStore extends ReviewEngine implements ReviewStore {
       if (absent(error)) return;
       throw error;
     }
-    for (const key of keys.filter(key => keySchema.safeParse(key).success))
-      await this.locks.run(key, async () => {
-        for (const name of await readdir(join(pendingRoot, key))) {
-          if (!name.endsWith(".json")) continue;
-          const id = name.slice(0, -5);
-          if (!z.uuid().safeParse(id).success) continue;
-          const pending = await this.pending(key, id);
-          if (pending && Date.parse(pending.expiresAt) <= Date.parse(this.now()))
-            await this.deletePending(key, pending);
-        }
-      });
+    await mapConcurrent(
+      keys.filter(key => keySchema.safeParse(key).success),
+      key =>
+        this.locks.run(key, async () => {
+          await mapConcurrent(await readdir(join(pendingRoot, key)), async name => {
+            if (!name.endsWith(".json")) return;
+            const id = name.slice(0, -5);
+            if (!z.uuid().safeParse(id).success) return;
+            const pending = await this.pending(key, id);
+            if (pending && Date.parse(pending.expiresAt) <= Date.parse(this.now()))
+              await this.deletePending(key, pending);
+          });
+        })
+    );
   }
   async assertKey(key: string) {
     keySchema.parse(key);
@@ -163,15 +166,18 @@ export class FileStore extends ReviewEngine implements ReviewStore {
           comment.thread.flatMap(message => message.attachments.map(image => image.id))
         )
       );
-      for (const image of previousImages)
-        if (!referenced.has(image.id)) await rm(this.imagePath(key, image), { force: true });
+      await mapConcurrent(
+        previousImages.filter(image => !referenced.has(image.id)),
+        image => rm(this.imagePath(key, image), { force: true })
+      );
       // The v3 file is the claim commit point. Cleanup is recoverable after a crash.
-      for (const image of file.comments.flatMap(comment =>
-        comment.thread.flatMap(message => message.attachments)
-      )) {
-        const pending = await this.pending(key, image.id);
-        if (pending) await this.deletePending(key, pending);
-      }
+      await mapConcurrent(
+        file.comments.flatMap(comment => comment.thread.flatMap(message => message.attachments)),
+        async image => {
+          const pending = await this.pending(key, image.id);
+          if (pending) await this.deletePending(key, pending);
+        }
+      );
       return result;
     });
   }
@@ -195,11 +201,11 @@ export class FileStore extends ReviewEngine implements ReviewStore {
           .map(item => `flow-${item.id}`) ?? []),
       ]);
     }
-    const comments: ReviewComment[] = [];
-    for (const key of keys) {
-      if (specs && !specs.has(key)) continue;
-      comments.push(...(await this.readFile(key)).comments);
-    }
+    const files = await mapConcurrent(
+      keys.filter(key => !specs || specs.has(key)),
+      key => this.readFile(key)
+    );
+    const comments = files.flatMap(file => file.comments);
     return comments.filter(
       comment =>
         ((filter.status ?? "open") === "all" || comment.status === (filter.status ?? "open")) &&
@@ -254,19 +260,19 @@ export class FileStore extends ReviewEngine implements ReviewStore {
         comment.thread.flatMap(message => message.attachments.map(image => image.id))
       )
     );
-    const images: PendingAttachment[] = [];
-    for (const id of ids) {
+    const images = await mapConcurrent(ids, async id => {
       const image = await this.pending(key, id);
       if (!image || claimed.has(id) || Date.parse(image.expiresAt) <= Date.parse(this.now()))
         throw new ProtoError("attachment_expired");
       if (!owns(author, image.uploaderKind, image.uploaderId))
         throw new ProtoError("message_not_owned");
-      images.push(image);
-    }
+      return image;
+    });
     if (images.length) await mkdir(join(this.directory, key, "attachments"), { recursive: true });
     // Copy before publication: until the atomic JSON rename pending metadata remains authoritative.
-    for (const image of images)
-      await copyFile(this.imagePath(key, image, true), this.imagePath(key, image));
+    await mapConcurrent(images, image =>
+      copyFile(this.imagePath(key, image, true), this.imagePath(key, image))
+    );
     return images.map(({ expiresAt: _expiresAt, ...image }) => image);
   }
   async upload(key: string, file: AttachmentInput, author: Author) {
@@ -373,15 +379,17 @@ export class FileStore extends ReviewEngine implements ReviewStore {
       scanning = true;
       try {
         const next = new Map<string, string>();
-        for (const name of await readdir(this.directory)) {
-          if (!name.endsWith(".json")) continue;
-          try {
-            const info = await stat(join(this.directory, name));
-            next.set(name, `${info.mtimeMs}:${info.size}:${info.ino}`);
-          } catch (error) {
-            if (!absent(error)) throw error;
+        await mapConcurrent(
+          (await readdir(this.directory)).filter(name => name.endsWith(".json")),
+          async name => {
+            try {
+              const info = await stat(join(this.directory, name));
+              next.set(name, `${info.mtimeMs}:${info.size}:${info.ino}`);
+            } catch (error) {
+              if (!absent(error)) throw error;
+            }
           }
-        }
+        );
         if (!stopped && initialized)
           for (const name of new Set([...previous.keys(), ...next.keys()]))
             if (previous.get(name) !== next.get(name)) notify(name);

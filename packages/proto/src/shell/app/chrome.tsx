@@ -151,7 +151,7 @@ export function ShellTopBar({
             const last = index === all.length - 1;
             return (
               <li
-                key={`${crumb.label}-${index}`}
+                key={crumb.to ? JSON.stringify(crumb.to) : crumb.label}
                 className={cn(
                   "flex min-w-0 items-center gap-1.5",
                   last ? "shrink" : "shrink-0",
@@ -364,6 +364,17 @@ export function Shell({ view, children }: { view: View; children: ReactNode }) {
   );
 }
 
+/** URL-focused comments select the Comments tab without copying focus into a separate store. */
+export function useFocusedTab(comment: string | null, initial: string) {
+  const [tab, setTab] = useState(comment ? "comments" : initial);
+  const [seen, setSeen] = useState(comment);
+  if (comment !== seen) {
+    setSeen(comment);
+    if (comment) setTab("comments");
+  }
+  return [tab, setTab] as const;
+}
+
 /**
  * Modal scoped to the shell: dims the shell, traps nothing it does not own, closes on Esc and
  * on backdrop click, returns focus to where it was.
@@ -381,6 +392,7 @@ export function ShellModal({
   align?: "center" | "top";
   children: ReactNode;
 }) {
+  const t = useT();
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -419,10 +431,14 @@ export function ShellModal({
         "fixed inset-0 z-50 flex justify-center bg-background/65 p-6 backdrop-blur-[2px]",
         align === "center" ? "items-center" : "items-start pt-[12vh]"
       )}
-      onMouseDown={event => {
-        if (event.target === event.currentTarget) onClose();
-      }}
     >
+      <button
+        type="button"
+        aria-label={t("common.close")}
+        onClick={onClose}
+        tabIndex={-1}
+        className="absolute inset-0"
+      />
       <div
         ref={panel}
         role="dialog"
@@ -430,7 +446,7 @@ export function ShellModal({
         aria-label={label}
         tabIndex={-1}
         onKeyDown={keep}
-        className="w-full rounded-2xl border border-border bg-[var(--shell-panel)] whitespace-normal shadow-2xl outline-none"
+        className="relative w-full rounded-2xl border border-border bg-[var(--shell-panel)] whitespace-normal shadow-2xl outline-none"
         style={{ maxWidth: width }}
       >
         {children}

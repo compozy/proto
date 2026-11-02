@@ -15,7 +15,7 @@ import { useReviewData } from "../data";
  * document (origin-relative `pathname + search`, base path included). A `returnTo` the server
  * put there (on a 401 it names the API request) is replaced, so sign-in lands on this screen.
  */
-export function signInHref(
+function signInHref(
   signInUrl: string,
   location: Pick<Location, "pathname" | "search" | "origin"> = window.location
 ) {
@@ -40,7 +40,7 @@ export function SignInPage() {
           {bootstrap.signInUrl ? (
             <Button
               className="mt-6 h-10 w-full font-semibold"
-              render={<a href={signInHref(bootstrap.signInUrl)} />}
+              render={<a href={signInHref(bootstrap.signInUrl)} aria-label={t("auth.continue")} />}
             >
               {t("auth.continue")}
             </Button>
@@ -78,7 +78,7 @@ export function SessionExpiredBanner() {
         <Button
           size="sm"
           className="shrink-0 font-semibold"
-          render={<a href={signInHref(signInUrl)} />}
+          render={<a href={signInHref(signInUrl)} aria-label={t("auth.signInAgain")} />}
         >
           {t("auth.signInAgain")}
         </Button>

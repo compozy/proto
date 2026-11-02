@@ -174,3 +174,13 @@ prepareApp(() => {
 disposeApp(() => {
   if (fixtureApp) rmSync(fixtureApp, { recursive: true, force: true });
 });
+
+// Invariant: environment URLs receive the same public configuration-error boundary as config URLs.
+// Owner: project URL builder; canonical transport/configuration suite.
+it("rejects a malformed remote URL override with invalid_config", async () => {
+  vi.stubEnv("PROTO_REMOTE_URL", "not a URL");
+  const project = await loadProject(fixtureApp);
+  expect(() => project.url({ slug: "login-form" }, { remote: true })).toThrowError(
+    expect.objectContaining({ code: "invalid_config" })
+  );
+});

@@ -19,7 +19,6 @@ import {
 import type { CanvasProps, FrameProps } from "../contract.ts";
 import type { Anchor, ElementTarget, PickMode, ShellMessage } from "../model/protocol.ts";
 import type { PrototypeModule, RenderConfig, RenderPrototype } from "../model/render-host.ts";
-import { renderPathPrefix } from "../model/render-host.ts";
 import { sourceRoots } from "../model/source.ts";
 import { watchAnchors } from "./anchors.ts";
 import { createBridge, type Bridge } from "./bridge.ts";
@@ -27,7 +26,7 @@ import { queryElement } from "./dom.ts";
 import { Picker } from "./picker.tsx";
 import { ThemeProvider, useTheme } from "./theme.tsx";
 import { PrototypeToolbar } from "./toolbar.tsx";
-import { useSearch } from "./url-state.ts";
+import { resolveSlug, useSearch } from "./url-state.ts";
 
 export type RenderHostProps = {
   config: RenderConfig;
@@ -36,24 +35,8 @@ export type RenderHostProps = {
   Frame: ComponentType<FrameProps> | null;
 };
 
-type Place = { pathname: string; search: string };
-
-/** The slug a render URL names: `…/__proto/render/<slug>` (path form) or `?slug=` (query form). */
-export function resolveSlug(place: Place, form: RenderConfig["form"]) {
-  if (form === "query") return new URLSearchParams(place.search).get("slug");
-  const at = place.pathname.lastIndexOf(renderPathPrefix);
-  if (at < 0) return null;
-  const rest = place.pathname.slice(at + renderPathPrefix.length).replace(/\/+$/, "");
-  if (!rest || rest.includes("/")) return null;
-  try {
-    return decodeURIComponent(rest);
-  } catch {
-    return null;
-  }
-}
-
 /** The requested state when the prototype declares it, else its first state. */
-export function resolveState(requested: string | null, states: RenderPrototype["states"]) {
+function resolveState(requested: string | null, states: RenderPrototype["states"]) {
   return states.find(option => option.id === requested)?.id ?? states[0].id;
 }
 
@@ -61,7 +44,7 @@ export function resolveState(requested: string | null, states: RenderPrototype["
  * The requested role when the prototype supports it, else its first declared role; a prototype
  * without declared roles renders any requested role (the shell offers the configured ones).
  */
-export function resolveRole(requested: string | null, declared: readonly string[]) {
+function resolveRole(requested: string | null, declared: readonly string[]) {
   if (declared.length === 0) return requested || null;
   return declared.find(role => role === requested) ?? declared[0] ?? null;
 }
@@ -70,7 +53,7 @@ export function resolveRole(requested: string | null, declared: readonly string[
  * Whether the render grant expired (remote): the host's own document answers 401. The shell
  * reacts to `auth:expired` with a new render ticket and reloads the frame.
  */
-export async function grantExpired(url: string) {
+async function grantExpired(url: string) {
   try {
     const response = await fetch(url, { method: "HEAD", credentials: "include" });
     return response.status === 401;
@@ -88,12 +71,24 @@ function messageOf(error: unknown) {
 
 type BoundaryProps = {
   children: ReactNode;
+  component: PrototypeModule["default"];
   onError: (error: unknown, componentStack: string | null) => void;
 };
 
 /** A canvas, frame or prototype that throws shows the error and reports it to the shell. */
-class RenderBoundary extends Component<BoundaryProps, { error: unknown }> {
-  state: { error: unknown } = { error: null };
+class RenderBoundary extends Component<
+  BoundaryProps,
+  { error: unknown; component: PrototypeModule["default"] }
+> {
+  state: { error: unknown; component: PrototypeModule["default"] } = {
+    error: null,
+    component: this.props.component,
+  };
+
+  static getDerivedStateFromProps(props: BoundaryProps, state: RenderBoundary["state"]) {
+    // A new component can recover a failed render without remounting a healthy Refresh subtree.
+    return props.component !== state.component ? { error: null, component: props.component } : null;
+  }
 
   static getDerivedStateFromError(error: unknown) {
     return { error: error ?? new Error("Unknown render error") };
@@ -133,7 +128,11 @@ function ReportReady({ onReady }: { onReady: () => void }) {
   return null;
 }
 
-type Loaded = { slug: string; module: PrototypeModule | null; error: unknown };
+type Loaded = {
+  slug: string;
+  component: PrototypeModule["default"] | null;
+  error: unknown;
+};
 
 function useModule(entry: RenderPrototype | undefined, onFailure: (error: unknown) => void) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -142,10 +141,10 @@ function useModule(entry: RenderPrototype | undefined, onFailure: (error: unknow
     if (!entry) return;
     let live = true;
     entry.load().then(
-      module => live && setLoaded({ slug: entry.slug, module, error: null }),
+      module => live && setLoaded({ slug: entry.slug, component: module.default, error: null }),
       (error: unknown) => {
         if (!live) return;
-        setLoaded({ slug: entry.slug, module: null, error });
+        setLoaded({ slug: entry.slug, component: null, error });
         fail(error);
       }
     );
@@ -176,6 +175,69 @@ function useShellMessages(
     const stop = bridge.listen(onMessage);
     return () => stop();
   }, [bridge]);
+}
+
+/** The loaded prototype owns the error boundary; a replacement component resets a failed render. */
+function PrototypeContent({
+  entry,
+  loaded,
+  slug,
+  state,
+  role,
+  theme,
+  Canvas,
+  Frame,
+  bridge,
+  reportError,
+}: {
+  entry: RenderPrototype | undefined;
+  loaded: Loaded | null;
+  slug: string | null;
+  state: string;
+  role: string | null;
+  theme: "light" | "dark";
+  Canvas: RenderHostProps["Canvas"];
+  Frame: RenderHostProps["Frame"];
+  bridge: Bridge;
+  reportError: BoundaryProps["onError"];
+}) {
+  if (!entry) return <RenderError message={`Unknown prototype "${slug ?? ""}"`} />;
+  if (loaded?.error) return <RenderError message={messageOf(loaded.error)} />;
+  if (loaded?.component) {
+    const Prototype = loaded.component;
+    const framed = entry.kind === "component" && !entry.standalone && Frame !== null;
+    const content = (
+      <>
+        <Prototype state={state} role={role} />
+        <ReportReady
+          onReady={() => {
+            // Standalone capture has no parent bridge; expose the same committed readiness locally.
+            document.documentElement.dataset.protoReady = `${entry.slug}:${state}`;
+            bridge.post({ type: "ready", slug: entry.slug, state });
+          }}
+        />
+      </>
+    );
+    return (
+      <RenderBoundary
+        key={`${entry.slug}:${state}:${role ?? ""}`}
+        component={loaded.component}
+        onError={reportError}
+      >
+        <Canvas theme={theme} role={role}>
+          {framed ? (
+            <Frame route={entry.route ?? "/"} role={role} state={state}>
+              {content}
+            </Frame>
+          ) : (
+            content
+          )}
+        </Canvas>
+      </RenderBoundary>
+    );
+  }
+
+  return null;
 }
 
 function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & { bridge: Bridge }) {
@@ -246,39 +308,6 @@ function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & {
     bridge.post({ type: "pick:cancel" });
   };
 
-  let body: ReactNode = null;
-  if (!entry) body = <RenderError message={`Unknown prototype "${slug ?? ""}"`} />;
-  else if (loaded?.error) body = <RenderError message={messageOf(loaded.error)} />;
-  else if (loaded?.module) {
-    const Prototype = loaded.module.default;
-    const framed = entry.kind === "component" && !entry.standalone && Frame !== null;
-    const content = (
-      <>
-        <Prototype state={state} role={role} />
-        <ReportReady
-          onReady={() => {
-            // Standalone capture has no parent bridge; expose the same committed readiness locally.
-            document.documentElement.dataset.protoReady = `${entry.slug}:${state}`;
-            bridge.post({ type: "ready", slug: entry.slug, state });
-          }}
-        />
-      </>
-    );
-    body = (
-      <RenderBoundary key={`${entry.slug}:${state}:${role ?? ""}`} onError={reportError}>
-        <Canvas theme={theme} role={role}>
-          {framed ? (
-            <Frame route={entry.route ?? "/"} role={role} state={state}>
-              {content}
-            </Frame>
-          ) : (
-            content
-          )}
-        </Canvas>
-      </RenderBoundary>
-    );
-  }
-
   const galleryHref =
     entry && config.mode === "dev"
       ? `${config.shellOrigin}/?${new URLSearchParams({ p: entry.slug, state })}`
@@ -286,7 +315,18 @@ function Host({ config, prototypes, Canvas, Frame, bridge }: RenderHostProps & {
 
   return (
     <>
-      {body}
+      <PrototypeContent
+        entry={entry}
+        loaded={loaded}
+        slug={slug}
+        state={state}
+        role={role}
+        theme={theme}
+        Canvas={Canvas}
+        Frame={Frame}
+        bridge={bridge}
+        reportError={reportError}
+      />
       {entry && params.get("chrome") !== "0" ? (
         <PrototypeToolbar slug={entry.slug} meta={entry} state={state} galleryHref={galleryHref} />
       ) : null}

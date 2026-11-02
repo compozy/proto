@@ -145,8 +145,11 @@ describe("ScreenFrame", () => {
       const button = [...container.querySelectorAll("button")].find(item =>
         item.textContent?.includes("Copy error")
       )!;
-      act(() => button.click());
-      await vi.waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        button.click();
+        await clipboard.mock.results[0]!.value.catch(() => {});
+      });
+      expect(clipboard).toHaveBeenCalledTimes(1);
       expect(button.textContent).toContain("Copy error");
       act(() => button.click());
       await vi.waitFor(() => expect(button.textContent).toContain("Copied"));

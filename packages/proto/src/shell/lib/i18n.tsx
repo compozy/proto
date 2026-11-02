@@ -12,7 +12,7 @@ type Vars = Record<string, string | number>;
 
 const catalogs: Record<Locale, Record<string, string>> = { en, "pt-BR": ptBR };
 
-export function translate(locale: Locale, key: MessageKey | PluralKey, vars: Vars = {}) {
+function translate(locale: Locale, key: MessageKey | PluralKey, vars: Vars = {}) {
   const catalog = catalogs[locale];
   const variant =
     typeof vars.count === "number" ? `${key}.${vars.count === 1 ? "one" : "other"}` : key;

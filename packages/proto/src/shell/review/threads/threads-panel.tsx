@@ -47,12 +47,6 @@ export function ThreadsPanel({
   const resolved = comments.filter(item => item.status === "resolved");
   const shown = current === "open" ? open : resolved;
   const { canvasTools } = useSlots();
-  const scopeLabel =
-    scope.kind === "state"
-      ? t("thread.thisState")
-      : scope.node
-        ? t("thread.thisStep")
-        : t("thread.wholeFlow");
   if (!review) return null;
   return (
     <div className="flex flex-col gap-3">
@@ -67,20 +61,7 @@ export function ThreadsPanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        {(scope.kind === "state" || scope.node !== null) && (
-          <button
-            type="button"
-            aria-pressed={all}
-            onClick={() => setAll(value => !value)}
-            className="text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            {all
-              ? scope.kind === "state"
-                ? t("thread.allStates")
-                : t("thread.wholeFlow")
-              : scopeLabel}
-          </button>
-        )}
+        <ScopeToggle scope={scope} all={all} onToggle={() => setAll(value => !value)} />
       </div>
       {focused && query.data && !focusedComment && (
         <p
@@ -105,11 +86,39 @@ export function ThreadsPanel({
           />
         ))}
       </div>
-      {!review.writable ? (
+      <ThreadStatus
+        writable={review.writable}
+        loaded={query.data !== undefined}
+        count={shown.length}
+        current={current}
+        hasTools={Boolean(canvasTools)}
+      />
+      <ReviewHistory reviewKey={reviewKey} onComment={onFocus} />
+    </div>
+  );
+}
+
+function ThreadStatus({
+  writable,
+  loaded,
+  count,
+  current,
+  hasTools,
+}: {
+  writable: boolean;
+  loaded: boolean;
+  count: number;
+  current: "open" | "resolved";
+  hasTools: boolean;
+}) {
+  const t = useT();
+  return (
+    <>
+      {!writable ? (
         <p className="text-center text-xs text-muted-foreground">{t("thread.readOnly")}</p>
       ) : (
-        shown.length === 0 &&
-        query.data && (
+        count === 0 &&
+        loaded && (
           <div
             className={cn(
               "grid place-items-center rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground"
@@ -117,7 +126,7 @@ export function ThreadsPanel({
           >
             {current === "resolved" ? (
               t("thread.noneResolved")
-            ) : !canvasTools ? (
+            ) : !hasTools ? (
               t("thread.none")
             ) : (
               <span>
@@ -128,7 +137,42 @@ export function ThreadsPanel({
           </div>
         )
       )}
-      <ReviewHistory reviewKey={reviewKey} onComment={onFocus} />
-    </div>
+    </>
+  );
+}
+
+function ScopeToggle({
+  scope,
+  all,
+  onToggle,
+}: {
+  scope: ThreadScope;
+  all: boolean;
+  onToggle: () => void;
+}) {
+  const t = useT();
+  const scopeLabel =
+    scope.kind === "state"
+      ? t("thread.thisState")
+      : scope.node
+        ? t("thread.thisStep")
+        : t("thread.wholeFlow");
+  return (
+    <>
+      {(scope.kind === "state" || scope.node !== null) && (
+        <button
+          type="button"
+          aria-pressed={all}
+          onClick={onToggle}
+          className="text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          {all
+            ? scope.kind === "state"
+              ? t("thread.allStates")
+              : t("thread.wholeFlow")
+            : scopeLabel}
+        </button>
+      )}{" "}
+    </>
   );
 }

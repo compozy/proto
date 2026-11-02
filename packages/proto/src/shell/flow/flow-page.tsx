@@ -1,7 +1,6 @@
 /** S4 flow canvas with the S5 step inspector (flow summary when nothing is selected). */
-import { useState } from "react";
 
-import type { RegistryFlow, ResolvedNode } from "../../model/registry";
+import type { Registry, RegistryFlow, ResolvedNode } from "../../model/registry";
 import {
   Fact,
   Facts,
@@ -10,6 +9,7 @@ import {
   ShellSubHeader,
   StateDot,
   useInspector,
+  useFocusedTab,
   type ViewTab,
 } from "../app/chrome";
 import { Link } from "../app/link";
@@ -24,6 +24,7 @@ import {
   nodeTitle,
   orderedSteps,
   padNumber,
+  prototypeIndex,
   stepKind,
 } from "../lib/registry-model";
 import { useRegistry, useShellData } from "../lib/shell-data";
@@ -34,6 +35,19 @@ import { Button } from "../ui/button";
 import { ArrowRight, ExternalLink } from "../ui/icons";
 import { useStepBadge } from "../review/review-ui";
 import { FlowCanvas } from "./flow-canvas";
+
+function uncoveredStates(registry: Registry, coverage: ReturnType<typeof flowCoverage>) {
+  const prototypesBySlug = prototypeIndex(registry);
+  const uncovered = new Map<string, string[]>();
+  for (const warning of coverage) {
+    if (!warning.proto || !warning.state) continue;
+    const prototype = prototypesBySlug.get(warning.proto);
+    const label =
+      prototype?.states.find(state => state.id === warning.state)?.label ?? warning.state;
+    uncovered.set(warning.proto, [...(uncovered.get(warning.proto) ?? []), label]);
+  }
+  return uncovered;
+}
 
 export function FlowPage({
   flow,
@@ -53,12 +67,7 @@ export function FlowPage({
   const slots = useSlots();
   const inspector = useInspector();
   const badge = useStepBadge(flow.id);
-  const [tab, setTab] = useState(comment ? "comments" : "step");
-  const [seenComment, setSeenComment] = useState(comment);
-  if (comment !== seenComment) {
-    setSeenComment(comment);
-    if (comment) setTab("comments");
-  }
+  const [tab, setTab] = useFocusedTab(comment, "step");
   const selected = flow.nodes.find(item => item.id === node) ?? null;
   const target: ReviewTarget = {
     kind: "flow",
@@ -68,17 +77,7 @@ export function FlowPage({
   };
   const problems = flowProblems(registry, flow.id);
   const coverage = flowCoverage(registry, flow);
-  const prototypesBySlug = new Map(
-    registry.prototypes.map(prototype => [prototype.slug, prototype])
-  );
-  const uncovered = new Map<string, string[]>();
-  for (const warning of coverage) {
-    if (!warning.proto || !warning.state) continue;
-    const prototype = prototypesBySlug.get(warning.proto);
-    const label =
-      prototype?.states.find(state => state.id === warning.state)?.label ?? warning.state;
-    uncovered.set(warning.proto, [...(uncovered.get(warning.proto) ?? []), label]);
-  }
+  const uncovered = uncoveredStates(registry, coverage);
   // Re-selecting the step on screen keeps its focused comment; another step drops it.
   const select = (id: string | null) =>
     go(

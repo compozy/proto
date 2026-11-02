@@ -24,7 +24,7 @@ function subscribeScheme(listener: () => void) {
 const systemDark = () => window.matchMedia(darkQuery).matches;
 
 /** `?theme=light|dark`; no parameter means "system". */
-export function themePreference(search: string): ThemePreference {
+function themePreference(search: string): ThemePreference {
   const param = new URLSearchParams(search).get("theme");
   return param === "light" || param === "dark" ? param : "system";
 }

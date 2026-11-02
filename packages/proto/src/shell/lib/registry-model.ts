@@ -25,6 +25,13 @@ export type Groups = {
   drafts: RegistryPrototype[];
 };
 
+export function prototypeIndex(registry: Registry) {
+  const index = new Map<string, RegistryPrototype>();
+  for (const prototype of registry.prototypes)
+    if (!index.has(prototype.slug)) index.set(prototype.slug, prototype);
+  return index;
+}
+
 export function specTitle(registry: Registry, spec: string) {
   return registry.specs?.[spec] ?? spec;
 }

@@ -122,10 +122,10 @@ function FlowTool({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> 
         </Button>
       </div>
       {open && (
-        <div
-          role="dialog"
+        <dialog
+          open
           aria-label={node ? t("comment.step", { step: node.step, label }) : t("comment.flow")}
-          className="absolute top-full right-0 z-30 mt-2 w-[300px] rounded-xl border border-border bg-[var(--shell-panel)] p-3 shadow-2xl"
+          className="absolute top-full right-0 left-auto z-30 m-0 mt-2 w-[300px] text-foreground rounded-xl border border-border bg-[var(--shell-panel)] p-3 shadow-2xl"
         >
           <Composer
             key={`${target.key}:${node?.id ?? ""}`}
@@ -140,7 +140,7 @@ function FlowTool({ target }: { target: Extract<ReviewTarget, { kind: "flow" }> 
               </p>
             }
           />
-        </div>
+        </dialog>
       )}
     </div>
   );

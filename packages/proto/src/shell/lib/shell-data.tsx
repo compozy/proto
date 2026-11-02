@@ -31,10 +31,7 @@ export type ShellEnv = {
   renderOrigin: string;
 };
 
-export async function loadBootstrap(
-  base = document.baseURI,
-  signal?: AbortSignal
-): Promise<ShellEnv> {
+async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Promise<ShellEnv> {
   const response = await fetch(new URL(bootstrapHref, base), {
     headers: { accept: "application/json" },
     credentials: "same-origin",
@@ -52,7 +49,7 @@ function isRegistry(value: unknown): value is Registry {
   return [prototypes, flows, problems, warnings].every(Array.isArray);
 }
 
-export async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Registry> {
+async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Registry> {
   const url = new URL(env.bootstrap.registryUrl, document.baseURI);
   const response = await fetch(url, {
     headers: { accept: "application/json" },
@@ -72,7 +69,7 @@ type EventListener = (data: { key?: string }) => void;
  * One EventSource per shell, fanned out to subscribers by event type. It connects with the first
  * subscriber and closes with the last, so creating it has no side effect.
  */
-export class ShellEvents {
+class ShellEvents {
   #listeners = new Map<ShellEventType, Set<EventListener>>();
   #source: EventSource | null = null;
   #url: string | null;
@@ -133,7 +130,7 @@ type ShellData = ShellEnv & { registry: RegistryState; events: ShellEvents; relo
 
 const ShellDataContext = createContext<ShellData | null>(null);
 
-export const bootstrapQuery = () =>
+const bootstrapQuery = () =>
   queryOptions({
     queryKey: ["bootstrap", new URL(bootstrapHref, document.baseURI).href],
     // Bootstrap belongs to this shell session; keep its request across StrictMode trial mounts.
@@ -141,7 +138,11 @@ export const bootstrapQuery = () =>
     staleTime: Infinity,
   });
 
-export const registryQuery = (env: ShellEnv) =>
+export function useBootstrap() {
+  return useQuery(bootstrapQuery());
+}
+
+const registryQuery = (env: ShellEnv) =>
   queryOptions({
     queryKey: ["registry", new URL(env.bootstrap.registryUrl, document.baseURI).href],
     queryFn: ({ signal }) => loadRegistry(env, signal),

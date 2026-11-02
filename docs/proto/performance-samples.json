@@ -109,5 +109,20 @@
                 2.3930420000000012
             ]
         }
-    ]
+    ],
+    "reactDoctorFollowUp": {
+        "date": "2026-11-02",
+        "baseCommit": "af373af607c536919466a285cb4966d033d38ded",
+        "doctorVersion": "0.9.18",
+        "analyzedFiles": 223,
+        "errors": 0,
+        "reportedWarnings": 0,
+        "localIframeExceptions": 3,
+        "bundle": {
+            "initialJavaScriptGzip": 280590,
+            "allJavaScriptAndCssGzip": 379518,
+            "allJavaScriptCssHtmlGzip": 379906,
+            "budget": 409600
+        }
+    }
 }

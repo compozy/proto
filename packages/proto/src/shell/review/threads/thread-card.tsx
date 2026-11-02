@@ -271,12 +271,9 @@ export function ThreadCard({
     <article
       aria-label={t("thread.label", { number: commentNumber(comment) })}
       aria-current={active ? "true" : undefined}
-      onClick={() => {
-        if (!active) onFocus();
-      }}
       className={cn(
         "rounded-xl border border-border bg-background p-3",
-        !active && "cursor-pointer hover:border-primary/40",
+        !active && "hover:border-primary/40",
         active && "border-primary/60 shadow-[0_0_0_3px_var(--shell-primary-soft)]"
       )}
     >
@@ -301,13 +298,13 @@ export function ThreadCard({
         <button
           type="button"
           onClick={onFocus}
-          className="sr-only focus:not-sr-only focus:mt-2 focus:text-xs"
+          className="mt-2 rounded text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
         >
           {t("thread.openThread")}
         </button>
       )}
       {active && permissions?.comment && (
-        <div className="mt-3 flex flex-col gap-2" onClick={event => event.stopPropagation()}>
+        <div className="mt-3 flex flex-col gap-2">
           {comment.status === "open" ? (
             resolving ? (
               <Composer

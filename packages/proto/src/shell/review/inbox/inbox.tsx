@@ -11,9 +11,9 @@ import { Link } from "../../app/link";
 import { Preview } from "../../frames/preview";
 import { useLocale, useT } from "../../lib/i18n";
 import { go } from "../../lib/navigation";
-import { specTitle } from "../../lib/registry-model";
+import { prototypeIndex, specTitle } from "../../lib/registry-model";
 import { useRegistry } from "../../lib/shell-data";
-import { screenView, type InboxFilter, type View } from "../../lib/view";
+import { type InboxFilter } from "../../lib/view";
 import { Avatar, AvatarFallback } from "../../ui/avatar";
 import { Bot, ExternalLink, Monitor, Workflow } from "../../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../../ui/native-select";
@@ -24,6 +24,7 @@ import {
   authorName,
   byActivity,
   commentNumber,
+  commentView,
   initials,
   isWaiting,
   relativeTime,
@@ -36,22 +37,6 @@ type Item = {
   spec: string | null;
   kind: "screen" | "flow";
 };
-
-/** Where a comment opens: its prototype state, or its flow step. */
-export function commentView(registry: Registry, comment: ReviewComment): View {
-  const flow = flowOfKey(comment.slug);
-  if (flow)
-    return {
-      area: "flow",
-      flow,
-      node: comment.target.kind === "node" ? comment.target.node : null,
-      comment: comment.id,
-    };
-  return screenView(comment.slug, comment.context.state, {
-    comment: comment.id,
-    role: comment.context.role,
-  });
-}
 
 /** The prototype state a comment shows (flow comments: the step's prototype). */
 function previewTarget(registry: Registry, comment: ReviewComment) {
@@ -94,7 +79,7 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   const [spec, setSpec] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const comments = query.data ?? [];
-  const prototypes = new Map(registry.prototypes.map(item => [item.slug, item]));
+  const prototypes = prototypeIndex(registry);
   const flows = new Map(registry.flows.map(item => [item.id, item]));
   const described = comments.map(item => describe(prototypes, flows, item));
   const counts = {
@@ -276,7 +261,7 @@ function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
   const t = useT();
   const registry = useRegistry();
   const target = previewTarget(registry, item.comment);
-  const view = commentView(registry, item.comment);
+  const view = commentView(item.comment);
   const rect = item.comment.target.kind === "node" ? null : item.comment.target.rectNormalized;
   const width = item.comment.context.viewport.width || 1280;
   const height = item.comment.context.viewport.height || 800;

@@ -208,6 +208,8 @@ export async function loadProject(
         ? process.env.PROTO_REMOTE_URL || config.review.remote?.url
         : `http://127.0.0.1:${config.dev.port}`;
       if (!base) throw new ProtoError("invalid_config", "review.remote.url is required");
+      if (!URL.canParse(base))
+        throw new ProtoError("invalid_config", "The remote review URL is invalid.");
       const url =
         target.bare && !options?.remote
           ? new URL(

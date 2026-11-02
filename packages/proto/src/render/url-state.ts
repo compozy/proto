@@ -5,6 +5,23 @@
  * calls `setParam` moves the review context with it.
  */
 import { useSyncExternalStore } from "react";
+import { renderPathPrefix, type RenderConfig } from "../model/render-host.ts";
+
+type Place = { pathname: string; search: string };
+
+/** The slug a render URL names: `…/__proto/render/<slug>` (path form) or `?slug=` (query form). */
+export function resolveSlug(place: Place, form: RenderConfig["form"]) {
+  if (form === "query") return new URLSearchParams(place.search).get("slug");
+  const at = place.pathname.lastIndexOf(renderPathPrefix);
+  if (at < 0) return null;
+  const rest = place.pathname.slice(at + renderPathPrefix.length).replace(/\/+$/, "");
+  if (!rest || rest.includes("/")) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
 
 const listeners = new Set<() => void>();
 

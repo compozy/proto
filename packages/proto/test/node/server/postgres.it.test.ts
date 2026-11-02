@@ -82,6 +82,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       const larger = await measure();
       expect(larger.queries).toBeLessThanOrEqual(small.queries + 2);
       expect(larger.attachmentBytes).toBe(0);
+      // Positive control: the same decoder instrumentation must detect a real image-body read.
+      reads = { queries: 0, attachmentBytes: 0 };
+      try {
+        const first = larger.comments[0]!;
+        await store.readAttachment(first.slug, first.thread[0]!.attachments[0]!.id);
+        expect(reads.attachmentBytes).toBeGreaterThan(0);
+      } finally {
+        reads = null;
+      }
       expect(larger.comments).toHaveLength(12);
       for (const comment of larger.comments) {
         expect(comment.thread.map(message => message.body)).toEqual([

@@ -50,7 +50,7 @@ import {
 import { cn } from "../ui/utils";
 import { cardWidth, layoutFlow } from "./layout";
 
-export const tone: Record<StepKind, string> = {
+const tone: Record<StepKind, string> = {
   start: "var(--tone-start)",
   screen: "var(--tone-screen)",
   overlay: "var(--tone-overlay)",
@@ -59,7 +59,7 @@ export const tone: Record<StepKind, string> = {
   end: "var(--tone-end)",
 };
 
-export const glyph: Record<StepKind, typeof Monitor> = {
+const glyph: Record<StepKind, typeof Monitor> = {
   start: LogIn,
   screen: Monitor,
   overlay: Layers,
@@ -68,7 +68,7 @@ export const glyph: Record<StepKind, typeof Monitor> = {
   end: Flag,
 };
 
-export const dash: Record<EdgeKind, string | undefined> = {
+const dash: Record<EdgeKind, string | undefined> = {
   navigate: undefined,
   overlay: "5 4",
   redirect: "1.5 4",
@@ -480,8 +480,8 @@ export function FlowCanvas(props: FlowCanvasProps) {
             {t("flow.problems", { count: props.problems.length })}
           </div>
           <ul className="mt-1.5 flex flex-col gap-1">
-            {props.problems.map((problem, index) => (
-              <li key={`${problem.code}-${index}`} className="flex gap-2 text-xs">
+            {props.problems.map(problem => (
+              <li key={JSON.stringify(problem)} className="flex gap-2 text-xs">
                 <span className="shrink-0 font-mono text-destructive uppercase">
                   {problem.code}
                 </span>

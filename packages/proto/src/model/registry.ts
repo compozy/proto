@@ -101,3 +101,11 @@ export const flowKey = (flow: string) => `${flowKeyPrefix}${flow}`;
 export function flowOfKey(key: string) {
   return key.startsWith(flowKeyPrefix) ? key.slice(flowKeyPrefix.length) : null;
 }
+
+/** Every review key of the registry: prototype slugs and `flow-<id>`. */
+export function reviewKeys(registry: { prototypes: { slug: string }[]; flows: { id: string }[] }) {
+  return [
+    ...registry.prototypes.map(item => item.slug),
+    ...registry.flows.map(item => flowKey(item.id)),
+  ];
+}

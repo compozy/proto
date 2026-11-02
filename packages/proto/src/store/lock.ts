@@ -176,8 +176,10 @@ export class KeyLocks {
   async acquire(key: string): Promise<() => Promise<void>> {
     await mkdir(this.directory, { recursive: true });
     const started = performance.now();
-    const hostId = await this.environment.hostId();
-    const processStartedAt = await this.environment.processStartedAt(process.pid);
+    const [hostId, processStartedAt] = await Promise.all([
+      this.environment.hostId(),
+      this.environment.processStartedAt(process.pid),
+    ]);
     if (!processStartedAt)
       throw new ProtoError("key_busy", "Cannot establish lock owner start time.");
     const owner = { token: crypto.randomUUID(), pid: process.pid, processStartedAt, hostId };

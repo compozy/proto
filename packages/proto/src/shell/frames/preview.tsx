@@ -109,7 +109,9 @@ function PreviewFrame({
   return (
     <>
       <div inert className={cn("absolute inset-0", hidden && "invisible")}>
+        {/* oxlint-disable react-doctor/iframe-missing-sandbox -- Authored prototypes require scripts and real origins; dev/remote use separate origins and static builds trust bundled code. See docs/proto/performance.md. */}
         <iframe
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
           key={frame.nonce}
           ref={iframe}
           src={frame.src ?? undefined}
@@ -118,6 +120,7 @@ function PreviewFrame({
           className="pointer-events-none absolute top-0 left-0 origin-top-left border-0 bg-background"
           style={{ width, height, transform: `scale(${scale})` }}
         />
+        {/* oxlint-enable react-doctor/iframe-missing-sandbox */}
       </div>
       {frame.status.kind === "loading" && <FrameSkeleton className="p-[8%]" />}
       {frame.status.kind === "error" && (

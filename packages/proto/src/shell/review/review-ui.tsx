@@ -13,17 +13,31 @@ import type { ReviewTarget, ShellSlots } from "../app/slots";
 import { useLocale, useT, type Translate } from "../lib/i18n";
 import { go, useLocation } from "../lib/navigation";
 import type { SearchItem } from "../lib/search";
-import { useRegistry } from "../lib/shell-data";
+import { useRegistry, useShellData } from "../lib/shell-data";
 import { Bot, MessageSquare } from "../ui/icons";
 import { cn } from "../ui/utils";
 import { ReviewActions, ReviewMenu, ReviewStatus, StatusPill } from "./approval/approval";
 import { useAllComments, useReviewData, useReviewState, useReviewStates } from "./data";
-import { byActivity, commentNode, commentNumber, isWaiting, relativeTime } from "./format";
-import { commentView } from "./inbox/inbox";
+import {
+  byActivity,
+  commentView,
+  commentNode,
+  commentNumber,
+  isWaiting,
+  relativeTime,
+} from "./format";
 import { ThreadsPanel } from "./threads/threads-panel";
 
+/** The review extension responds to the shell's current locale and review capability. */
+export function useReviewSlots(): ShellSlots {
+  const t = useT();
+  const review = useReviewData();
+  const { bootstrap } = useShellData();
+  return review ? reviewSlots(t) : bootstrap.mode === "read-only" ? readOnlySlots(t) : {};
+}
+
 /** Slots of the review slice; merge comment mode's (`canvasTools`, `screenFrame`, …) on top. */
-export function reviewSlots(t: Translate): ShellSlots {
+function reviewSlots(t: Translate): ShellSlots {
   return {
     reviewActions: target => <TopBarActions target={target} />,
     reviewStatus: target => <ReviewStatus reviewKey={target.key} />,
@@ -45,7 +59,7 @@ export function reviewSlots(t: Translate): ShellSlots {
 }
 
 /** S21 read-only build without review history: say so where comments would be. */
-export function readOnlySlots(t: Translate): ShellSlots {
+function readOnlySlots(t: Translate): ShellSlots {
   return {
     inspectorTabs: () => [
       {
@@ -210,7 +224,6 @@ export function CommentsRailItem({
 /** ⌘K results for comments (`text` tier: after slugs, titles and state labels). */
 export function useCommentSearchItems(): SearchItem[] {
   const t = useT();
-  const registry = useRegistry();
   const comments = useAllComments().data ?? [];
   return comments.map(comment => {
     const first = comment.thread[0];
@@ -222,7 +235,7 @@ export function useCommentSearchItems(): SearchItem[] {
       detail: flow ? `${t("rail.flows")} · ${flow}` : comment.slug,
       hint: comment.status === "resolved" ? t("thread.resolved") : undefined,
       text: comment.thread.map(message => message.body).join("\n"),
-      target: { view: commentView(registry, comment) },
+      target: { view: commentView(comment) },
     };
   });
 }
@@ -261,7 +274,6 @@ export function NeedsReview() {
   const t = useT();
   const locale = useLocale();
   const review = useReviewData();
-  const registry = useRegistry();
   const comments = useAllComments().data;
   if (!review || !comments) return null;
   const open = comments.filter(item => item.status === "open").sort(byActivity);
@@ -284,7 +296,7 @@ export function NeedsReview() {
           return (
             <li key={comment.id}>
               <Link
-                to={commentView(registry, comment)}
+                to={commentView(comment)}
                 className="block rounded-xl border border-border bg-background p-3 hover:border-primary/50"
               >
                 <span className="flex items-center gap-2 text-[11px] text-muted-foreground">

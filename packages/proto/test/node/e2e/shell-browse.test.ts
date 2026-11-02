@@ -28,9 +28,11 @@ const fixture: Record<string, string> = {
   roles: { member: "Member", admin: "Admin" },
 };
 `,
-  "proto.canvas.tsx": `import type { ReactNode } from "react";
+  "proto.canvas.tsx": `import { useState, type ReactNode } from "react";
 export function Canvas({ children }: { children: ReactNode }) {
-  return <div data-testid="canvas">{children}</div>;
+  const [count, setCount] = useState(0);
+  return <div data-testid="canvas">{children}
+    <button data-testid="canvas-count" onClick={() => setCount(value => value + 1)}>{count}</button></div>;
 }
 export function Frame({ children, role }: { children: ReactNode; role: string | null }) {
   return <section data-testid="app-frame" data-role={role ?? ""}>{children}</section>;
@@ -172,8 +174,14 @@ describe("browsing apps/app", () => {
     await page.getByTestId("comment-tool").click();
     const dialog = page.getByRole("dialog", { name: /Comment on step 5/ });
     await dialog.getByRole("textbox").fill("The error step needs a retry link.");
-    await dialog.getByRole("button", { name: "Comment", exact: true }).click();
-    await dialog.waitFor({ state: "detached" });
+    // Invariant: an offline event cannot pause a reachable loopback mutation. Owner: shell query client.
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    try {
+      await dialog.getByRole("button", { name: "Comment", exact: true }).click();
+      await dialog.waitFor({ state: "detached" });
+    } finally {
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    }
     const [comment] = await app.store.list({ key: "flow-sign-in" });
     expect(comment).toMatchObject({ target: { kind: "node", node: "error" } });
     await page.getByRole("tab", { name: /Comments/ }).click();
@@ -271,6 +279,68 @@ describe("browsing a fixture", () => {
     }
   }, 90_000);
 
+  it("a failed lazy page offers a retry that loads the page after the network recovers", async () => {
+    // Invariant: a rejected dynamic import never blanks the gallery and retry starts a fresh module load.
+    // Owner: shell page boundary; canonical browsing suite, only chunk transport is interrupted.
+    const page = await browser.newPage();
+    const chunk = "**/assets/flow-page-*.js";
+    await page.route(chunk, route => route.abort("failed"));
+    try {
+      await page.goto(local.origin + "/?flow=preview");
+      await page.getByRole("alert").filter({ hasText: "This page could not load" }).waitFor();
+      await page.unroute(chunk);
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await page.getByRole("heading", { level: 1, name: "Preview journey", exact: true }).waitFor();
+    } finally {
+      await page.close();
+    }
+  }, 90_000);
+
+  it("creating and removing the canvas updates its virtual module without a server restart", async () => {
+    // Invariant: canvas existence is an independent render dependency. Owner: Vite virtual canvas.
+    const root = join(work.dir, "canvas-lifecycle");
+    const { ["proto.canvas.tsx"]: canvas, ...withoutCanvas } = fixture;
+    writeApp(root, withoutCanvas);
+    const server = await startProtoDev(root, join(work.dir, "shell"));
+    const page = await open(server.origin, "/?p=invoice");
+    const path = join(root, "proto.canvas.tsx");
+    try {
+      const initial = await renderFrame(page, server.renderOrigin, '[data-testid="invoice"]');
+      expect(await initial.locator('[data-testid="canvas"]').count()).toBe(0);
+      writeFileSync(path, canvas!);
+      await expect
+        .poll(
+          async () => {
+            const current = page
+              .frames()
+              .find(frame => frame.url().startsWith(server.renderOrigin));
+            return current?.locator('[data-testid="canvas"] [data-testid="invoice"]').count();
+          },
+          { timeout: 20_000 }
+        )
+        .toBe(1);
+      rmSync(path);
+      await expect
+        .poll(
+          async () => {
+            const current = page
+              .frames()
+              .find(frame => frame.url().startsWith(server.renderOrigin));
+            return current?.evaluate(
+              () =>
+                Boolean(document.querySelector('[data-testid="invoice"]')) &&
+                !document.querySelector('[data-testid="canvas"]')
+            );
+          },
+          { timeout: 20_000 }
+        )
+        .toBe(true);
+    } finally {
+      await page.close();
+      await server.close();
+    }
+  }, 90_000);
+
   it("flow and prototype edits update live previews without reloading their documents", async () => {
     // Invariant: authored updates preserve iframe documents; owner: Vite render HMR.
     const page = await open(local.origin, "/?flow=preview");
@@ -279,6 +349,11 @@ describe("browsing a fixture", () => {
     try {
       const frame = await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');
       const timeOrigin = await frame.evaluate(() => performance.timeOrigin);
+      // Invariant: unchanged Canvas state survives prototype replacement; owner: render host boundary.
+      await frame
+        .getByTestId("canvas-count")
+        .evaluate(button => (button as HTMLButtonElement).click());
+      await expect.poll(() => frame.getByTestId("canvas-count").textContent()).toBe("1");
       const address = frame.url();
       let loads = 0;
       page.on("request", request => {
@@ -308,12 +383,41 @@ describe("browsing a fixture", () => {
         ).replace('title: "Invoice"', 'title: "Invoice updated"')
       );
       await expect.poll(() => frame.title()).toBe("Invoice updated");
+      await expect.poll(() => frame.getByTestId("canvas-count").textContent()).toBe("1");
       expect(frame.url()).toBe(address);
       expect(await frame.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
       expect(loads).toBe(0);
     } finally {
       writeFileSync(flowPath, fixture["flows/preview.flow.ts"]!);
       writeFileSync(prototypePath, fixture["src/billing/invoice.proto.tsx"]!);
+      await page.close();
+    }
+  }, 90_000);
+
+  it("an interactive prototype cannot navigate the surrounding gallery", async () => {
+    // Invariant: user activation inside the render origin cannot navigate the shell's top window.
+    // Owner: iframe sandbox policy; canonical Chromium browsing suite with an actual frame click.
+    const page = await open(local.origin, "/?p=invoice");
+    try {
+      const frame = await renderFrame(page, local.renderOrigin, '[data-testid="invoice"]');
+      const address = page.url();
+      await frame.evaluate(destination => {
+        const button = document.createElement("button");
+        button.textContent = "Attempt top navigation";
+        button.onclick = () => {
+          try {
+            window.top!.location.href = destination;
+          } catch (error) {
+            button.dataset.result = (error as Error).name;
+          }
+        };
+        document.body.append(button);
+      }, `${address}&escaped=1`);
+      const button = frame.getByRole("button", { name: "Attempt top navigation" });
+      await button.click();
+      await expect.poll(() => button.getAttribute("data-result")).toBe("SecurityError");
+      expect(page.url()).toBe(address);
+    } finally {
       await page.close();
     }
   }, 90_000);

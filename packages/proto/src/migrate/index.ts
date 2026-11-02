@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../node/concurrency.ts";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readFile, readdir, mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -173,7 +174,7 @@ export async function migrateFiles(
     deletable: [],
     notes: [],
   };
-  let entries;
+  let entries: import("node:fs").Dirent[];
   try {
     entries = await readdir(source, { withFileTypes: true });
   } catch (error) {
@@ -201,11 +202,10 @@ export async function migrateFiles(
     }
   }
   const locks = new KeyLocks(destination);
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory()) continue;
+  async function migrateEntry(entry: (typeof entries)[number]) {
     const sourcePath = join(source, entry.name, "comments.json"),
       bytes = await maybeRead(sourcePath);
-    if (!bytes) continue;
+    if (!bytes) return;
     const item: MigrationKey = {
       sourceKey: entry.name,
       key: entry.name,
@@ -220,7 +220,6 @@ export async function migrateFiles(
       rewrites: [],
       notes: [],
     };
-    report.keys.push(item);
     try {
       const raw: unknown = JSON.parse(bytes.toString());
       const header = z
@@ -247,31 +246,38 @@ export async function migrateFiles(
           "Sequence seeded from retained ids; ids deleted before migration cannot be recovered."
         );
       const images = new Map<string, { report: MigratedAttachment; data: Buffer }>();
-      for (const image of file.comments.flatMap(comment =>
-        comment.thread.flatMap(message => message.attachments)
-      )) {
-        if (!/^[a-zA-Z0-9_-]{1,200}$/.test(image.id) || !extensions[image.type])
-          throw new ProtoError("migration_unverified", "Invalid attachment id or MIME type.");
-        const name = `${image.id}.${extensions[image.type]}`;
-        const imageSource = join(source, entry.name, "attachments", name),
-          imageTarget = join(destination, file.key, "attachments", name);
-        const data = await maybeRead(imageSource);
-        if (!data || data.length !== image.size)
+      const loadedImages = await mapConcurrent(
+        file.comments.flatMap(comment => comment.thread.flatMap(message => message.attachments)),
+        async image => {
+          if (!/^[a-zA-Z0-9_-]{1,200}$/.test(image.id) || !extensions[image.type])
+            throw new ProtoError("migration_unverified", "Invalid attachment id or MIME type.");
+          const name = `${image.id}.${extensions[image.type]}`;
+          const imageSource = join(source, entry.name, "attachments", name),
+            imageTarget = join(destination, file.key, "attachments", name);
+          const data = await maybeRead(imageSource);
+          if (!data || data.length !== image.size)
+            throw new ProtoError(
+              "migration_unverified",
+              `Missing or wrong-size attachment ${image.id}.`
+            );
+          const info: MigratedAttachment = {
+            id: image.id,
+            source: posix(relative(root, imageSource)),
+            target: posix(relative(root, imageTarget)),
+            bytes: data.length,
+            sha256: hash(data),
+          };
+          return { report: info, data };
+        }
+      );
+      for (const image of loadedImages) {
+        const previous = images.get(image.report.id);
+        if (previous && !isDeepStrictEqual(previous.report, image.report))
           throw new ProtoError(
             "migration_unverified",
-            `Missing or wrong-size attachment ${image.id}.`
+            `Conflicting attachment ${image.report.id}.`
           );
-        const info: MigratedAttachment = {
-          id: image.id,
-          source: posix(relative(root, imageSource)),
-          target: posix(relative(root, imageTarget)),
-          bytes: data.length,
-          sha256: hash(data),
-        };
-        const previous = images.get(image.id);
-        if (previous && !isDeepStrictEqual(previous.report, info))
-          throw new ProtoError("migration_unverified", `Conflicting attachment ${image.id}.`);
-        images.set(image.id, { report: info, data });
+        images.set(image.report.id, image);
       }
       item.attachments = [...images.values()].map(image => image.report);
       const migrateKey = async () => {
@@ -291,8 +297,7 @@ export async function migrateFiles(
               `Target key ${file.key} has different content.`
             );
         }
-        const pending: { target: string; data: Buffer }[] = [];
-        for (const image of images.values()) {
+        const checked = await mapConcurrent(images.values(), async image => {
           const path = resolve(root, image.report.target),
             existingImage = await maybeRead(path);
           if (existingImage && hash(existingImage) !== image.report.sha256)
@@ -300,22 +305,24 @@ export async function migrateFiles(
               "migration_conflict",
               `Target image ${image.report.id} has different bytes.`
             );
-          if (!existingImage) pending.push({ target: path, data: image.data });
-        }
+          return existingImage ? null : { target: path, data: image.data };
+        });
+        const pending = checked.filter(image => image !== null);
         if (dryRun) {
           item.status = existing && !pending.length ? "unchanged" : "planned";
           return;
         }
-        for (const image of pending) await writeBytes(image.target, image.data);
+        await mapConcurrent(pending, image => writeBytes(image.target, image.data));
         // Re-read source inputs before publishing the key; changed files never receive a verified report.
         if (hash(await readFile(sourcePath)) !== item.sourceSha256)
           throw new ProtoError("migration_unverified", "Source changed during migration.");
-        for (const image of images.values())
+        await mapConcurrent(images.values(), async image => {
           if (hash(await readFile(resolve(root, image.report.source))) !== image.report.sha256)
             throw new ProtoError(
               "migration_unverified",
               `Source image ${image.report.id} changed during migration.`
             );
+        });
         if (!existing) await atomicWrite(target, file);
         if (
           !isDeepStrictEqual(
@@ -324,12 +331,13 @@ export async function migrateFiles(
           )
         )
           throw new ProtoError("migration_unverified", `Verification failed for ${file.key}.`);
-        for (const image of images.values())
+        await mapConcurrent(images.values(), async image => {
           if (hash(await readFile(resolve(root, image.report.target))) !== image.report.sha256)
             throw new ProtoError(
               "migration_unverified",
               `Image verification failed for ${image.report.id}.`
             );
+        });
         item.verified = true;
         item.status = existing && !pending.length ? "unchanged" : "migrated";
       };
@@ -345,9 +353,35 @@ export async function migrateFiles(
             );
       item.status = problem.code === "migration_conflict" ? "conflict" : "failed";
       item.error = { code: problem.code, message: problem.message };
-      report.errors.push({ key: item.key, ...item.error });
     }
+    return item;
   }
+  const groups = new Map<string, typeof entries>();
+  const prefix = options.flowPrefix ?? "fluxo-";
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const key = entry.name.startsWith(prefix)
+      ? `flow-${entry.name.slice(prefix.length)}`
+      : entry.name;
+    const group = groups.get(key);
+    if (group) group.push(entry);
+    else groups.set(key, [entry]);
+  }
+  const migrated = await mapConcurrent(groups.values(), group =>
+    // Aliases can map to the same destination: publish them in source order, including dry runs.
+    group.reduce<Promise<MigrationKey[]>>(
+      (previous, entry) =>
+        previous.then(async items => {
+          const item = await migrateEntry(entry);
+          if (item) items.push(item);
+          return items;
+        }),
+      Promise.resolve([])
+    )
+  );
+  report.keys = migrated.flat().sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
+  for (const item of report.keys)
+    if (item.error) report.errors.push({ key: item.key, ...item.error });
   report.verified = !dryRun && report.errors.length === 0 && report.keys.every(key => key.verified);
   if (report.verified) {
     report.deletable.push(report.source);
