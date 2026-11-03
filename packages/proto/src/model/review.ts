@@ -2,9 +2,12 @@
 import { z } from "zod";
 import { ProtoError } from "./errors.ts";
 import { elementTargetSchema } from "./protocol.ts";
-import { slugPattern } from "./registry.ts";
+import { slugPattern, storyOfKey } from "./registry.ts";
 export { type ElementTarget, type Rect } from "./protocol.ts";
-export const keySchema = z.string().regex(slugPattern).max(200);
+export const keySchema = z
+  .string()
+  .refine(key => slugPattern.test(key) || storyOfKey(key) !== null)
+  .max(200);
 /** Parse a comment id without reading its review file. */
 export function keyOf(id: string): string {
   const match = /^(.+)-([1-9]\d*)$/.exec(id);

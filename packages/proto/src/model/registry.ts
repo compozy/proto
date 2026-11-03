@@ -57,6 +57,7 @@ export type RegistryFlow = {
 
 /** A problem fails `check` and `build`. `line`/`column` are 1-based when known. */
 export type RegistryProblem = {
+  root?: string;
   code: ProblemCode;
   file: string;
   message: string;
@@ -71,6 +72,7 @@ export type RegistryProblem = {
 
 /** A warning never fails a build. */
 export type RegistryWarning = {
+  root?: string;
   code: WarningCode;
   message: string;
   file?: string;
@@ -79,7 +81,26 @@ export type RegistryWarning = {
   spec?: string;
 };
 
+export type RegistryStory = {
+  id: string;
+  exportName: string;
+  name: string;
+  play: boolean;
+  tags: string[];
+};
+export type RegistryStoryFile = {
+  slug: string;
+  root: string;
+  file: string;
+  title: string;
+  path: string[];
+  description: string | null;
+  stories: [RegistryStory, ...RegistryStory[]];
+};
+export type RegistryStoryRoot = { id: string; title: string };
 export type Registry = {
+  storyRoots?: RegistryStoryRoot[];
+  stories?: RegistryStoryFile[];
   sourceRoots?: import("./source.ts").SourceRoots;
   title: string;
   locale: "en" | "pt-BR";
@@ -103,8 +124,25 @@ export function flowOfKey(key: string) {
 }
 
 /** Every review key of the registry: prototype slugs and `flow-<id>`. */
-export function reviewKeys(registry: { prototypes: { slug: string }[]; flows: { id: string }[] }) {
+export const storyKeyPrefix = "story--";
+export const storyKey = (slug: string) => `${storyKeyPrefix}${slug}`;
+export function storyOfKey(key: string): string | null {
+  const slug = key.slice(storyKeyPrefix.length);
+  return key.startsWith(storyKeyPrefix) && slugPattern.test(slug) && key.length <= 200
+    ? slug
+    : null;
+}
+export type ReviewKeyKind = "prototype" | "flow" | "story";
+export function keyKind(key: string): ReviewKeyKind {
+  return storyOfKey(key) !== null ? "story" : flowOfKey(key) !== null ? "flow" : "prototype";
+}
+export function reviewKeys(registry: {
+  prototypes: { slug: string }[];
+  flows: { id: string }[];
+  stories?: { slug: string }[];
+}) {
   return [
+    ...(registry.stories ?? []).map(item => storyKey(item.slug)),
     ...registry.prototypes.map(item => item.slug),
     ...registry.flows.map(item => flowKey(item.id)),
   ];

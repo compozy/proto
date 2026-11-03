@@ -46,7 +46,29 @@ export const anchorSchema = z.object({
 export type Anchor = z.infer<typeof anchorSchema>;
 
 /** Render → shell. */
+export type StoryFrameTarget = {
+  kind: "story";
+  root: string;
+  slug: string;
+  story: string;
+  theme: "light" | "dark";
+  play: boolean;
+  timeout?: number;
+  width?: number;
+};
+export const storyResultSchema = z.object({
+  story: z.string(),
+  stage: z.enum(["import", "load", "render", "play"]),
+  status: z.enum(["running", "passed", "failed"]),
+  hasPlay: z.boolean().nullable(),
+  error: z.string().max(4000).nullable(),
+  durationMs: z.number().nonnegative(),
+});
+export type StoryResult = z.infer<typeof storyResultSchema>;
+export type StoryStage = StoryResult["stage"];
+export type StoryStatus = StoryResult["status"];
 export const renderMessageSchema = z.discriminatedUnion("type", [
+  z.object({ ...envelope, type: z.literal("story:status"), ...storyResultSchema.shape }),
   z.object({ ...envelope, type: z.literal("ready"), slug: z.string(), state: z.string() }),
   z.object({
     ...envelope,
@@ -147,4 +169,19 @@ export function readContextUrl(
     role: parsePreviewRole(parsed.searchParams.get("role"), knownRoles),
     w: Number.isFinite(width) && width > 0 ? width : null,
   };
+}
+
+/** Dev path form or local static query form; never carries a remote render ticket. */
+export function storyHref(renderUrl: string, target: StoryFrameTarget & { frame?: string }) {
+  const query = new URLSearchParams({
+    theme: target.theme,
+    play: target.play ? "1" : "0",
+    instrument: "false",
+  });
+  const queryForm = renderUrl.endsWith(".html");
+  if (queryForm) query.set("story", target.story);
+  if (target.frame) query.set("frame", target.frame);
+  if (target.timeout !== undefined) query.set("timeout", String(target.timeout));
+  if (target.width) query.set("w", String(target.width));
+  return `${queryForm ? renderUrl : renderUrl.replace(/\/?$/, "/") + encodeURIComponent(target.story)}?${query}`;
 }

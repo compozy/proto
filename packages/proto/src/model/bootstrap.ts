@@ -38,6 +38,8 @@ export const bootstrapSchema = z.object({
    * `?slug=<slug>&state=…` (`renderHref` in `protocol.ts` builds both).
    */
   renderUrl: z.string(),
+  storyRoots: z.array(z.object({ id: z.string(), renderUrl: z.string() })).optional(),
+  projectId: z.string().optional(),
   /** Where the shell reads the registry snapshot (`GET registry` or `registry.json`). */
   registryUrl: z.string(),
   /** Read-only builds with `build.includeReview`: base of `review/<key>.json`; else null. */

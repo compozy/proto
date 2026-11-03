@@ -37,3 +37,58 @@ describe("config lifecycle", () => {
     ).toThrow(/specs/);
   });
 });
+
+// Invariant: story roots and every actual port fit their declared scope. Owner: config resolver.
+describe("story configuration", () => {
+  const root = {
+    id: "ui",
+    stories: "src/**/*.stories.tsx",
+    preview: "preview.ts",
+    vite: "vite.config.ts",
+  };
+  it("accepts an external root and keeps the root defaults", () => {
+    const config = resolveProtoConfig(
+      { title: "Stories", stories: { roots: [{ ...root, dir: "../../ui" }] } },
+      "/app",
+      {}
+    );
+    expect(config.stories?.roots[0]).toMatchObject({ dir: "../../ui", themeGlobal: "theme" });
+  });
+  it.each([
+    "../*.stories.tsx",
+    "/tmp/*.stories.tsx",
+    "src/../../*.stories.tsx",
+    "{src,../other}/*.stories.tsx",
+    "C:\\stories\\*.tsx",
+  ])("rejects escaping glob %s", stories => {
+    expect(() =>
+      resolveProtoConfig(
+        { title: "Stories", stories: { roots: [{ ...root, stories }] } },
+        "/app",
+        {}
+      )
+    ).toThrow(ProtoError);
+  });
+  it("rejects duplicate roots and missing required paths", () => {
+    expect(() =>
+      resolveProtoConfig({ title: "Stories", stories: { roots: [root, root] } }, "/app", {})
+    ).toThrow(/Duplicate root/);
+    expect(() =>
+      resolveProtoConfig(
+        { title: "Stories", stories: { roots: [{ ...root, preview: "" }] } },
+        "/app",
+        {}
+      )
+    ).toThrow(/preview/);
+  });
+  it("uses the same port-range validation for config and CLI overrides", async () => {
+    const { validatePortRange } = await import("../../../src/config.ts");
+    expect(validatePortRange(65533, 1)).toBe(65533);
+    expect(() => validatePortRange(65534, 1)).toThrow(ProtoError);
+    expect(() =>
+      resolveProtoConfig({ title: "Stories", stories: { roots: [root] } }, "/app", {
+        PROTO_PORT: "65534",
+      })
+    ).toThrow(ProtoError);
+  });
+});

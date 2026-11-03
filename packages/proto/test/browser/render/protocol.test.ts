@@ -1,3 +1,4 @@
+import { createBridge } from "../../../src/render/bridge.ts";
 /**
  * Render side of the shell ⇄ render protocol (`_spec.md` § Shell ⇄ render protocol, ADR-008,
  * Safety Invariant 7). This page plays the shell on http://127.0.0.1:<port>; the render host
@@ -535,4 +536,49 @@ test("replacing a failed prototype recovers without resetting subsequent same-co
     container.remove();
     window.history.replaceState(null, "", address);
   }
+});
+
+// Invariant: the host accepts only its configured parent origin and current nonce, for stories too.
+// Owner: render bridge; the real cross-origin host tests above own DOM/picker behavior.
+it("story bridge keeps root origins, parent windows and replay nonces isolated", () => {
+  const parentMessages: unknown[] = [];
+  const parent = { postMessage: (message: unknown) => parentMessages.push(message) };
+  const endpoint = new EventTarget() as EventTarget & { parent: typeof parent };
+  endpoint.parent = parent;
+  const self = endpoint as unknown as Window;
+  const rootA = "http://127.0.0.1:5002";
+  const rootB = "http://127.0.0.1:5003";
+  const shell = "http://127.0.0.1:5000";
+  const bridge = createBridge({ self, shellOrigin: shell, frame: "replay-2" });
+  const accepted: ShellMessage[] = [];
+  const stop = bridge.listen(message => accepted.push(message));
+  const send = (origin: string, source: unknown, frame: string) =>
+    endpoint.dispatchEvent(
+      Object.assign(new Event("message"), {
+        origin,
+        source,
+        data: { proto: protocolVersion, frame, type: "pick:cancel" },
+      })
+    );
+  send(rootA, parent, "replay-2");
+  send(rootB, parent, "replay-2");
+  send(shell, {}, "replay-2");
+  send(shell, parent, "replay-1");
+  expect(accepted).toEqual([]);
+  send(shell, parent, "replay-2");
+  expect(accepted).toHaveLength(1);
+  bridge.post({
+    type: "story:status",
+    story: "ui-button--primary",
+    stage: "play",
+    status: "passed",
+    hasPlay: true,
+    error: null,
+    durationMs: 10,
+  });
+  expect(renderMessageSchema.parse(parentMessages[0])).toMatchObject({
+    type: "story:status",
+    frame: "replay-2",
+  });
+  stop();
 });

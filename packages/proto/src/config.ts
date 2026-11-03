@@ -38,7 +38,19 @@ export function resolveGalleryConfig(config: GalleryConfig): ResolvedGalleryConf
 
 /** Public configuration evaluated in Node, never inside a prototype module. */
 export type ImportMatcher = string | RegExp;
+export type StoryRootConfig = {
+  id: string;
+  title?: string;
+  dir?: string;
+  stories: string | readonly string[];
+  preview: string;
+  vite: string;
+  static?: readonly { from: string; to: string }[];
+  themeGlobal?: string;
+  guards?: { forbidRuntimeImports?: readonly ImportMatcher[] };
+};
 export type ProtoConfig = {
+  stories?: { roots: readonly StoryRootConfig[] };
   title: string;
   prototypes?: string | readonly string[];
   drafts?: string;
@@ -59,7 +71,55 @@ import { z } from "zod";
 import { ProtoError } from "./model/errors.ts";
 
 const labels = z.record(z.string().regex(/^[a-z0-9][a-z0-9_-]*$/), z.string());
+const storyGlob = z
+  .string()
+  .min(1)
+  .refine(value => {
+    const path = value.replaceAll("\\", "/");
+    return (
+      !path.startsWith("/") &&
+      !/^[a-z]:/i.test(path) &&
+      !path.split("/").some(segment => segment.includes(".."))
+    );
+  }, "Story globs must stay inside dir");
+export function validatePortRange(port: number, roots = 0) {
+  if (!Number.isInteger(port) || port < 1 || port + 1 + roots > 65535)
+    throw new ProtoError("invalid_config", "dev.port must leave room for render and story ports");
+  return port;
+}
 const protoConfigSchema = z.object({
+  stories: z
+    .object({
+      roots: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+            title: z.string().optional(),
+            dir: z.string().default("."),
+            stories: z.union([storyGlob, z.array(storyGlob)]),
+            preview: z.string().min(1),
+            vite: z.string().min(1),
+            static: z.array(z.object({ from: z.string(), to: z.string() })).optional(),
+            themeGlobal: z.string().default("theme"),
+            guards: z
+              .object({
+                forbidRuntimeImports: z
+                  .array(z.union([z.string(), z.instanceof(RegExp)]))
+                  .optional(),
+              })
+              .optional(),
+          })
+        )
+        .superRefine((roots, ctx) => {
+          const ids = new Set<string>();
+          roots.forEach((root, index) => {
+            if (ids.has(root.id))
+              ctx.addIssue({ code: "custom", path: [index, "id"], message: "Duplicate root id" });
+            ids.add(root.id);
+          });
+        }),
+    })
+    .optional(),
   title: z.string().min(1),
   prototypes: z.union([z.string(), z.array(z.string())]).default("src/**/*.proto.tsx"),
   drafts: z.string().default("src/drafts"),
@@ -130,11 +190,7 @@ export function resolveProtoConfig(
   const catalog = labels.nullable().safeParse(specs);
   if (!catalog.success) throw new ProtoError("invalid_config", `specs: ${catalog.error.message}`);
   const port = env.PROTO_PORT === undefined ? config.dev.port : Number(env.PROTO_PORT);
-  if (!Number.isInteger(port) || port < 1 || port > 65534)
-    throw new ProtoError(
-      "invalid_config",
-      "dev.port: expected an integer between 1 and 65534 (PROTO_PORT)"
-    );
+  validatePortRange(port, config.stories?.roots.length);
   return {
     ...config,
     specs: catalog.data,

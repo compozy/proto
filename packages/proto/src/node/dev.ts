@@ -1,14 +1,14 @@
-import {
-  createServer as createHttpServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Socket } from "node:net";
 import { execFile, execFileSync } from "node:child_process";
 import { createServer, type InlineConfig } from "vite";
+import { validatePortRange } from "../config.ts";
+import { hostAllowed, renderGuard } from "./render-guard.ts";
+import { startStoryServer, projectId } from "./story-server.ts";
+export { hostAllowed } from "./render-guard.ts";
 import { ProtoError } from "../model/errors.ts";
 import type { ProtoProject } from "./project.ts";
 import { FileStore, currentCommit } from "../store/index.ts";
@@ -18,6 +18,7 @@ import { renderPlugins } from "../vite/index.ts";
 
 export type ReviewHandler = (request: Request) => Promise<Response>;
 export type DevOptions = {
+  storyRoots?: "all" | "none" | readonly string[];
   quiet?: boolean;
   open?: boolean;
   port?: number;
@@ -34,18 +35,6 @@ export function commitAt(root: string): string | null {
   } catch {
     return null;
   }
-}
-export function hostAllowed(
-  host: string | undefined,
-  port: number,
-  allowed: readonly string[]
-): boolean {
-  return (
-    !!host &&
-    [`127.0.0.1:${port}`, `localhost:${port}`, ...allowed.map(name => `${name}:${port}`)].includes(
-      host
-    )
-  );
 }
 /** Configure the consumer render server on the adjacent loopback port with the project watch policy. */
 export function renderViteConfig(project: ProtoProject, port: number): InlineConfig {
@@ -71,8 +60,24 @@ export function renderViteConfig(project: ProtoProject, port: number): InlineCon
 /** Start review/SSE and render servers after the review baseline is ready; close both on shutdown. */
 export async function startDev(project: ProtoProject, options: DevOptions = {}) {
   const port = options.port ?? project.config.dev.port;
-  if (!Number.isInteger(port) || port < 1 || port > 65534)
-    throw new ProtoError("invalid_config", "dev.port must leave room for the render port");
+  const roots = project.config.stories?.roots ?? [];
+  validatePortRange(port, roots.length);
+  if (
+    Array.isArray(options.storyRoots) &&
+    options.storyRoots.some(id => !roots.some(root => root.id === id))
+  )
+    throw new ProtoError("invalid_input", "Unknown story root");
+  const selected = roots.flatMap((root, index) =>
+    options.storyRoots === "none" ||
+    (Array.isArray(options.storyRoots) && !options.storyRoots.includes(root.id))
+      ? []
+      : [{ root, port: port + 2 + index }]
+  );
+  const storyServers: Awaited<ReturnType<typeof startStoryServer>>[] = [];
+  const storyRoots = selected.map(({ root, port }) => ({
+    id: root.id,
+    renderUrl: `http://127.0.0.1:${port}/__proto/story/`,
+  }));
   const origin = `http://127.0.0.1:${port}`;
   const clients = new Set<ServerResponse>();
   // HTTP idle cleanup does not include TCP preconnects that have not sent a request yet.
@@ -145,6 +150,8 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       if (url.pathname === "/__proto/bootstrap.json")
         response = Response.json({
           mode: "dev",
+          projectId: projectId(project.root),
+          ...(project.config.stories ? { storyRoots } : {}),
           title: project.config.title,
           locale: project.config.locale,
           commit: commitAt(project.root),
@@ -233,23 +240,7 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     ...(options.quiet ? { logLevel: "silent" as const } : {}),
   });
   // Prepend to the Vite stack so its own host handling cannot bypass the exact port check.
-  vite.middlewares.stack.unshift({
-    route: "",
-    handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
-      if (!hostAllowed(req.headers.host, port + 1, project.config.dev.allowedHosts)) {
-        res.statusCode = 403;
-        res.end(JSON.stringify({ error: { code: "host_not_allowed" } }));
-        return;
-      }
-      if (req.headers.host === `localhost:${port + 1}`) {
-        res.writeHead(302, { Location: `http://127.0.0.1:${port + 1}${req.url}` });
-        res.end();
-        return;
-      }
-      res.setHeader("Content-Security-Policy", `frame-ancestors ${origin}`);
-      next();
-    },
-  });
+  vite.middlewares.stack.unshift(renderGuard(port + 1, origin, project.config.dev.allowedHosts));
   /** Stop admission and bound SSE/HTTP draining while accepted requests have time to finish. */
   const closeServers = async () => {
     closing = true;
@@ -278,7 +269,12 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     ).then(() => server.closeIdleConnections());
     const requestDeadline = setTimeout(() => server.closeAllConnections(), 10_000);
     try {
-      await Promise.all([vite.close(), streamsEnded, closed]);
+      await Promise.all([
+        vite.close(),
+        ...storyServers.map(server => server.close()),
+        streamsEnded,
+        closed,
+      ]);
     } finally {
       clearTimeout(requestDeadline);
     }
@@ -292,12 +288,30 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       server.listen(port, "127.0.0.1", resolve);
     });
     await vite.listen();
+    for (const { root, port: storyPort } of selected) {
+      storyServers.push(
+        await startStoryServer(project, root, { shell: port, story: storyPort }, options.quiet)
+      );
+      if (!options.quiet) {
+        const registry = await project.registry();
+        const files = (registry.stories ?? []).filter(file => file.root === root.id);
+        const count = files.reduce((sum, file) => sum + file.stories.length, 0);
+        console.log(
+          `stories ${root.id} http://127.0.0.1:${storyPort}  ${files.length} files, ${count} stories`
+        );
+        for (const warning of registry.warnings.filter(warning => warning.root === root.id))
+          console.warn(`warning ${warning.code} ${root.id}: ${warning.message}`);
+      }
+    }
   } catch (error) {
     stopReviews();
     stopEvents();
     await closeServers();
     if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
-      throw new ProtoError("port_in_use", `Ports ${port} and ${port + 1} must both be available`);
+      throw new ProtoError(
+        "port_in_use",
+        `Ports ${port} through ${port + 1 + roots.length} must be available: ${String(error)}`
+      );
     throw error;
   }
   if (options.open) {
@@ -311,11 +325,12 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       if (error && !options.quiet) console.warn("Could not open the browser; visit " + origin);
     });
   }
-  const stop = project.watch(registry => publish("registry", registry));
+  const stop = project.watch(() => publish("registry", { revision: project.revision }));
   registryWatcherReady = true;
   for (const client of clients) client.write(": registry-watcher-ready\n\n");
   return {
     origin,
+    storyRoots,
     renderOrigin: `http://127.0.0.1:${port + 1}`,
     publish,
     mountReview,

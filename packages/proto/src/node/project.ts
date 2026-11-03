@@ -1,3 +1,4 @@
+import { indexStories, type StoryCache } from "./stories.ts";
 import { HttpStore } from "../store/http-store.ts";
 import { remoteToken } from "../auth/credentials.ts";
 import { existsSync, watch as watchFs, globSync, statSync } from "node:fs";
@@ -27,6 +28,8 @@ export interface ProtoProject {
   readonly root: string;
   readonly config: ResolvedProtoConfig;
   registry(): Promise<Registry>;
+  readonly revision: number;
+  invalidateStories(rootId: string, files: readonly string[]): void;
   watch(onChange: (registry: Registry) => void): () => void;
   url(target: UrlTarget, options?: { remote?: boolean }): string;
   store(options?: { remote?: boolean }): ReviewStore;
@@ -52,6 +55,29 @@ export async function loadProject(
   );
   const listeners = new Set<(registry: Registry) => void>();
   let cached: Registry | undefined;
+  let generation = 0;
+  let revision = 0;
+  const revisions = new WeakMap<Registry, number>();
+  const storyCache: StoryCache = new Map();
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshRequest = 0;
+  const publishLatest = async (request: number): Promise<void> => {
+    const registry = await project.registry();
+    if (request !== refreshRequest || !listeners.size) return;
+    // A concurrent read can finish a newer build before this continuation runs.
+    // Follow that snapshot instead of losing the refresh notification.
+    if (revisions.get(registry) !== generation) return publishLatest(request);
+    for (const listener of listeners) listener(registry);
+  };
+  const refresh = () => {
+    cached = undefined;
+    generation++;
+    clearTimeout(refreshTimer);
+    const request = ++refreshRequest;
+    refreshTimer = setTimeout(() => {
+      void publishLatest(request);
+    }, 75);
+  };
   let stopWatch: (() => void) | undefined;
   /** Share one authored-file watcher across subscribers and debounce registry refresh notifications. */
   const observe = () => {
@@ -65,16 +91,6 @@ export async function loadProject(
         cwd: root,
         exclude: ["**/node_modules/**", "**/.pending/**", "**/*.tmp/**", "**/*.lock*/**"],
       });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => {
-      cached = undefined;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        void project.registry().then(registry => {
-          for (const listener of listeners) listener(registry);
-        });
-      }, 75);
-    };
     let close: () => void;
     if (config.dev.poll || process.platform === "darwin") {
       // One observer serves shell and Vite. Include misplaced flows so diagnostics stay live.
@@ -127,16 +143,28 @@ export async function loadProject(
       close = () => watcher.close();
     }
     return () => {
-      clearTimeout(timer);
+      clearTimeout(refreshTimer);
       close();
     };
   };
   const project: ProtoProject = {
     root,
     config,
+    get revision() {
+      return revision;
+    },
+    invalidateStories(rootId, files) {
+      const rootConfig = config.stories?.roots.find(item => item.id === rootId);
+      if (!rootConfig) return;
+      for (const file of files)
+        storyCache.delete(`${rootId}:${resolve(root, rootConfig.dir, file)}`);
+      refresh();
+    },
     /** Discover a registry snapshot, reusing it only while a watcher can invalidate stale entries. */
     async registry() {
       if (cached) return cached;
+      const requested = ++generation;
+      const stories = indexStories(root, config.stories?.roots ?? [], storyCache);
       const legacy = {
         title: config.title,
         specs: config.specs,
@@ -153,6 +181,15 @@ export async function loadProject(
         p => !(config.specs === null && p.code === "unknown_spec")
       );
       const registry: Registry = {
+        ...(config.stories
+          ? {
+              storyRoots: config.stories.roots.map(item => ({
+                id: item.id,
+                title: item.title ?? item.id,
+              })),
+              stories: stories.entries,
+            }
+          : {}),
         title: config.title,
         locale: config.locale,
         specs: config.specs,
@@ -181,11 +218,15 @@ export async function loadProject(
             : []
         ),
         flows: flow.flows.map(f => ({ ...f, steps: f.nodes.length })),
-        problems: problems.map(p => ({
-          ...p,
-          slug: "slug" in p ? (p.slug ?? undefined) : undefined,
-        })) as Registry["problems"],
+        problems: [
+          ...stories.problems,
+          ...(problems.map(p => ({
+            ...p,
+            slug: "slug" in p ? (p.slug ?? undefined) : undefined,
+          })) as Registry["problems"]),
+        ],
         warnings: [
+          ...stories.warnings,
           ...flow.warnings.map(w => ({
             code: "uncovered_state" as const,
             message: `${w.slug}: ${w.state} is uncovered`,
@@ -205,8 +246,12 @@ export async function loadProject(
             : []),
         ],
       };
+      revisions.set(registry, requested);
       // Without observers, explicit CLI reads remain fresh without a background process.
-      if (listeners.size) cached = registry;
+      if (requested === generation) {
+        revision = requested;
+        if (listeners.size) cached = registry;
+      }
       return registry;
     },
     watch(onChange) {

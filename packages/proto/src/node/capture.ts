@@ -41,7 +41,7 @@ export async function capture(project: ProtoProject, target: CaptureTarget, html
       });
       if (!result.ok) throw Error("No server");
     } catch {
-      server = await startDev(project, { quiet: true });
+      server = await startDev(project, { quiet: true, storyRoots: "none" });
     }
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.goto(
