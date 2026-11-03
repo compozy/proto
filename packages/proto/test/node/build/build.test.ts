@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
 import { loadProject } from "../../../src/node/project.ts";
 import { buildProject } from "../../../src/node/build.ts";
+import { buildAndSwap, cleanupSnapshots, shareDirectory } from "../../../src/share/snapshot.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
 import { png, input, reviewer } from "../store/contract.ts";
 import { buildShell } from "../e2e/shell.ts";
@@ -70,6 +71,58 @@ async function seed(project: Awaited<ReturnType<typeof loadProject>>) {
   );
   return { image, comment };
 }
+// Owner: build output contract. An explicit destination never deletes an existing gallery.
+it("custom output preserves dist-proto and writes the snapshot version in bootstrap", async () => {
+  const { root, project, options } = await fixture();
+  await mkdir(join(root, "dist-proto"));
+  await writeFile(join(root, "dist-proto/keep.txt"), "existing gallery");
+  const output = join(root, "snapshots/version-a");
+  await buildProject(project, { ...options, output, snapshot: "version-a" });
+  expect(await readFile(join(root, "dist-proto/keep.txt"), "utf8")).toBe("existing gallery");
+  const bootstrap = bootstrapSchema.parse(
+    JSON.parse(await readFile(join(output, "__proto/bootstrap.json"), "utf8"))
+  );
+  expect(bootstrap.snapshot).toBe("version-a");
+  await writeFile(join(root, "src/example.proto.tsx"), "export const meta=invalid();");
+  await expect(buildProject(project, { ...options, output })).rejects.toThrow(/invalid_meta/);
+  expect(existsSync(join(output, "index.html"))).toBe(true);
+  expect(await readFile(join(root, "dist-proto/keep.txt"), "utf8")).toBe("existing gallery");
+}, 30000);
+
+// Owner: snapshot publication orchestration, real Vite build and filesystem (no build mock).
+// Invariant: only complete snapshots go live, failures preserve current, and one old version stays.
+it("snapshot swaps retain the previous build and failed refresh keeps current live", async () => {
+  const { root, project, options } = await fixture();
+  const { readlink } = await import("node:fs/promises");
+  const target = { kind: "prototype", slug: "example" } as const;
+  const settings = { ...options, approvers: false, remote: "https://gallery.example.com" };
+  const first = await buildAndSwap(project, target, settings);
+  const current = join(shareDirectory(root), "current");
+  const live = async () => {
+    const bootstrap = bootstrapSchema.parse(
+      JSON.parse(await readFile(join(current, "__proto/bootstrap.json"), "utf8"))
+    );
+    return bootstrap.snapshot;
+  };
+  expect(await live()).toBe(first.snapshot);
+  const second = await buildAndSwap(project, target, settings);
+  expect(await live()).toBe(second.snapshot);
+  expect(existsSync(first.output)).toBe(true);
+  const third = await buildAndSwap(project, target, settings);
+  expect(await live()).toBe(third.snapshot);
+  expect(existsSync(first.output)).toBe(false);
+  expect(existsSync(second.output)).toBe(true);
+  const previousLink = await readlink(current);
+  await expect(
+    buildAndSwap(project, { kind: "prototype", slug: "missing" }, settings)
+  ).rejects.toMatchObject({ code: "share_target_not_found" });
+  await writeFile(join(root, "src/view.tsx"), "export function View( {");
+  await expect(buildAndSwap(project, target, settings)).rejects.toThrow();
+  expect(await readlink(current)).toBe(previousLink);
+  expect(await live()).toBe(third.snapshot);
+  await cleanupSnapshots(root);
+  expect(existsSync(shareDirectory(root))).toBe(false);
+}, 120000);
 // Owner: static build orchestration. Persisted private history is opt-in, including images.
 it("UT-044 / UT-096: static output has relative bootstrap, registry, opt-in threads and images", async () => {
   const { root, project, options } = await fixture(true);

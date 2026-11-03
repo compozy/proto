@@ -234,6 +234,9 @@ or the configured `review.remote.url` and emits a render host that trusts the pu
 Rebuild when that origin changes. Plain `proto build` always produces an offline, read-only
 gallery for static hosting, even when a remote URL is configured. Node callers select remote
 mode with `buildProject(project, { remote: "https://acme.com" })` from `@compozy/proto/node`.
+The Node API also accepts `output` (an absolute destination directory) and `snapshot` (a version id
+written into the bootstrap). With explicit output, the builder preserves `dist-proto` and any existing
+destination; publish to a fresh directory. Without it, the default build replaces `dist-proto`.
 
 Mount the self-hosted review server in your backend, pointing `gallery.dir` at that build:
 

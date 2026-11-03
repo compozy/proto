@@ -13,6 +13,16 @@ export type ErrorSpec = {
 };
 
 export const errors = {
+  share_target_not_found: {
+    exit: 1,
+    status: null,
+    message: "No prototype or flow with that name.",
+  },
+  share_dirty_tree: {
+    exit: 1,
+    status: null,
+    message: "Commit first, or invite with --commenter. An approval must name a commit.",
+  },
   invalid_input: { exit: 2, status: 400, message: "Invalid request input." },
   review_has_open_comments: {
     exit: 1,
