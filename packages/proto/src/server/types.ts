@@ -1,3 +1,4 @@
+import type { ReviewEvents } from "../review/events.ts";
 import type { ReviewStorage } from "./storage.ts";
 export type Identity = { id: string; name: string; scopes: readonly ("review" | "comment")[] };
 export type Principal = Identity & { kind: "reviewer" | "agent"; credentialId: string | null };
@@ -12,6 +13,14 @@ export type ReviewServerOptions = {
   basePath?: string;
   ticketSecret: string;
   allowSameSiteRender?: boolean;
+  /** Caller owns publication and teardown when supplied. */
+  events?: ReviewEvents;
+  /** Hide review keys outside the served registry. */
+  restrictReviewToRegistry?: boolean;
+  /** Disable bearer credential routes and hide credentials in the bootstrap. */
+  disableCredentials?: boolean;
+  /** Compare approvals with the snapshot and commit read from one live bootstrap. */
+  requireSnapshot?: boolean;
   /** I/O seams for deterministic expiry and application logging. */
   clock?: () => number;
   log?: (entry: {

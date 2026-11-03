@@ -18,6 +18,8 @@ export const principalSchema = z.object({
 export type BootstrapPrincipal = z.infer<typeof principalSchema>;
 
 export const bootstrapSchema = z.object({
+  snapshot: z.string().nullable().optional(),
+  credentials: z.boolean().optional(),
   mode: z.enum(["dev", "read-only", "remote"]),
   title: z.string(),
   locale: z.enum(["en", "pt-BR"]),

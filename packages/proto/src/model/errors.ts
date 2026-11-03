@@ -19,6 +19,11 @@ export const errors = {
     status: 409,
     message: "Open comments remain; confirm before approving.",
   },
+  snapshot_stale: {
+    exit: null,
+    status: 409,
+    message: "A new version is live. Reload to review it.",
+  },
   internal_error: { exit: 1, status: 500, message: "The review operation failed." },
   invalid_config: { exit: 1, status: null, message: "proto.config.ts is invalid." },
   not_a_vite_app: { exit: 1, status: null, message: "No Vite config found; pass --app <dir>." },

@@ -3,6 +3,7 @@ import { errorBody, ProtoError } from "../model/errors.ts";
 import {
   commentFilterSchema,
   keySchema,
+  keyOf,
   messageChangeSchema,
   newCommentSchema,
   newMessageSchema,
@@ -19,6 +20,8 @@ export type ReviewRouterOptions = {
   events?: ReviewEvents;
   basePath?: string;
   roots?: SourceRoots;
+  reviewKeys?: () => Promise<ReadonlySet<string>>;
+  version?: () => Promise<{ snapshot: string | null; commit: string | null }>;
   commit?: () => string | null | Promise<string | null>;
 };
 const json = (value: unknown, status = 200) => Response.json(value, { status });
@@ -89,6 +92,12 @@ export function createReviewRouter(
       if (authorization instanceof Response) return authorization;
       const { author } = authorization;
       const store = options.store;
+      const keys = await options.reviewKeys?.();
+      const assertKey = (key: string) => {
+        if (keys && !keys.has(key)) throw new ProtoError("comment_not_found");
+      };
+      if (id && resource === "comments" && keys) assertKey(keyOf(id));
+      if (id && (resource === "reviews" || resource === "attachments")) assertKey(id);
       if (rest.length) throw new ProtoError("comment_not_found");
       if (resource === "registry" && !id && method === "GET") return json(await options.registry());
       if (resource === "events" && !id && method === "GET") return events.response(request.signal);
@@ -100,10 +109,16 @@ export function createReviewRouter(
               throw new ProtoError("invalid_input");
             query.waiting = query.waiting === "true";
           }
-          return json({ comments: await store.list(commentFilterSchema.parse(query)) });
+          const filter = commentFilterSchema.parse(query);
+          if (filter.key) assertKey(filter.key);
+          const comments = await store.list(filter);
+          return json({
+            comments: keys ? comments.filter(comment => keys.has(comment.slug)) : comments,
+          });
         }
         if (!id && method === "POST") {
           const input = newCommentSchema.extend({ key: keySchema }).parse(await body(request));
+          assertKey(input.key);
           const registry = await options.registry();
           if (
             !registry.prototypes.some(item => item.slug === input.key) &&
@@ -165,6 +180,7 @@ export function createReviewRouter(
       if (resource === "attachments") {
         if (!id && method === "POST") {
           const key = keySchema.parse(url.searchParams.get("key"));
+          assertKey(key);
           const bytes = await boundedBody(request);
           let form: FormData;
           try {
@@ -213,10 +229,23 @@ export function createReviewRouter(
         if (!action && method === "GET") return json({ review: await store.review(id) });
         if (action === "transitions" && !messageId && method === "POST") {
           const input = z
-            .object({ to: z.enum(["approved", "in_review"]), confirmOpen: z.boolean().optional() })
+            .object({
+              to: z.enum(["approved", "in_review"]),
+              confirmOpen: z.boolean().optional(),
+              snapshot: z.string().optional(),
+            })
             .parse(await body(request));
+          const version = options.version
+            ? await options.version()
+            : { snapshot: null, commit: (await options.commit?.()) ?? null };
+          if (
+            input.to === "approved" &&
+            version.snapshot !== null &&
+            input.snapshot !== version.snapshot
+          )
+            throw new ProtoError("snapshot_stale");
           const review = await store.transition(id, input.to, author, {
-            commit: (await options.commit?.()) ?? null,
+            commit: version.commit,
             confirmOpen: input.confirmOpen,
           });
           events.publish({ type: "review", key: id });

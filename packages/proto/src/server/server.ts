@@ -58,7 +58,7 @@ export function createReviewServer(
     throw new Error("basePath must be an origin-relative directory.");
   const api = `${base}api/`,
     now = options.clock ?? Date.now;
-  const events = new ReviewEvents(),
+  const events = options.events ?? new ReviewEvents(),
     auth = createRemoteAuthorizer(options);
   const root = resolve(options.gallery.dir);
   const registry = async () =>
@@ -67,12 +67,29 @@ export function createReviewServer(
     bootstrapSchema.parse(
       JSON.parse(await readFile(resolve(root, "__proto/bootstrap.json"), "utf8"))
     );
+  const reviewKeys = options.restrictReviewToRegistry
+    ? async () => {
+        const current = await registry();
+        return new Set([
+          ...current.prototypes.map(item => item.slug),
+          ...current.flows.map(item => `flow-${item.id}`),
+        ]);
+      }
+    : undefined;
+  const version = options.requireSnapshot
+    ? async () => {
+        const current = await builtBootstrap();
+        return { snapshot: current.snapshot ?? null, commit: current.commit };
+      }
+    : undefined;
   const commit = async () => (await builtBootstrap()).commit;
   options.storage.configure(registry, commit);
   const router = createReviewRouter({
     store: options.storage.store,
     registry,
     commit,
+    reviewKeys,
+    version,
     events,
     basePath: api.slice(0, -1),
     authorize: auth.authorize,
@@ -182,6 +199,7 @@ export function createReviewServer(
       return Response.json(
         {
           ...(await builtBootstrap()),
+          ...(options.disableCredentials ? { credentials: false } : {}),
           mode: "remote",
           apiBase: api,
           eventsUrl: `${api}events`,
@@ -250,6 +268,7 @@ export function createReviewServer(
         );
       }
       if (path === "credentials" || path.startsWith("credentials/")) {
+        if (options.disableCredentials) return new Response(null, { status: 404 });
         if (principal.kind !== "reviewer") throw new ProtoError("scope_denied");
         const publicCredential = ({ hash: _hash, ...value }: import("./storage.ts").Credential) =>
           value;

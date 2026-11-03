@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { createReviewServer } from "../../../src/server/index.ts";
+import { createReviewServer, fileStorage, ReviewEvents } from "../../../src/server/index.ts";
 import { runStoreContract, input, png } from "../store/contract.ts";
 import {
   httpContract,
@@ -22,6 +22,123 @@ describe("Remote authorization and render grants", () => {
   });
   afterEach(async () => {
     await h.dispose();
+  });
+  // Invariant: the served registry admits prototypes and flows, and hides outside keys and tickets.
+  // Owner: remote server wiring; canonical suite: server.test.ts (proto-share IT-008).
+  it("proto-share IT-008: served registry confines review reads, writes and render tickets", async () => {
+    const hidden = await h.options.storage.store.add("second", input, { kind: "reviewer" });
+    const path = join(h.options.gallery.dir, "__proto/registry.json");
+    const registry = JSON.parse(await readFile(path, "utf8"));
+    registry.prototypes = registry.prototypes.filter((item: { slug: string }) => item.slug !== "second");
+    await writeFile(path, JSON.stringify(registry));
+    h.options.restrictReviewToRegistry = true;
+    h.rebuild();
+    for (const endpoint of [
+      "comments?key=second",
+      `comments/${hidden.id}`,
+      "reviews/second",
+      "render-ticket?slug=second",
+    ]) {
+      const response = await h.request(`api/${endpoint}`);
+      expect(response.status, endpoint).toBe(404);
+      expect(await response.json()).toMatchObject({ error: { code: "comment_not_found" } });
+    }
+    expect((await (await h.request("api/comments")).json()).comments).toEqual([]);
+    expect((await h.request("api/comments", "POST", { ...input, key: "second" })).status).toBe(404);
+    expect((await h.request("api/comments", "POST", { ...input, key: "flow-sign-in" })).status).toBe(201);
+    expect(
+      (await h.request("api/reviews/login-form/transitions", "POST", { to: "approved" })).status
+    ).toBe(200);
+  });
+  // Invariant: same-site render origins and missing request markers never authorize shell writes.
+  // Owner: remote server authorization; canonical suite: server.test.ts (proto-share IT-019).
+  it("proto-share IT-019: same-site rendering retains exact Origin and request-marker checks", async () => {
+    h.options.publicOrigin = "https://review.example.com";
+    h.options.renderOrigin = "https://render.example.com";
+    h.options.allowSameSiteRender = true;
+    h.options.authorize = async () => ({
+      id: "ana@example.com",
+      name: "Ana",
+      scopes: ["review", "comment"],
+    });
+    h.rebuild();
+    for (const headers of [
+      { origin: h.options.renderOrigin, "x-proto-request": "1" },
+      { origin: h.options.publicOrigin },
+    ] as Record<string, string>[]) {
+      const response = await h.handler(
+        new Request(`${h.options.publicOrigin}/proto/api/comments`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ...input, key: "login-form" }),
+        })
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: { code: "cross_origin_write" } });
+    }
+    expect(await h.options.storage.store.list()).toEqual([]);
+  });
+  // Invariant: stale and missing ids cannot approve or emit; accepted approvals name the live commit.
+  // Owner: remote server/bootstrap-to-router seam; canonical suite: server.test.ts (proto-share IT-020).
+  it("proto-share IT-020: refreshed bootstrap rejects stale approval and stores the current commit", async () => {
+    const path = join(h.options.gallery.dir, "__proto/bootstrap.json");
+    const bootstrap = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...bootstrap, snapshot: "A" }));
+    const events = new ReviewEvents();
+    h.options.events = events;
+    h.options.requireSnapshot = true;
+    h.rebuild();
+    expect((await (await h.request("__proto/bootstrap.json")).json()).snapshot).toBe("A");
+    await writeFile(path, JSON.stringify({ ...bootstrap, snapshot: "B", commit: "b".repeat(40) }));
+    const notifications: unknown[] = [];
+    const stop = events.subscribe(event => notifications.push(event));
+    try {
+      for (const snapshot of ["A", undefined]) {
+        const stale = await h.request("api/reviews/login-form/transitions", "POST", {
+          to: "approved",
+          snapshot,
+        });
+        expect(stale.status).toBe(409);
+        expect(await stale.json()).toMatchObject({ error: { code: "snapshot_stale" } });
+      }
+      expect((await h.options.storage.store.review("login-form")).events).toEqual([]);
+      expect(notifications).toEqual([]);
+      const current = await h.request("api/reviews/login-form/transitions", "POST", {
+        to: "approved",
+        snapshot: "B",
+      });
+      expect(current.status).toBe(200);
+      expect((await current.json()).review.events[0]).toMatchObject({
+        type: "approved",
+        commit: "b".repeat(40),
+      });
+      expect(notifications).toEqual([{ type: "review", key: "login-form" }]);
+    } finally {
+      stop();
+    }
+  });
+  // Invariant: disabled credential endpoints create no records and advertise no credential capability.
+  // Owner: remote server; canonical suite: server.test.ts (proto-share IT-025).
+  it("proto-share IT-025: disabled credentials return 404 without creating a credentials file", async () => {
+    h.options.storage = fileStorage(join(h.root, "share-reviews"));
+    h.options.disableCredentials = true;
+    h.options.authorize = async () => ({
+      id: "ana@example.com",
+      name: "Ana",
+      scopes: ["review", "comment"],
+    });
+    h.rebuild();
+    for (const [path, method, body] of [
+      ["credentials", "GET", undefined],
+      ["credentials", "POST", { name: "agent" }],
+      ["credentials/absent", "DELETE", undefined],
+    ] as const) {
+      expect((await h.request(`api/${path}`, method, body)).status).toBe(404);
+    }
+    expect((await (await h.request("__proto/bootstrap.json")).json()).credentials).toBe(false);
+    await expect(
+      readFile(join(h.root, "share-reviews/.server/credentials.json"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
   // Owner: remote HTTP boundary; absent gallery output must respond instead of hanging.
   it("IT-026: missing gallery files fail immediately", async () => {
@@ -504,4 +621,69 @@ describe("Remote authorization and render grants", () => {
         ).toBe(status);
     }
   }, 30_000);
+});
+
+// Invariant: SSE heartbeat and notification lifetime ends on abort, cancellation or backpressure.
+// Owner: ReviewEvents; canonical suite: server.test.ts (proto-share UT-018).
+describe("proto-share UT-018: SSE lifecycle", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  it("sends snapshot ids and pings every 25 seconds, then stops on abort", async () => {
+    vi.useFakeTimers();
+    const events = new ReviewEvents();
+    const abort = new AbortController();
+    const reader = events.response(abort.signal).body!.getReader();
+    const decode = async () => new TextDecoder().decode((await reader.read()).value);
+    expect(await decode()).toBe(": connected\n\n");
+    events.publish({ type: "snapshot", id: "B" });
+    expect(await decode()).toBe('event: snapshot\ndata: {"id":"B"}\n\n');
+    await vi.advanceTimersByTimeAsync(24999);
+    const next = reader.read();
+    let received = false;
+    void next.then(() => {
+      received = true;
+    });
+    await Promise.resolve();
+    expect(received).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(new TextDecoder().decode((await next).value)).toBe(": ping\n\n");
+    await vi.advanceTimersByTimeAsync(25000);
+    expect(await decode()).toBe(": ping\n\n");
+    abort.abort();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(() => events.publish({ type: "snapshot", id: "C" })).not.toThrow();
+    await vi.advanceTimersByTimeAsync(50000);
+    expect((await reader.read()).done).toBe(true);
+  });
+  it("cancellation and already aborted signals leave no timer or listener writes", async () => {
+    vi.useFakeTimers();
+    const events = new ReviewEvents();
+    const abort = new AbortController();
+    const response = events.response(abort.signal);
+    await response.body!.cancel();
+    abort.abort();
+    const ended = events.response(abort.signal).body!.getReader();
+    expect((await ended.read()).done).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(50000);
+    expect(() => events.publish({ type: "review", key: "login-form" })).not.toThrow();
+  });
+  it("heartbeat backpressure closes the stream without enqueueing after close", async () => {
+    vi.useFakeTimers();
+    const events = new ReviewEvents();
+    const abort = new AbortController();
+    const reader = events.response(abort.signal).body!.getReader();
+    expect(() => vi.advanceTimersByTime(25000 * 104)).not.toThrow();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(() => {
+      abort.abort();
+      events.publish({ type: "snapshot", id: "C" });
+      vi.advanceTimersByTime(50000);
+    }).not.toThrow();
+    let chunks = 0;
+    while (!(await reader.read()).done) chunks++;
+    expect(chunks).toBeGreaterThan(1);
+    expect(chunks).toBeLessThan(104);
+  });
 });

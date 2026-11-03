@@ -40,7 +40,7 @@ export function permissionsOf(bootstrap: Bootstrap, writable: boolean): Permissi
     comment: principal.scopes.includes("comment") || review,
     delete: review && !agent,
     approve: review && !agent,
-    credentials: !agent && principal.credentialId === null,
+    credentials: bootstrap.credentials !== false && !agent && principal.credentialId === null,
     author: { kind: principal.kind, id: principal.id, name: principal.name },
   };
 }
