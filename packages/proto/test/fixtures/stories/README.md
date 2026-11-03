@@ -12,3 +12,9 @@ replay and source edits reload it. The internal batch driver reads `html.dataset
 
 These suites are written for CI. The S1 implementation dispatch explicitly prohibits local tests,
 servers, lint, typecheck and builds on the operator's overloaded machine.
+
+The roots also mount distinct `assets` directories at `/vendor`. The dev suite covers native
+add/change/unlink discovery, document reload and syntax recovery, custom theme globals, pinned
+stories, and startup rollback. The guard suite exercises transitive runtime imports, erased type
+imports and root policy isolation. Local router/store tests own story review persistence and
+lossless orphan history; the remote suites keep story comments unavailable.

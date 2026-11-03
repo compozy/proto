@@ -586,6 +586,11 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     );
     expect(bootstrap.projectId).toMatch(/^[a-f0-9]{16}$/);
     expect(bootstrap.storyRoots).toHaveLength(2);
+    for (const [index, root] of bootstrap.storyRoots!.entries()) {
+      expect(Number(new URL(root.renderUrl).port)).toBe(Number(new URL(dev.origin).port) + 2 + index);
+      const asset = await fetch(new URL("/vendor/root.txt", root.renderUrl));
+      expect(await asset.text()).toBe(index === 0 ? "app\n" : "packages/ui\n");
+    }
     const storyBase = bootstrap.storyRoots![0]!.renderUrl;
     const actualPort = Number(new URL(storyBase).port);
     const blocked = await hostRequest(actualPort, "foreign.test:" + actualPort);
@@ -604,6 +609,7 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
       bootstrap.storyRoots![1]!.renderUrl + "ui-badge--default?play=0&instrument=false"
     );
     await secondPage.waitForSelector('[data-root="ui"]');
+    await secondPage.waitForFunction(() => document.documentElement.dataset.uiReact === "ready");
     await secondPage.close();
     expect(config.cacheDir).not.toBe(join(fixture.app, "node_modules/.vite"));
     const open = async (id: string, play = true, timeout = 30000) => {
@@ -769,7 +775,8 @@ it("does not start broken story roots for prototype capture mode and cleans up f
     await expect(startDev(project, { quiet: true, port: chosen })).rejects.toThrow(
       /broken story config/
     );
-    await expect(fetch(`http://127.0.0.1:${chosen + 2}`)).rejects.toThrow();
+    for (const candidate of [chosen, chosen + 1, chosen + 2, chosen + 3])
+      await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -869,3 +876,153 @@ it("reloads affected stories while deferring unrelated changes to Vite", async (
   expect(await change(join(app, "../ui/src/button.tsx"), [{ id: "button" }])).toEqual([]);
   expect(sent).toEqual(Array.from({ length: 3 }, () => ({ type: "full-reload" })));
 });
+
+// Invariants: native add/delete events refresh registry SSE; body edits restart the document lifecycle.
+// Owner: real dev server and root Vite watcher, observed over HTTP/SSE and Chromium.
+it("refreshes story discovery and reruns edited frames, including syntax recovery", async () => {
+  const fixture = storiesFixture();
+  if (!sharedBrowser) throw new Error("Chromium is required for story watcher integration");
+  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+  const abort = new AbortController();
+  const page = await sharedBrowser.newPage();
+  try {
+    const project = await loadProject(fixture.app);
+    dev = await onFreePorts(port => startDev(project, { port, quiet: true }));
+    const stream = await fetch(`${dev.origin}/__proto/api/events`, { signal: abort.signal });
+    const reader = stream.body!.getReader();
+    await readEvent(reader, ": registry-watcher-ready");
+    const file = join(fixture.app, "src/live.stories.tsx");
+    const source = (label: string) => `export default { title: "Live" }; export const Default = {
+      render: () => <button>${label}</button>,
+      play: () => { document.documentElement.dataset.livePlay = "${label}"; }
+    };`;
+    const added = readEvent(reader, "event: registry");
+    writeFileSync(file, source("Before"));
+    await added;
+    const hasLiveStory = async () => {
+      const registry = await fetch(`${dev!.origin}/__proto/api/registry`).then(response =>
+        response.json()
+      );
+      return registry.stories.some((entry: { slug: string }) => entry.slug === "live");
+    };
+    await expect.poll(hasLiveStory).toBe(true);
+    await page.addInitScript(() => {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.documentElement.dataset.documentId = crypto.randomUUID();
+      });
+    });
+    await page.goto(dev.storyRoots[0]!.renderUrl + "live--default?instrument=false");
+    await page.waitForFunction(() => document.documentElement.dataset.livePlay === "Before");
+    const original = await page.locator("html").getAttribute("data-document-id");
+    writeFileSync(file, source("After"));
+    await page.waitForFunction(
+      id =>
+        document.documentElement.dataset.documentId !== id &&
+        document.documentElement.dataset.livePlay === "After",
+      original
+    );
+    expect(await page.getByRole("button").textContent()).toBe("After");
+    writeFileSync(
+      file,
+      'export default { title: "Live" }; export const Default = { render: () => <button>'
+    );
+    await page.waitForFunction(() => {
+      const value = document.documentElement.dataset.protoStory;
+      return value && JSON.parse(value).status === "failed";
+    });
+    writeFileSync(file, source("Recovered"));
+    await page.waitForFunction(() => document.documentElement.dataset.livePlay === "Recovered");
+    const removed = readEvent(reader, "event: registry");
+    rmSync(file);
+    await removed;
+    await expect.poll(hasLiveStory).toBe(false);
+  } finally {
+    abort.abort();
+    await page.close();
+    await dev?.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180000);
+
+// Invariant: gallery initial globals merge with preview defaults and yield to a story's pinned global.
+// Owner: real Storybook composition in the story host (including a preview without a theme decorator).
+it("composes both themes, custom theme globals and pinned stories", async () => {
+  const fixture = storiesFixture();
+  if (!sharedBrowser) throw new Error("Chromium is required for story theme integration");
+  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+  const pages: import("playwright").Page[] = [];
+  try {
+    const project = await loadProject(fixture.app);
+    project.config.stories!.roots[1]!.themeGlobal = "mode";
+    writeFileSync(
+      join(fixture.root, "packages/ui/preview.tsx"),
+      `
+      export const initialGlobals = { retained: "preview" };
+      export const decorators = [(Story, context) => <section data-global={context.globals.mode} data-retained={context.globals.retained}><Story /></section>];
+    `
+    );
+    writeFileSync(
+      join(fixture.root, "packages/ui/src/badge.stories.tsx"),
+      `
+      export default { title: "UI/Badge" };
+      export const Default = { render: () => <span>Badge</span> };
+      export const Pinned = { globals: { mode: "light" }, render: () => <span>Pinned</span> };
+    `
+    );
+    dev = await onFreePorts(port => startDev(project, { port, quiet: true }));
+    for (const theme of ["light", "dark"]) {
+      for (const [index, id, expected] of [
+        [0, "ui-button--plain", theme],
+        [1, "ui-badge--default", theme],
+        [1, "ui-badge--pinned", "light"],
+      ] as const) {
+        const page = await sharedBrowser.newPage();
+        pages.push(page);
+        await page.goto(
+          dev.storyRoots[index]!.renderUrl + `${id}?theme=${theme}&play=0&instrument=false`
+        );
+        await page.waitForFunction(() => {
+          const value = document.documentElement.dataset.protoStory;
+          return value && JSON.parse(value).status === "passed";
+        });
+        expect(await page.locator("html").getAttribute("data-theme")).toBe(expected);
+        expect(await page.locator("html").evaluate(html => html.classList.contains("dark"))).toBe(
+          expected === "dark"
+        );
+        const attribute = index === 0 ? "data-theme-global" : "data-global";
+        expect(await page.locator(`[${attribute}]`).getAttribute(attribute)).toBe(expected);
+        if (index === 1)
+          expect(await page.locator("[data-retained]").getAttribute("data-retained")).toBe("preview");
+      }
+    }
+  } finally {
+    await Promise.all(pages.map(page => page.close()));
+    await dev?.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180000);
+
+// Invariant: a busy story port names the root and rolls back all earlier listeners.
+// Owner: dev startup lifecycle with a real occupied TCP port.
+it("rolls back startup when a story port is occupied", async () => {
+  const fixture = storiesFixture();
+  const occupied = createServer();
+  const chosen = await port();
+  await new Promise<void>((resolve, reject) => {
+    occupied.once("error", reject);
+    occupied.listen(chosen + 3, "127.0.0.1", resolve);
+  });
+  try {
+    await expect(
+      startDev(await loadProject(fixture.app), { port: chosen, quiet: true })
+    ).rejects.toMatchObject({
+      code: "port_in_use",
+      message: expect.stringContaining(`ui port ${chosen + 3}`),
+    });
+    for (const candidate of [chosen, chosen + 1, chosen + 2])
+      await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
+  } finally {
+    await new Promise<void>(resolve => occupied.close(() => resolve()));
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);

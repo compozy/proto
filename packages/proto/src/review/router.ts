@@ -8,12 +8,14 @@ import {
   newCommentSchema,
   newMessageSchema,
 } from "../model/review.ts";
-import type { Registry } from "../model/registry.ts";
+import { keyKind, reviewKeys, type Registry } from "../model/registry.ts";
 import { confineSource, sourceRoots, type SourceRoots } from "../model/source.ts";
 import type { ReviewStore } from "../store/types.ts";
 import { ReviewEvents } from "./events.ts";
 import type { ReviewAuthorizer, ReviewOperation } from "./authorization.ts";
 export type ReviewRouterOptions = {
+  /** Remote galleries do not host or persist story reviews. */
+  allowStories?: boolean;
   store: ReviewStore;
   registry: () => Registry | Promise<Registry>;
   authorize: ReviewAuthorizer;
@@ -98,6 +100,14 @@ export function createReviewRouter(
       };
       if (id && resource === "comments" && keys) assertKey(keyOf(id));
       if (id && (resource === "reviews" || resource === "attachments")) assertKey(id);
+      const assertSupportedKey = (key: string | undefined) => {
+        if (options.allowStories === false && key && keyKind(key) === "story")
+          throw new ProtoError("comment_not_found");
+      };
+      if (["comments", "attachments", "reviews"].includes(resource ?? "")) {
+        assertSupportedKey(id);
+        assertSupportedKey(url.searchParams.get("key") ?? undefined);
+      }
       if (rest.length) throw new ProtoError("comment_not_found");
       if (resource === "registry" && !id && method === "GET") return json(await options.registry());
       if (resource === "events" && !id && method === "GET") return events.response(request.signal);
@@ -119,11 +129,9 @@ export function createReviewRouter(
         if (!id && method === "POST") {
           const input = newCommentSchema.extend({ key: keySchema }).parse(await body(request));
           assertKey(input.key);
+          assertSupportedKey(input.key);
           const registry = await options.registry();
-          if (
-            !registry.prototypes.some(item => item.slug === input.key) &&
-            !registry.flows.some(item => `flow-${item.id}` === input.key)
-          )
+          if (!reviewKeys(registry).includes(input.key))
             throw new ProtoError("comment_not_found");
           if (input.target.kind !== "node") {
             const roots = options.roots ?? (await options.registry()).sourceRoots ?? sourceRoots();

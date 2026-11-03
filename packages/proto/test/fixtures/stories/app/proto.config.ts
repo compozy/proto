@@ -8,6 +8,7 @@ export default {
         stories: "src/**/*.stories.tsx",
         preview: "preview.tsx",
         vite: "vite.config.ts",
+        static: [{ from: "assets", to: "/vendor" }],
       },
       {
         id: "ui",
@@ -15,6 +16,7 @@ export default {
         stories: "src/**/*.stories.tsx",
         preview: "preview.tsx",
         vite: "vite.config.ts",
+        static: [{ from: "assets", to: "/vendor" }],
       },
     ],
   },

@@ -307,10 +307,11 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     stopReviews();
     stopEvents();
     await closeServers();
+    if (error instanceof ProtoError) throw error;
     if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
       throw new ProtoError(
         "port_in_use",
-        `Ports ${port} through ${port + 1 + roots.length} must be available: ${String(error)}`
+        `Ports ${port} and ${port + 1}${roots.length ? ` through ${port + 1 + roots.length}` : ""} must be available: ${String(error)}`
       );
     throw error;
   }

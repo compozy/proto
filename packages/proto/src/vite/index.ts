@@ -10,6 +10,8 @@ import { sourceTags } from "../node/source-tags.ts";
 import { sourceRoots } from "../model/source.ts";
 import type { RenderConfig } from "../model/render-host.ts";
 
+export { presentationGuard } from "../node/presentation-guard.ts";
+
 export function proto(options: { config?: string } = {}): Plugin[] {
   let enabled = true;
   let boundary = productionBoundary();
@@ -43,6 +45,8 @@ export function protoPresentation(
       name: "proto:presentation",
       enforce: "post",
       async configResolved(config) {
+        // Story servers install only their root's explicit policy via storyPlugins.
+        if (config.mode === "proto-story") return;
         const project = await loadProject(config.root, options.config);
         guard = presentationGuard(config.root, {
           matchers: project.config.guards.forbidRuntimeImports,

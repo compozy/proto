@@ -85,6 +85,7 @@ export function createReviewServer(
   const commit = async () => (await builtBootstrap()).commit;
   options.storage.configure(registry, commit);
   const router = createReviewRouter({
+    allowStories: false,
     store: options.storage.store,
     registry,
     commit,

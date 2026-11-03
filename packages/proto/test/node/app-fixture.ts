@@ -34,6 +34,7 @@ export function appFixture(prefix: string, files: readonly string[] = []) {
 
 /** Two real Vite projects with separate package dependency links and private optimizer caches. */
 export function storiesFixture() {
+  mkdirSync(fixtureBase, { recursive: true });
   const root = mkdtempSync(join(fixtureBase, "proto-stories-"));
   const fixture = resolve(import.meta.dirname, "../fixtures/stories");
   cpSync(fixture, root, { recursive: true });

@@ -144,6 +144,15 @@ describe("Remote authorization and render grants", () => {
       readFile(join(h.root, "share-reviews/.server/credentials.json"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
+  // Invariant: remote review does not accept component keys. Owner: remote HTTP boundary.
+  it("rejects story comments and story render tickets", async () => {
+    const comment = await h.request("api/comments", "POST", { ...input, key: "story--ui-button" });
+    expect(comment.status).toBe(404);
+    expect((await comment.json()).error.code).toBe("comment_not_found");
+    expect((await h.request("api/render-ticket?slug=story--ui-button")).status).toBe(404);
+    expect((await h.request("api/reviews/story--ui-button")).status).toBe(404);
+    expect((await h.request("api/comments?key=story--ui-button")).status).toBe(404);
+  });
   // Owner: remote HTTP boundary; absent gallery output must respond instead of hanging.
   it("IT-026: missing gallery files fail immediately", async () => {
     await rm(h.options.gallery.dir, { recursive: true, force: true });

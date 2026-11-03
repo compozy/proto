@@ -325,3 +325,48 @@ describe("Review fetch router", () => {
     expect(reads).toBe(3);
   });
 });
+
+// Invariant: the local review HTTP boundary accepts component keys and retains the selected story.
+// Owner: review router and real FileStore (backend half of the picker journey).
+it("creates and lists a story comment through the local router", async () => {
+  const stories: NonNullable<Registry["stories"]> = [
+    {
+      slug: "ui-button",
+      root: "ui",
+      file: "src/button.stories.tsx",
+      title: "UI/Button",
+      path: ["UI", "Button"],
+      description: null,
+      stories: [
+        { id: "ui-button--primary", exportName: "Primary", name: "Primary", play: false, tags: [] },
+      ],
+    },
+  ];
+  const h = await makeFileStore({ registry: async () => ({ ...registry, stories }) });
+  const router = createReviewRouter({
+    store: h.store,
+    registry: () => ({ ...registry, stories }),
+    authorize: createDevAuthorizer({ shellOrigin: origin }),
+  });
+  try {
+    const response = await router(
+      new Request(`${origin}/__proto/api/comments`, {
+        method: "POST",
+        headers: { origin, host: "127.0.0.1:4400" },
+        body: JSON.stringify({
+          ...input,
+          key: "story--ui-button",
+          context: { ...input.context, state: "ui-button--primary" },
+        }),
+      })
+    );
+    expect(response.status).toBe(201);
+    const { comment } = await response.json();
+    expect(comment.slug).toBe("story--ui-button");
+    expect(comment.context.state).toBe("ui-button--primary");
+    const listed = await router(new Request(`${origin}/__proto/api/comments?key=story--ui-button`));
+    expect((await listed.json()).comments).toEqual([comment]);
+  } finally {
+    await h.dispose();
+  }
+});

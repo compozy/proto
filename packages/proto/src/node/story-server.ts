@@ -95,6 +95,8 @@ export async function startStoryServer(
   const server = await createServer({
     ...storyViteConfig(project, root, ports),
     ...(quiet ? { logLevel: "silent" as const } : {}),
+  }).catch(error => {
+    throw new Error(`Story root ${root.id} failed to start: ${String(error)}`, { cause: error });
   });
   server.middlewares.stack.unshift(
     renderGuard(ports.story, `http://127.0.0.1:${ports.shell}`, project.config.dev.allowedHosts)
@@ -103,7 +105,9 @@ export async function startStoryServer(
     await server.listen();
   } catch (error) {
     await server.close();
-    throw error;
+    if (String(error).includes("in use") || (error as NodeJS.ErrnoException).code === "EADDRINUSE")
+      throw new ProtoError("port_in_use", `Story root ${root.id} port ${ports.story} is in use.`);
+    throw new Error(`Story root ${root.id} failed to start: ${String(error)}`, { cause: error });
   }
   return server;
 }

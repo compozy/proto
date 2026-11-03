@@ -81,6 +81,11 @@ describe("story configuration", () => {
       )
     ).toThrow(/preview/);
   });
+  it.each(["UI", "bad id", "-ui"])("rejects invalid story root id %s", id => {
+    expect(() =>
+      resolveProtoConfig({ title: "Stories", stories: { roots: [{ ...root, id }] } }, "/app", {})
+    ).toThrow(ProtoError);
+  });
   it("uses the same port-range validation for config and CLI overrides", async () => {
     const { validatePortRange } = await import("../../../src/config.ts");
     expect(validatePortRange(65533, 1)).toBe(65533);
