@@ -381,6 +381,10 @@ export function formatHuman(
       return migrateOutput(data, result.exitCode);
     case "migrate remote":
       return remoteMigrateOutput(data, result.exitCode);
+    case "share connect":
+      return out(`✓ Domain ${String(data.domain)}\n✓ Tunnel, hostnames and Access application ${data.created ? "created" : "connected"}\n\nYour link: ${String(data.link)}`);
+    case "share disconnect":
+      return out((data.removed as string[]).length ? "✓ Removed tunnel, hostnames, Access application and local credentials\n! Kept the email-code login: other applications on this Cloudflare organization may use it." : "Nothing to remove.");
     case "auth credentials": {
       const credentials = data.credentials as {
         remote: string;

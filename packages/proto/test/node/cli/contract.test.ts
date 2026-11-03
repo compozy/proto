@@ -730,3 +730,27 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     }
   });
 });
+
+// Invariant: share usage errors retain registry codes and exits before loading a project.
+// Owner: CLI boundary; canonical suite: node/cli/contract.test.ts.
+it.each([
+  [[], "share_target_required"],
+  [["login-form", "--all", "--commenter", "ana@example.com"], "share_target_required"],
+  [["login-form"], "share_no_invitees"],
+  [["login-form", "--approver", "not-an-email"], "invalid_input"],
+] as [string[], string][])("UT-003: share usage %j yields %s", async (args, code) => {
+  expect(await runCli(["share", ...args, "--json"])).toMatchObject({ exitCode: 2, data: { error: { code } } });
+});
+it("UT-003: a valid start without a connection points to connect", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const home = mkdtempSync(join(tmpdir(), "proto-share-cli-"));
+  const old = process.env.HOME;
+  try {
+    process.env.HOME = home;
+    expect(await runCli(["share", "login-form", "--commenter", "ana@example.com", "--json"])).toMatchObject({ exitCode: 4, data: { error: { code: "share_not_connected" } } });
+  } finally {
+    if (old === undefined) delete process.env.HOME; else process.env.HOME = old;
+    rmSync(home, { recursive: true, force: true });
+  }
+});

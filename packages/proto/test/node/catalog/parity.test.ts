@@ -85,3 +85,11 @@ prepareApp(() => {
 disposeApp(() => {
   if (fixtureApp) rmSync(fixtureApp, { recursive: true, force: true });
 });
+
+// Invariant: sharing grants no MCP authority. Owner: capability catalog; canonical parity suite.
+it("share commands are explicitly CLI-only and add no MCP tools", () => {
+  const sharing = catalog.filter(capability => capability.cli === "share" || capability.cli.startsWith("share "));
+  expect(sharing.map(capability => capability.cli)).toEqual(["share", "share connect", "share disconnect", "share status", "share refresh", "share stop"]);
+  for (const capability of sharing) { expect(capability.mcp).toBeNull(); expect(capability.exclusion).toBeTruthy(); }
+  expect(mcpTools.some(tool => tool.name.startsWith("proto_share"))).toBe(false);
+});

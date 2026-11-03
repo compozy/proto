@@ -68,6 +68,10 @@ export async function runCli(
   try {
     if (argv.length === 1 && ["--version", "-v"].includes(argv[0]!))
       return { exitCode: 0, data: { version } };
+    if (argv[0] === "share") {
+      const { shareCommand } = await import("../share/cli.ts");
+      return { exitCode: 0, data: await shareCommand(argv.slice(1), options) };
+    }
     if (argv[0] === "auth") {
       const command = `auth ${argv[1] ?? ""}`;
       if (!catalog.some(c => c.cli === command)) throw new UsageError("Unknown auth command");
