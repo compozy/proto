@@ -189,6 +189,16 @@ export function formatHuman(
 
   if ("commands" in data)
     return out(["Commands:", ...(data.commands as string[]).map(c => `  proto ${c}`)].join("\n"));
+  if (argv[0] === "share") {
+    if (argv[1] === "connect") return out(`✓ Cloudflare connected (${String(data.domain)})\n\nYour link: ${String(data.link)}`);
+    if (argv[1] === "disconnect") return out(`✓ Removed ${(data.removed as string[]).join(", ") || "nothing"}\n! Kept the email-code login: other applications on this Cloudflare organization may use it.`);
+    if (argv[1] === "stop") return out("✓ Sharing stopped");
+    if (argv[1] === "refresh") return out(`✓ Snapshot ${short(String(data.snapshot))} (commit ${short(data.commit as string | null)})`);
+    if (argv[1] === "status") return out(data.running
+      ? `Sharing at ${String(data.link)}\nVersion ${short(String(data.snapshot))} · tunnel ${String(data.tunnel)} · ${plural((data.invitees as unknown[]).length, "invitee")}`
+      : "Nothing is being shared.");
+    return out(`✓ Snapshot ${short(String(data.snapshot))} (commit ${short(data.commit as string | null)})\n✓ Tunnel connected\n\nShare this link:\n\n  ${String(data.link)}\n\nr  publish a new version · Ctrl+C  stop sharing`);
+  }
   switch (command) {
     case "list": {
       const prototypes = data.prototypes as {

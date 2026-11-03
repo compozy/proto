@@ -35,9 +35,9 @@ builds always use a fresh version directory, so the existing gallery remains unt
 constructor argument, never an environment setting. `connect` discovers resources by name before
 creating them, restores adopted Access settings, and atomically saves `Connection` outside the project.
 `disconnect({ running })` requires the session owner's liveness callback to refuse a running share.
-The CLI passes `runningShare`; S5 replaces the temporary session module and implements that callback.
+The CLI passes `runningShare`; the session module implements that liveness callback.
 
-S5 uses `readConnection`, `checkConnection`, `openInvitations`, `closeInvitations`, and `setIngress`.
+The session uses `readConnection`, `checkConnection`, `openInvitations`, `closeInvitations`, and `setIngress`.
 The start check rejects missing resources, changed Access settings and foreign application policies.
 Invitation helpers act only on application-scoped policies named `proto-share invitees`.
 The organization-wide email-code provider is preserved on disconnect.
@@ -49,8 +49,12 @@ process start identity with its pid; close the sentinel pipe on intentional shut
 shutdown before observing `exited`. Unexpected exits belong to the session lifecycle.
 The token is passed only through `TUNNEL_TOKEN`, never argv or logging.
 
-The temporary `session.ts` declares `startShare(project, options)`, `shareStatus`, `refreshShare`,
-`stopShare`, and `runningShare`. Session supervision, control routes and terminal activity belong to S5.
+`session.ts` implements `startShare(project, options)`, `shareStatus`, `refreshShare`,
+`stopShare`, and `runningShare`. It supervises the connector and both loopback servers; `startShare` returns summary, refresh, stop
+and a `closed` promise containing an unexpected tunnel failure or null on intentional stop.
+The optional third argument supplies explicit network/process paths and callbacks for tests.
+`activity` carries verified identities; `log` carries only the existing request metadata.
+Control commands reuse the private record and require both pid and process start identity to match.
 The connection and executable I/O fixtures in `test/node/share` are reusable by that slice.
 
 # Share transport and identity

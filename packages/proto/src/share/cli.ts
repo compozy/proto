@@ -1,10 +1,11 @@
+import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { ProtoError } from "../model/errors.ts";
 import { loadProject, type ProtoProject } from "../node/project.ts";
 import { projectRoot } from "../cli/main.ts";
 import { connect, disconnect, readConnection } from "./connection.ts";
-import { startShare, shareStatus, refreshShare, stopShare, runningShare, type ShareOptions } from "./session.ts";
+import { startShare, shareStatus, refreshShare, stopShare, runningShare, type ShareOptions, type ShareRuntime } from "./session.ts";
 
 const verbs = ["connect", "disconnect", "status", "refresh", "stop"] as const;
 export type ShareArguments = {
@@ -68,14 +69,43 @@ async function choose(kind: string, choices: readonly { id: string; name: string
     return choices[index]!.id;
   } finally { reader.close(); }
 }
-export async function shareCommand(argv: readonly string[], options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string> }) {
+export async function shareCommand(argv: readonly string[], options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string>; share?: ShareRuntime }) {
   const args = parseShareArgs(argv);
-  if (args.command === "connect") return connect({ apiToken: (process.env.CLOUDFLARE_API_TOKEN || await (options.readToken ?? readToken)()).trim(), name: args.name, domain: args.domain, cwd: options.cwd, choose });
-  if (args.command === "disconnect") return disconnect({ running: runningShare });
-  if (args.command === "status") return shareStatus();
-  if (args.command === "refresh") return refreshShare();
-  if (args.command === "stop") return stopShare();
-  if (!await readConnection()) throw new ProtoError("share_not_connected");
+  if (args.command === "connect") return connect({ apiToken: (process.env.CLOUDFLARE_API_TOKEN || await (options.readToken ?? readToken)()).trim(), name: args.name, domain: args.domain, cwd: options.cwd, choose, path: options.share?.connectionPath, client: options.share?.client });
+  if (args.command === "disconnect") return disconnect({ path: options.share?.connectionPath, client: options.share?.client, running: () => runningShare(options.share) });
+  if (args.command === "status") return shareStatus(options.share);
+  if (args.command === "refresh") return refreshShare(options.share);
+  if (args.command === "stop") return stopShare(options.share);
+  if (!await readConnection(options.share?.connectionPath)) throw new ProtoError("share_not_connected");
   const project = options.project ?? await loadProject(projectRoot(options.cwd ?? process.cwd(), args.app));
-  return startShare(project, args.options!);
+  const session = await startShare(project, args.options!, {
+    ...options.share,
+    notice: message => { options.share?.notice?.(message); if (!args.json) console.error(`! ${message}`); },
+    activity: event => {
+      options.share?.activity?.(event);
+      if (args.json) return;
+      if (event.type === "joined") console.error(`${event.email} joined`);
+      if (event.type === "commented") console.error(`${event.email} commented on ${event.key} (${event.commentId})`);
+      if (event.type === "approved") console.error(`${event.email} approved ${event.key} at ${event.commit?.slice(0, 7) ?? "—"}`);
+    },
+  });
+  if (process.stdin.isTTY) {
+    const wasRaw = process.stdin.isRaw;
+    emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    const keypress = (_text: string, key: { name?: string; ctrl?: boolean }) => {
+      if (key.ctrl && key.name === "c") process.kill(process.pid, "SIGINT");
+      else if (key.name === "r") void session.refresh().then(result => {
+        if (!args.json) console.error(`✓ Snapshot ${result.snapshot.slice(0, 7)}`);
+      }).catch(error => { if (!args.json) console.error(error instanceof Error ? error.message : "Refresh failed"); });
+    };
+    process.stdin.on("keypress", keypress);
+    void session.closed.then(() => {
+      process.stdin.removeListener("keypress", keypress);
+      process.stdin.setRawMode(!!wasRaw);
+      process.stdin.pause();
+    });
+  }
+  return session;
 }

@@ -1,5 +1,5 @@
-import { afterEach, expect, it } from "vitest";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { afterEach, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { locateCloudflared, spawnCloudflared } from "../../../src/share/cloudflared.ts";
@@ -7,7 +7,7 @@ import { cloudflaredStub } from "./cloudflared-stub.ts";
 
 // Invariant owner: binary acquisition and process I/O. Canonical suite: node/share.
 const directories: string[] = [];
-afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
+afterEach(async () => { vi.unstubAllEnvs(); for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 async function directory() { const path = await mkdtemp(join(tmpdir(), "proto-cloudflared-")); directories.push(path); return path; }
 it("UT-012: a supported PATH binary wins; an older binary selects the pinned download", async () => {
   const path = await directory(); const cache = await directory();
@@ -28,8 +28,12 @@ it("UT-013: checksum mismatch leaves no downloaded executable or temporary file"
 it("sentinel lifetime: closing the parent pipe terminates its connector", async () => {
   const path = await directory();
   const binary = await cloudflaredStub(join(path, "cloudflared"));
+  const report = join(path, "report.json");
+  vi.stubEnv("PROTO_STUB_REPORT", report);
   const connector = await spawnCloudflared(binary, "tunnel-secret");
   expect(connector.pid).toBeGreaterThan(0);
+  await expect.poll(async () => JSON.parse(await readFile(report, "utf8"))).toMatchObject({ pid: connector.pid, argv: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:0", "run"] });
+  expect(await readFile(report, "utf8")).not.toContain("tunnel-secret");
   await connector.close();
   expect(() => process.kill(connector.pid, 0)).toThrow();
 });

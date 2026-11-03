@@ -13,6 +13,8 @@ export type ErrorSpec = {
 };
 
 export const errors = {
+  share_tunnel_timeout: { exit: 4, status: null, message: "The link did not start answering. Check your network." },
+  share_tunnel_lost: { exit: 4, status: null, message: "The tunnel stopped; the link is closed." },
   share_target_not_found: {
     exit: 1,
     status: null,

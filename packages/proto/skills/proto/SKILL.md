@@ -36,6 +36,11 @@ project rules (which views exist, where fixtures live, which specs to use) in th
 - **Canvas and Frame.** `proto.canvas.tsx` exports `Canvas` (providers around every state; it
   receives `theme` and `role`) and an optional `Frame` (production chrome around component
   prototypes that are not `standalone`).
+- **Temporary sharing.** `proto share` sends a scoped built snapshot through Cloudflare Access.
+  Use CLI-only `share connect`, `share <slug> --approver <email>` (or `--flow` / `--all`),
+  `share status`, `share refresh`, `share stop`, and `share disconnect`; all accept `--json`.
+  Start runs until stopped, and approvers require a clean committed tree. Agents never approve.
+  See `references/cli.md` for invitations and output.
 - **Review store.** `proto/review/<key>.json` per prototype (key = slug) or flow
   (key = `flow-<id>`), committed with the code. Comment ids are `<key>-<n>`. Each key is
   `in_review` or `approved`; approval records the commit and is a human act. A new comment on an

@@ -76,7 +76,7 @@ export async function locateCloudflared(options: {
 // Inline source works in the distributed CLI without resolving a TS entry under Node.
 const sentinelSource = `
 const { spawn } = require('node:child_process');
-const child = spawn(process.argv[1], ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:0', 'run'], { stdio: ['ignore', 'ignore', 'ignore'], env: process.env });
+const child = spawn(process.env.PROTO_CLOUDFLARED_BINARY, ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:0', 'run'], { stdio: ['ignore', 'ignore', 'ignore'], env: process.env });
 let ending = false;
 function stop() {
   if (ending) return;
@@ -95,8 +95,8 @@ process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
 `;
 export async function spawnCloudflared(binary: string, token: string) {
-  const sentinel = spawn(process.execPath, ["-e", sentinelSource, binary], {
-    detached: true, stdio: ["pipe", "pipe", "ignore"], env: { ...process.env, TUNNEL_TOKEN: token },
+  const sentinel = spawn(process.execPath, ["-e", sentinelSource], {
+    detached: true, stdio: ["pipe", "pipe", "ignore"], env: { ...process.env, TUNNEL_TOKEN: token, PROTO_CLOUDFLARED_BINARY: binary },
   });
   // The connector may exit before teardown closes its input pipe.
   sentinel.stdin.on("error", () => {});

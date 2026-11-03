@@ -26,3 +26,8 @@ Local dev `allowedHosts` entries are hostnames without ports; `host:port` entrie
 configuration validation with an explanation. Each server checks its
 own port, and the allowlist never changes the canonical origin required for writes or
 render protocol messages. Use `proto dev --open` to open the canonical shell.
+
+For temporary local reviews, use [`proto share`](share.md). It explicitly opts into
+`allowSameSiteRender: true` with sibling subdomains on one Cloudflare domain. Host-only render
+grants, exact Origin checks and `x-proto-request` protect this same-site layout. The deployed
+layout above remains the default.

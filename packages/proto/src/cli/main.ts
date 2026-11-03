@@ -60,17 +60,26 @@ export function projectRoot(cwd: string, app?: string) {
   if (matches.length > 1) throw new ProtoError("app_required");
   return resolve(cwd);
 }
-export type CliResult = { exitCode: number; data: unknown };
+export type CliResult = { exitCode: number; data: unknown; completion?: Promise<CliResult> };
 export async function runCli(
   argv: string[],
-  options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string> } = {}
+  options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string>; share?: import("../share/session.ts").ShareRuntime } = {}
 ): Promise<CliResult> {
   try {
     if (argv.length === 1 && ["--version", "-v"].includes(argv[0]!))
       return { exitCode: 0, data: { version } };
     if (argv[0] === "share") {
       const { shareCommand } = await import("../share/cli.ts");
-      return { exitCode: 0, data: await shareCommand(argv.slice(1), options) };
+      const data = await shareCommand(argv.slice(1), options);
+      if (data && typeof data === "object" && "closed" in data) {
+        return {
+          exitCode: 0, data: data.summary,
+          completion: data.closed.then(error => error
+            ? { exitCode: error.exit ?? 1, data: errorBody(error) }
+            : { exitCode: 0, data: undefined }),
+        };
+      }
+      return { exitCode: 0, data };
     }
     if (argv[0] === "auth") {
       const command = `auth ${argv[1] ?? ""}`;
@@ -234,4 +243,16 @@ if (import.meta.main) {
   if (process.argv.includes("--verbose"))
     console.error(`proto completed in ${Date.now() - started}ms (exit ${result.exitCode})`);
   process.exitCode = result.exitCode;
+  if (result.completion) {
+    const ended = await result.completion;
+    process.exitCode = ended.exitCode;
+    if (ended.data !== undefined) {
+      if (process.argv.includes("--json")) console.error(JSON.stringify(ended.data));
+      else {
+        const { formatHuman } = await import("./human.ts");
+        const output = formatHuman(process.argv.slice(2), ended);
+        if (output.stderr) console.error(output.stderr);
+      }
+    }
+  }
 }
