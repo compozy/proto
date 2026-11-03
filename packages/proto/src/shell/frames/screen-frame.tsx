@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from "react";
 
-import type { RenderMessage } from "../../model/protocol";
+import type { RenderMessage, StoryFrameTarget } from "../../model/protocol";
 import { useBox } from "../lib/use-box";
 import type { Width } from "../lib/view";
 import { cn } from "../ui/utils";
@@ -15,7 +15,8 @@ import {
 export type FrameGeometry = { width: number; height: number; scale: number };
 
 /**
- * An interactive render frame fitted to its container: at `fit` the prototype gets the whole
+ * An interactive render frame fitted to its container (a prototype state or a story, whose
+ * frame loads from its root's story server): at `fit` the document gets the whole
  * box; at a fixed width it is scaled down (never up) to fit and stretched to the box height.
  * `overlay` renders in the frame's own coordinates (pins, pick outlines of the review slice).
  */
@@ -31,7 +32,7 @@ export function ScreenFrame({
   caption,
   toolbar,
 }: {
-  target: Omit<FrameTarget, "width">;
+  target: Omit<FrameTarget, "width"> | Omit<StoryFrameTarget, "width">;
   width: Width;
   title: string;
   slugs: ReadonlySet<string>;

@@ -14,7 +14,8 @@ import { specTitle } from "../lib/registry-model";
 import { useBootstrap, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
-import type { View } from "../lib/view";
+import { componentView, type View } from "../lib/view";
+import { ComponentsPage } from "../pages/components";
 import { Drafts, FlowsIndex, Overview, ScreensIndex } from "../pages/overview";
 import { SpecPage } from "../pages/spec-page";
 import { ScreenPage } from "../screen/screen-page";
@@ -364,6 +365,27 @@ function pageFor(
         ),
       };
     }
+    case "components":
+      return area(
+        t("rail.components"),
+        <ComponentsPage file={null} story={null} width="fit" theme={theme} />
+      );
+    case "component": {
+      const file = registry.stories?.find(item => item.slug === view.slug);
+      if (!file) return area(view.slug, <NotFound kind="component" id={view.slug} />);
+      const story = file.stories.find(item => item.id === view.story) ?? null;
+      if (view.story && !story) return area(file.title, <NotFound kind="story" id={view.story} />);
+      const components = { label: t("rail.components"), to: { area: "components" } as View };
+      const fileCrumb = { label: file.title, to: componentView(file.slug) };
+      return {
+        crumbs: story
+          ? [components, fileCrumb, { label: story.name }]
+          : [components, { label: file.title }],
+        target: null,
+        share: true,
+        body: <ComponentsPage file={file} story={story} width={view.width} theme={theme} />,
+      };
+    }
     case "flows":
       return area(t("rail.flows"), <FlowsIndex />);
     case "screens":
@@ -380,7 +402,13 @@ function pageFor(
   }
 }
 
-function NotFound({ kind, id }: { kind: "spec" | "flow" | "prototype"; id: string }) {
+function NotFound({
+  kind,
+  id,
+}: {
+  kind: "spec" | "flow" | "prototype" | "component" | "story";
+  id: string;
+}) {
   const t = useT();
   return (
     <div className="shell-dots grid min-h-0 flex-1 place-items-center p-6">

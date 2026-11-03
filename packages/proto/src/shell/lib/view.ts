@@ -1,8 +1,8 @@
 /**
  * The shell view lives in its URL (`_dx.md` § URLs, shell origin), so a shared link reopens
  * exactly what the sender saw. Values are locale-independent (`theme=dark`, never `escuro`).
- * Precedence when parameters conflict: `flow` > `p` > `spec` > the area parameters; the
- * losers are dropped from the canonical URL. Pure: no DOM.
+ * Precedence when parameters conflict: `flow` > `p` > `c` > `spec` > the area parameters
+ * (`components` among them); the losers are dropped from the canonical URL. Pure: no DOM.
  */
 
 export const minWidth = 320;
@@ -45,6 +45,16 @@ export type View =
       comment: string | null;
     }
   | { area: "drafts" }
+  | { area: "components" }
+  | {
+      /** A component file (`?c=<slug>`), or one of its stories (`&story=<id>`). */
+      area: "component";
+      slug: string;
+      story: string | null;
+      width: Width;
+      /** A story comment to focus (`?c=…&story=…&comment=story--ui-button-3`). */
+      comment: string | null;
+    }
   | { area: "settings"; section: SettingsSection }
   | { area: "comments"; filter: InboxFilter };
 
@@ -95,6 +105,16 @@ function readArea(params: URLSearchParams): View {
       comment: params.get("comment") || null,
     };
   }
+  const component = params.get("c");
+  if (component) {
+    return {
+      area: "component",
+      slug: component,
+      story: params.get("story") || null,
+      width: readWidth(params.get("w")),
+      comment: params.get("comment") || null,
+    };
+  }
   const spec = params.get("spec");
   if (spec) return { area: "spec", spec };
   if (params.has("settings")) {
@@ -114,6 +134,7 @@ function readArea(params: URLSearchParams): View {
   if (params.has("drafts")) return { area: "drafts" };
   if (params.has("flows")) return { area: "flows" };
   if (params.has("screens")) return { area: "screens" };
+  if (params.has("components")) return { area: "components" };
   return { area: "overview" };
 }
 
@@ -139,6 +160,12 @@ export function viewSearch({ view, theme }: Location) {
       if (view.compare) entries.push(["compare", "themes"]);
       if (view.comment) entries.push(["comment", view.comment]);
       break;
+    case "component":
+      entries.push(["c", view.slug]);
+      if (view.story) entries.push(["story", view.story]);
+      if (view.width !== "fit") entries.push(["w", String(view.width)]);
+      if (view.comment) entries.push(["comment", view.comment]);
+      break;
     case "settings":
       entries.push(["settings", view.section]);
       break;
@@ -148,6 +175,7 @@ export function viewSearch({ view, theme }: Location) {
     case "drafts":
     case "flows":
     case "screens":
+    case "components":
       entries.push([view.area, ""]);
       break;
   }
@@ -176,6 +204,11 @@ export function screenView(
   };
 }
 
+/** A component page, or one of its stories, with the defaults every link starts from. */
+export function componentView(slug: string, story: string | null = null): View {
+  return { area: "component", slug, story, width: "fit", comment: null };
+}
+
 /** The rail area a view belongs to. */
 export function areaOf(view: View) {
   switch (view.area) {
@@ -185,6 +218,8 @@ export function areaOf(view: View) {
       return "flows";
     case "screen":
       return "screens";
+    case "component":
+      return "components";
     default:
       return view.area;
   }

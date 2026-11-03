@@ -1,7 +1,8 @@
 /**
  * Shell side of the shell ⇄ render protocol (`_spec.md` § Shell ⇄ render protocol, ADR-008,
  * Safety Invariant 7). Render messages are untrusted: a message counts only when it comes from
- * the iframe the shell created, from the render origin, with that frame's current nonce, and
+ * the iframe the shell created, from its target's root origin (the render host, or the story
+ * server of a story's root), with that frame's current nonce, and
  * parses with the `src/model/protocol.ts` schemas. The shell never touches the iframe's
  * document; it only posts to its window.
  */
@@ -13,7 +14,10 @@ export const slowAfterMs = 10_000;
 export type FrameExpectation = {
   /** The `contentWindow` of the iframe this shell created. */
   source: Window | null;
-  /** Origin of the bootstrap `renderUrl`. */
+  /**
+   * Origin of the frame target's root: the bootstrap `renderUrl` for a prototype, that story
+   * root's `renderUrl` (bootstrap `storyRoots`) for a story.
+   */
   origin: string;
   /** The frame's current nonce; a reloaded frame gets a new one. */
   nonce: string;
@@ -38,8 +42,11 @@ export type FrameStatus =
       kind: "error";
       message: string;
       componentStack: string | null;
-      /** Shell-side failure with its own copy (the render grant keeps expiring). */
-      reason?: "auth_loop";
+      /**
+       * Shell-side failure with its own copy: the render grant keeps expiring (`auth_loop`), or
+       * no story server runs for the target's root (`story_root`, `message` names the root).
+       */
+      reason?: "auth_loop" | "story_root";
     };
 
 /**
@@ -58,7 +65,12 @@ export function allowReticket(attempts: readonly number[], now: number) {
 
 export const initialStatus: FrameStatus = { kind: "loading", slow: false };
 
-/** An error is final until the frame reloads (a later `ready` never hides it). */
+/**
+ * An error is final until the frame reloads (a later `ready` never hides it). A story reports
+ * its lifecycle through `story:status`: a terminal failure at `import`, `load` or `render` is a
+ * frame error (it frees the preview slot and shows the failure card); a `play` failure leaves
+ * the rendered story visible, and running or passed reports never change the frame.
+ */
 export function nextStatus(current: FrameStatus, message: RenderMessage | "slow"): FrameStatus {
   if (current.kind === "error") return current;
   if (message === "slow")
@@ -66,6 +78,9 @@ export function nextStatus(current: FrameStatus, message: RenderMessage | "slow"
   if (message.type === "ready") return { kind: "ready" };
   if (message.type === "error") {
     return { kind: "error", message: message.message, componentStack: message.componentStack };
+  }
+  if (message.type === "story:status" && message.status === "failed" && message.stage !== "play") {
+    return { kind: "error", message: message.error ?? message.stage, componentStack: null };
   }
   return current;
 }

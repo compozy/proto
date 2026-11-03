@@ -14,6 +14,7 @@ import { areaOf, type View } from "../lib/view";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
 import {
+  Blocks,
   Check,
   Clock,
   Eye,
@@ -40,11 +41,23 @@ import { useSlots, type InspectorTab, type ReviewTarget } from "./slots";
 
 type RailItem = { area: string; label: string; icon: typeof LayoutGrid; to: View };
 
-function railItems(t: Translate): RailItem[] {
+/** Components follows Screens, and exists only when the registry has story roots. */
+function railItems(t: Translate, stories: boolean): RailItem[] {
+  const components: RailItem[] = stories
+    ? [
+        {
+          area: "components",
+          label: t("rail.components"),
+          icon: Blocks,
+          to: { area: "components" },
+        },
+      ]
+    : [];
   return [
     { area: "overview", label: t("rail.overview"), icon: LayoutGrid, to: { area: "overview" } },
     { area: "flows", label: t("rail.flows"), icon: Workflow, to: { area: "flows" } },
     { area: "screens", label: t("rail.screens"), icon: Monitor, to: { area: "screens" } },
+    ...components,
     { area: "drafts", label: t("rail.drafts"), icon: Sparkles, to: { area: "drafts" } },
   ];
 }
@@ -68,6 +81,7 @@ export function ShellRail({ view }: { view: View }) {
     (area === "flows"
       ? scoped.flows.length > 0
       : area !== "drafts" || scoped.prototypes.some(item => item.kind === "draft"));
+  const stories = registry.status === "ready" && (registry.registry.storyRoots?.length ?? 0) > 0;
   return (
     <nav
       aria-label={t("rail.label")}
@@ -80,7 +94,7 @@ export function ShellRail({ view }: { view: View }) {
       >
         <Layers className="size-4" />
       </Link>
-      {railItems(t).map(item => [
+      {railItems(t, stories).map(item => [
         item.area === "drafts" && (
           <CommentsRailItem
             key="comments"

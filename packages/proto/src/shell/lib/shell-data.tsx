@@ -27,11 +27,27 @@ export const bootstrapHref = "__proto/bootstrap.json";
 
 export type ShellEnv = {
   bootstrap: Bootstrap;
-  /** Absolute render base (bootstrap `renderUrl` resolved against the document). */
+  /** Absolute prototype render base (bootstrap `renderUrl` resolved against the document). */
   renderUrl: string;
-  /** The only origin render messages are accepted from. */
+  /** The only origin prototype frames accept messages from; stories use `frameEndpoint`. */
   renderOrigin: string;
 };
+
+/** Where one frame loads and the only origin its messages are accepted from. */
+export type FrameEndpoint = { renderUrl: string; origin: string };
+
+/**
+ * The endpoint of a frame target: the render host for a prototype (`root` null), or that story
+ * root's server from bootstrap `storyRoots`. Null when no server runs for the root (a root left
+ * out of `proto dev`, or a build without stories): such a frame never loads.
+ */
+export function frameEndpoint(env: ShellEnv, root: string | null): FrameEndpoint | null {
+  if (root === null) return { renderUrl: env.renderUrl, origin: env.renderOrigin };
+  const story = env.bootstrap.storyRoots?.find(item => item.id === root);
+  if (!story) return null;
+  const renderUrl = new URL(story.renderUrl, document.baseURI).href;
+  return { renderUrl, origin: new URL(renderUrl).origin };
+}
 
 /** Fetch and validate the shell bootstrap, resolving render URLs against the document base. */
 async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Promise<ShellEnv> {
@@ -70,7 +86,7 @@ async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Regist
 
 export type ShellEventType = "registry" | "comments" | "review" | "snapshot";
 /** `key` names a changed review; `id` the new version of a `snapshot` event. */
-type EventData = { key?: string; id?: string };
+type EventData = { key?: string; id?: string; revision?: number };
 type EventListener = (data: EventData) => void;
 
 /** Consecutive failed reconnects (no `open` between them) that make a stream a session check. */
@@ -233,6 +249,7 @@ function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNod
   );
   const query = useQuery(registryQuery(env));
   useEffect(() => {
+    // The event names a revision, never the registry itself: always refetch the snapshot.
     return events.subscribe("registry", () => {
       void client.invalidateQueries({ queryKey: registryQuery(env).queryKey });
     });

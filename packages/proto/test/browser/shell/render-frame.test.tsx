@@ -1,23 +1,33 @@
 /**
- * Shell side of the shell ⇄ render protocol (`_tests.md` UT-065, IT-018; Safety Invariant 7).
- * This page plays the shell on http://127.0.0.1:<port>; the real render host runs in a
- * cross-origin iframe on http://localhost:<port> with the render suite's harness prototypes
- * (`test/browser/render/harness`). The shell accepts a message only from the iframe it created,
- * from the render origin and with that frame's current nonce.
+ * Shell side of the shell ⇄ render protocol (`_tests.md` UT-065, IT-018, IT-021; Safety
+ * Invariants 2 and 7). This page plays the shell on http://127.0.0.1:<port>; the real render
+ * host runs in a cross-origin iframe on http://localhost:<port> with the render suite's harness
+ * prototypes (`test/browser/render/harness`). The shell accepts a message only from the iframe
+ * it created, from its target's root origin (the render host, or a story root's server) and
+ * with that frame's current nonce.
  */
 import "../../../src/shell/theme.css";
 
-import { act, useState, type ReactNode } from "react";
+import { act, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { commands } from "vitest/browser";
 import { RenderErrorCard } from "../../../src/shell/frames/frame-status.tsx";
 
-import { protocolVersion } from "../../../src/model/protocol.ts";
+import {
+  protocolVersion,
+  type RenderMessage,
+  type StoryFrameTarget,
+} from "../../../src/model/protocol.ts";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
-import type { FrameContext } from "../../../src/shell/frames/use-render-frame.ts";
+import { useRenderFrame, type FrameContext } from "../../../src/shell/frames/use-render-frame.ts";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
-import { acceptRenderMessage } from "../../../src/shell/lib/render-channel.ts";
+import {
+  acceptRenderMessage,
+  initialStatus,
+  nextStatus,
+  type FrameStatus,
+} from "../../../src/shell/lib/render-channel.ts";
 import { ShellDataProvider, type ShellEnv } from "../../../src/shell/lib/shell-data.tsx";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
@@ -358,5 +368,211 @@ describe("ScreenFrame", () => {
     });
     expect(alert.textContent).toContain("keeps rejecting");
     expect(tickets).toBe(3);
+  });
+});
+
+describe("nextStatus", () => {
+  const status = (
+    stage: "import" | "load" | "render" | "play",
+    result: "running" | "passed" | "failed",
+    error: string | null = null
+  ): RenderMessage => ({
+    proto: protocolVersion,
+    frame: "current",
+    type: "story:status",
+    story: "ui-button--primary",
+    stage,
+    status: result,
+    hasPlay: true,
+    error,
+    durationMs: 12,
+  });
+  const ready: FrameStatus = { kind: "ready" };
+
+  test("a terminal story failure before play is a frame error that frees the preview slot", () => {
+    // Invariant: `import`, `load` and `render` failures end the frame with the host's message.
+    // Owner: shell render channel (`_spec.md` § Core Interfaces, `story:status`).
+    for (const stage of ["import", "load", "render"] as const) {
+      expect(nextStatus(initialStatus, status(stage, "failed", `${stage} broke`))).toEqual({
+        kind: "error",
+        message: `${stage} broke`,
+        componentStack: null,
+      });
+    }
+    // A render failure after commit replaces the ready frame too.
+    expect(nextStatus(ready, status("render", "failed", "boom"))).toMatchObject({ kind: "error" });
+    // A failure without a message still names the stage it stopped at.
+    expect(nextStatus(initialStatus, status("load", "failed"))).toMatchObject({ message: "load" });
+  });
+
+  test("a play failure, running and passed reports leave the frame as it is", () => {
+    // Invariant: a story whose play failed stays visible; lifecycle progress never settles a frame.
+    expect(nextStatus(ready, status("play", "failed", "expected disabled"))).toBe(ready);
+    expect(nextStatus(ready, status("play", "passed"))).toBe(ready);
+    expect(nextStatus(initialStatus, status("load", "running"))).toBe(initialStatus);
+    expect(nextStatus(initialStatus, status("render", "passed"))).toBe(initialStatus);
+  });
+
+  test("an error stays final: a later story report never hides it", () => {
+    const error: FrameStatus = { kind: "error", message: "first", componentStack: null };
+    expect(nextStatus(error, status("render", "passed"))).toBe(error);
+    expect(nextStatus(error, status("import", "failed", "second"))).toBe(error);
+  });
+});
+
+describe("story frames", () => {
+  // Two story roots on two origins: `web` on the render origin, `ui` on the shell's own origin.
+  const webOrigin = renderOrigin;
+  const uiOrigin = window.location.origin;
+  const storyEnv: ShellEnv = {
+    ...env,
+    bootstrap: {
+      ...env.bootstrap,
+      storyRoots: [
+        { id: "web", renderUrl: `${webOrigin}/test/browser/render/__proto/story/` },
+        { id: "ui", renderUrl: `${uiOrigin}/test/browser/render/__proto/story/` },
+      ],
+    },
+  };
+  const target = (root: string): StoryFrameTarget => ({
+    kind: "story",
+    root,
+    slug: "ui-button",
+    story: "ui-button--primary",
+    theme: "light",
+    play: true,
+  });
+  const failed = (frame: string) => ({
+    proto: protocolVersion,
+    frame,
+    type: "story:status",
+    story: "ui-button--primary",
+    stage: "render",
+    status: "failed",
+    hasPlay: false,
+    error: "Forged failure",
+    durationMs: 5,
+  });
+
+  /** A story frame whose status, result and Replay are readable from the DOM. */
+  function StoryProbe({ target: probe }: { target: StoryFrameTarget }) {
+    const iframe = useRef<HTMLIFrameElement>(null);
+    const frame = useRenderFrame(iframe, probe, { slugs });
+    return (
+      <div
+        data-root={probe.root}
+        data-status={frame.status.kind}
+        data-reason={frame.status.kind === "error" ? (frame.status.reason ?? "") : ""}
+        data-result={frame.result?.status ?? ""}
+      >
+        <button type="button" onClick={frame.reload}>
+          Replay
+        </button>
+        <iframe key={frame.nonce} ref={iframe} src={frame.src ?? undefined} title={probe.root} />
+      </div>
+    );
+  }
+
+  const probeOf = (container: HTMLElement, root: string) => {
+    const probe = container.querySelector<HTMLElement>(`[data-root="${root}"]`);
+    const iframe = probe?.querySelector("iframe");
+    if (!probe || !iframe) throw new Error(`No ${root} story frame yet`);
+    return { probe, iframe };
+  };
+
+  test("IT-021 a story frame loads from its root's server and never takes a render ticket", async () => {
+    const container = mount(<StoryProbe target={target("ui")} />, storyEnv);
+    const { iframe } = await vi.waitFor(() => probeOf(container, "ui"));
+    const src = new URL(iframe.src);
+    expect(src.origin).toBe(uiOrigin);
+    expect(src.pathname).toBe("/test/browser/render/__proto/story/ui-button--primary");
+    expect(src.searchParams.get("play")).toBe("1");
+    expect(src.searchParams.get("frame")).toMatch(/^[0-9a-f]{32}$/);
+    expect(src.searchParams.has("ticket")).toBe(false);
+  });
+
+  test("IT-021 each story frame accepts only its root origin, its own window and its nonce", async () => {
+    // Invariant: Safety Invariant 2. Owner: shell frame channel (`useRenderFrame`).
+    const container = mount(
+      <>
+        <StoryProbe target={target("web")} />
+        <StoryProbe target={target("ui")} />
+      </>,
+      storyEnv
+    );
+    const web = await vi.waitFor(() => probeOf(container, "web"));
+    const ui = await vi.waitFor(() => probeOf(container, "ui"));
+    const sibling = document.createElement("iframe");
+    sibling.src = `${webOrigin}/test/browser/render/__proto/story/ui-button--primary`;
+    document.body.append(sibling);
+    cleanups.push(() => sibling.remove());
+    const webNonce = nonceOf(web.iframe);
+    const uiNonce = nonceOf(ui.iframe);
+
+    act(() => {
+      // Another root's origin, a same-origin sibling window, the other frame's nonce.
+      deliver(failed(webNonce), { source: web.iframe.contentWindow, origin: uiOrigin });
+      deliver(failed(webNonce), { source: sibling.contentWindow, origin: webOrigin });
+      deliver(failed(uiNonce), { source: web.iframe.contentWindow, origin: webOrigin });
+      deliver(failed(uiNonce), { source: ui.iframe.contentWindow, origin: webOrigin });
+    });
+    // Synthetic dispatch runs the shell's listener synchronously inside act(): nothing to wait for.
+    expect(web.probe.dataset.status).toBe("loading");
+    expect(ui.probe.dataset.status).toBe("loading");
+
+    act(() => deliver(failed(uiNonce), { source: ui.iframe.contentWindow, origin: uiOrigin }));
+    expect(ui.probe.dataset.status).toBe("error");
+    expect(ui.probe.dataset.result).toBe("failed");
+    expect(web.probe.dataset.status).toBe("loading");
+
+    act(() => deliver(failed(webNonce), { source: web.iframe.contentWindow, origin: webOrigin }));
+    expect(web.probe.dataset.status).toBe("error");
+  });
+
+  test("IT-021 after Replay the replaced document's nonce is stale", async () => {
+    const container = mount(<StoryProbe target={target("web")} />, storyEnv);
+    const first = await vi.waitFor(() => probeOf(container, "web"));
+    const stale = nonceOf(first.iframe);
+    act(() => first.probe.querySelector("button")?.click());
+    const next = await vi.waitFor(() => {
+      const found = probeOf(container, "web");
+      if (nonceOf(found.iframe) === stale) throw new Error("No replayed document yet");
+      return found;
+    });
+    act(() => deliver(failed(stale), { source: next.iframe.contentWindow, origin: webOrigin }));
+    expect(next.probe.dataset.status).toBe("loading");
+    act(() =>
+      deliver(failed(nonceOf(next.iframe)), {
+        source: next.iframe.contentWindow,
+        origin: webOrigin,
+      })
+    );
+    expect(next.probe.dataset.status).toBe("error");
+  });
+
+  test("IT-021 ready counts only for the component and story the frame asked for", async () => {
+    const container = mount(<StoryProbe target={target("web")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "web"));
+    const ready = (slug: string, state: string) => ({
+      proto: protocolVersion,
+      frame: nonceOf(iframe),
+      type: "ready",
+      slug,
+      state,
+    });
+    const from = { source: iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(ready("ui-button", "ui-button--disabled"), from));
+    act(() => deliver(ready("other", "ui-button--primary"), from));
+    expect(probe.dataset.status).toBe("loading");
+    act(() => deliver(ready("ui-button", "ui-button--primary"), from));
+    expect(probe.dataset.status).toBe("ready");
+  });
+
+  test("IT-021 a root without a story server shows its failure and loads nothing", async () => {
+    const container = mount(<StoryProbe target={target("absent")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "absent"));
+    expect(probe.dataset.status).toBe("error");
+    expect(probe.dataset.reason).toBe("story_root");
+    expect(iframe.getAttribute("src")).toBeNull();
   });
 });

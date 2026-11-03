@@ -1,6 +1,7 @@
 /**
- * URL and view model (`_tests.md` UT-022–UT-024): the shell view lives in its URL, widths are
- * clamped to 320–3840 with the URL rewritten, and conflicting selections resolve to one view.
+ * URL and view model (`_tests.md` UT-022–UT-024, `_dx.md` § URLs): the shell view lives in its
+ * URL, widths are clamped to 320–3840 with the URL rewritten, and conflicting selections resolve
+ * to one view (`flow` > `p` > `c` > `spec` > area parameters).
  */
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -38,6 +39,35 @@ describe("parseView", () => {
     const parsed = parseView("?spec=auth&flow=sign-in&node=error");
     expect(parsed.view).toEqual({ area: "flow", flow: "sign-in", node: "error", comment: null });
     expect(parsed.canonical).toBe("?flow=sign-in&node=error");
+  });
+
+  test("a story URL opens the component's story with its width and theme", () => {
+    const parsed = parseView("?c=ui-button&story=ui-button--primary&theme=dark&w=390");
+    expect(parsed.view).toEqual({
+      area: "component",
+      slug: "ui-button",
+      story: "ui-button--primary",
+      width: 390,
+      comment: null,
+    });
+    expect(parsed.theme).toBe("dark");
+    expect(parsed.canonical).toBe("?c=ui-button&story=ui-button--primary&w=390&theme=dark");
+    expect(parseView("?c=ui-button").view).toMatchObject({ area: "component", story: null });
+    expect(parseView("?components")).toMatchObject({
+      view: { area: "components" },
+      canonical: "?components",
+    });
+  });
+
+  test("c ranks after flow and p and before spec and the area parameters", () => {
+    // Invariant: `flow` > `p` > `c` > `spec` > area params (`_dx.md` § URLs). Owner: view model.
+    expect(parseView("?c=ui-button&flow=sign-in").canonical).toBe("?flow=sign-in");
+    expect(parseView("?c=ui-button&story=ui-button--primary&p=login-form").canonical).toBe(
+      "?p=login-form"
+    );
+    expect(parseView("?spec=auth&c=ui-button").canonical).toBe("?c=ui-button");
+    expect(parseView("?components&c=ui-button").canonical).toBe("?c=ui-button");
+    expect(parseView("?screens&components").canonical).toBe("?screens");
   });
 });
 
