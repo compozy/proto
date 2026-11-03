@@ -52,3 +52,25 @@ The token is passed only through `TUNNEL_TOKEN`, never argv or logging.
 The temporary `session.ts` declares `startShare(project, options)`, `shareStatus`, `refreshShare`,
 `stopShare`, and `runningShare`. Session supervision, control routes and terminal activity belong to S5.
 The connection and executable I/O fixtures in `test/node/share` are reusable by that slice.
+
+# Share transport and identity
+
+These CLI-internal modules are not part of the public Node entry. The review server remains
+provider-neutral.
+
+Before opening a tunnel, call `await prefetchAccessAuthorizer({ teamDomain, audience, invitees })`
+from `access.ts` and pass the returned function to the review server's `authorize` option. This
+fetches RSA signing keys with a five-second timeout and raises `cloudflare_api_error` on failure.
+The lower-level `accessAuthorizer` also exposes `await authorize.prefetch()` for composition.
+`clock`, when supplied, returns Unix milliseconds. Invitations are read for every authorization;
+provide approvers with `["review", "comment"]` and commenters with `["comment"]`.
+
+Pass `notInvitedPage(project.config.locale)` from `pages.ts` as `signIn`. It returns a static,
+localized 403 without reflecting request or prototype data.
+
+`serveHandler(handler, { publicOrigin, renderOrigin, sessionId })` from `http.ts` listens on an
+ephemeral loopback port, permits exactly the two configured hosts, and marks every response with
+`X-Proto-Session`. Responses stream with backpressure and client disconnects abort the handler's
+request signal. Request bodies are limited to 5 MB plus 64 KB, matching the dev upload envelope.
+Always await `close()` during teardown: it ends SSE, closes idle connections and force-closes
+remaining connections after ten seconds. Repeated calls share the same shutdown.
