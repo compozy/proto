@@ -78,7 +78,9 @@ export async function loadProject(
     clearTimeout(refreshTimer);
     const request = ++refreshRequest;
     refreshTimer = setTimeout(() => {
-      void publishLatest(request);
+      void publishLatest(request).catch(error => {
+        console.warn(`warning: registry refresh failed for ${root}`, error);
+      });
     }, 75);
   };
   let stopWatch: (() => void) | undefined;

@@ -7,10 +7,15 @@ import {
 import { keyKind, storyOfKey, storyKey, reviewKeys } from "../../../src/model/registry.ts";
 import { keySchema } from "../../../src/model/review.ts";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { findPrototypes } from "../../../src/node/discovery.ts";
+// Keep filesystem calls real while allowing a deterministic unlink between two I/O operations.
+vi.mock("node:fs", async importOriginal => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+}));
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 const meta =
@@ -380,6 +385,98 @@ it("keeps cache entries stable until file metadata changes or explicit invalidat
   rmSync(file);
   expect(indexStories(app, [root], cache).entries).toEqual([]);
   expect(cache.size).toBe(0);
+});
+
+// Invariant: an unlink during indexing omits the vanished story and evicts its stale cache.
+// Owner: story registry indexing; spies only schedule a real unlink at filesystem boundaries.
+it.each(["glob", "stat"] as const)("skips a story removed after %s during indexing", boundary => {
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-unlink-"));
+  roots.push(app);
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const root = { id: "ui", preview: "preview.ts", vite: "vite.ts", stories: "*.stories.tsx" };
+  const cache: import("../../../src/node/stories.ts").StoryCache = new Map();
+  expect(indexStories(app, [root], cache).entries).toHaveLength(1);
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
+  const glob = fs.globSync;
+  const stat = fs.statSync;
+  const scan = vi.spyOn(fs, "globSync").mockImplementation((...args) => {
+    const files = glob(...args);
+    if (boundary === "glob") rmSync(file);
+    return files;
+  });
+  const metadata = vi.spyOn(fs, "statSync").mockImplementation((...args) => {
+    const info = stat(...args);
+    if (boundary === "stat" && args[0] === file) rmSync(file);
+    return info;
+  });
+  try {
+    expect(indexStories(app, [root], cache).entries).toEqual([]);
+    expect(cache.size).toBe(0);
+  } finally {
+    scan.mockRestore();
+    metadata.mockRestore();
+  }
+});
+
+// Invariant: only ENOENT is recoverable; unexpected read errors remain visible to callers.
+// Owner: story registry filesystem boundary, in the canonical registry suite.
+it("propagates story read errors other than a vanished file", () => {
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-read-error-"));
+  roots.push(app);
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const failure = Object.assign(new Error("Permission denied"), { code: "EACCES" });
+  const read = fs.readFileSync;
+  const denied = vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+    if (args[0] === file) throw failure;
+    return read(...args);
+  });
+  try {
+    expect(() =>
+      indexStories(app, [
+        { id: "ui", preview: "preview.ts", vite: "vite.ts", stories: "*.stories.tsx" },
+      ])
+    ).toThrow(failure);
+  } finally {
+    denied.mockRestore();
+  }
+});
+
+// Invariant: a failed background read is logged and does not prevent a later registry publication.
+// Owner: watched project refresh orchestration; registry reads and warning output are I/O boundaries.
+it("logs a failed registry refresh and publishes the next successful refresh", async () => {
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-refresh-error-"));
+  roots.push(app);
+  writeFileSync(
+    join(app, "proto.config.ts"),
+    'export default { title: "Stories", stories: { roots: [{ id: "ui", stories: "*.stories.tsx", preview: "preview.ts", vite: "vite.ts" }] } };'
+  );
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const project = await loadProject(app);
+  const failure = Object.assign(new Error("Read failed"), { code: "EACCES" });
+  const read = vi.spyOn(project, "registry").mockRejectedValueOnce(failure);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const changed = vi.fn();
+  const stop = project.watch(changed);
+  try {
+    project.invalidateStories("ui", [file]);
+    await expect.poll(() => warn.mock.calls.length).toBe(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(app), failure);
+    expect(changed).not.toHaveBeenCalled();
+    project.invalidateStories("ui", [file]);
+    await expect.poll(() => changed.mock.calls.length).toBe(1);
+    expect(changed.mock.calls[0]![0].stories[0].stories[0].id).toBe("ui-button--primary");
+  } finally {
+    stop();
+    read.mockRestore();
+    warn.mockRestore();
+  }
 });
 
 it("reads CSF2 assignments and inherited play without executing either", () => {

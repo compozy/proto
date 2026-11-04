@@ -1,4 +1,4 @@
-import { existsSync, globSync, readFileSync, statSync } from "node:fs";
+import { globSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import ts from "typescript";
 import type { StoryRootConfig } from "../config.ts";
@@ -261,6 +261,14 @@ export function indexStoryFile(source: string, file: string, root: string): Resu
   return result;
 }
 export type StoryCache = Map<string, { stamp: string; result: Result }>;
+function readIfPresent(file: string) {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
 export function indexStories(
   app: string,
   roots: readonly StoryRootConfig[],
@@ -273,14 +281,15 @@ export function indexStories(
   for (const root of roots) {
     const dir = resolve(app, root.dir ?? ".");
     const preview = resolve(dir, root.preview);
-    if (!existsSync(preview))
+    const previewSource = readIfPresent(preview);
+    if (previewSource === undefined)
       problems.push({
         code: "story_preview_missing",
         root: root.id,
         file: root.preview,
         message: `Missing preview: ${preview}`,
       });
-    else warnings.push(...mockWarnings(readFileSync(preview, "utf8"), root.preview, root.id));
+    else warnings.push(...mockWarnings(previewSource, root.preview, root.id));
     const files = globSync(typeof root.stories === "string" ? [root.stories] : [...root.stories], {
       cwd: dir,
       exclude: ["**/node_modules/**"],
@@ -294,22 +303,20 @@ export function indexStories(
     for (const file of files) {
       const absolute = resolve(dir, file),
         key = `${root.id}:${absolute}`;
-      const info = statSync(absolute);
-      if (!info.isFile()) continue;
-      live.add(key);
+      const info = statSync(absolute, { throwIfNoEntry: false });
+      if (!info?.isFile()) continue;
       const stamp = `${info.mtimeMs}:${info.size}`;
       let saved = cache.get(key);
       if (!saved || saved.stamp !== stamp) {
+        const source = readIfPresent(absolute);
+        if (source === undefined) continue;
         saved = {
           stamp,
-          result: indexStoryFile(
-            readFileSync(absolute, "utf8"),
-            relative(dir, absolute).replaceAll("\\", "/"),
-            root.id
-          ),
+          result: indexStoryFile(source, relative(dir, absolute).replaceAll("\\", "/"), root.id),
         };
         cache.set(key, saved);
       }
+      live.add(key);
       if (saved.result.entry) entries.push(saved.result.entry);
       problems.push(...saved.result.problems);
       warnings.push(...saved.result.warnings.map(warning => ({ ...warning })));

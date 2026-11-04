@@ -6,15 +6,10 @@ export const mcpTools = catalog
   .filter(c => c.mcp)
   .map(c => ({
     name: c.mcp!,
-    description: `${c.cli}: ${c.authority}`,
-    inputSchema: {
-      ...z.toJSONSchema(c.store ? argumentSchema : argumentSchema.omit({ remote: true }), {
-        io: "input",
-      }),
-      ...(c.cli === "stories run"
-        ? { anyOf: [{ required: ["root"] }, { required: ["filter"] }] }
-        : {}),
-    },
+    description: `${c.cli}: ${c.authority}${c.cli === "stories run" ? "; requires root or filter" : ""}`,
+    inputSchema: z.toJSONSchema(c.store ? argumentSchema : argumentSchema.omit({ remote: true }), {
+      io: "input",
+    }),
   }));
 export async function executeTool(name: string, input: unknown, project: ProtoProject) {
   const capability = catalog.find(c => c.mcp === name);
