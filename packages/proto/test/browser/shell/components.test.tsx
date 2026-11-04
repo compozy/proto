@@ -203,6 +203,13 @@ describe("component page", () => {
     act(() => row("Button").click());
     expect(row("Button").getAttribute("aria-expanded")).toBe("true");
     expect(row("Button").getAttribute("aria-selected")).toBe("true");
+
+    // Opening a story of the collapsed selected component (from its page) reveals that story.
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("false");
+    act(() => go(componentView("ui-button", "ui-button--primary")));
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+    expect(row("Primary").getAttribute("aria-selected")).toBe("true");
   });
 
   test("IT-004 thumbnails never run play, and stories failing at render or import fail alone at once", async () => {

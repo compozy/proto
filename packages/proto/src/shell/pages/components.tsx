@@ -50,10 +50,12 @@ export function ComponentsArea({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set([...initialExpanded(tree), ...(slug ? revealIds(tree, slug) : [])])
   );
-  // A deep link or another component: expand to it (adjusted during render, no Effect).
-  const [revealed, setRevealed] = useState(slug);
-  if (slug !== revealed) {
-    setRevealed(slug);
+  // A deep link, another component or one of its stories: expand to it (adjusted during
+  // render, no Effect). Collapsing the selected component keeps its destination, so it stays
+  // collapsed until the user opens somewhere else.
+  const [revealed, setRevealed] = useState({ slug, story });
+  if (slug !== revealed.slug || story !== revealed.story) {
+    setRevealed({ slug, story });
     if (slug) setExpanded(current => new Set([...current, ...revealIds(tree, slug)]));
   }
   const toggle = (id: string) =>
