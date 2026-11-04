@@ -447,6 +447,10 @@ proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react
 `~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
 Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
 
+In the Components tree, clicking the selected component toggles its stories. Clicking another
+component (including the parent of an open story) opens its component page and expands it.
+Deep links and navigation to another component reveal the target.
+
 | CLI                      | Options/result                                                                                                                       |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `proto stories list`     | `--root`, `--filter` on story ids, `--json`; no config prints `No stories configured.` (exit 0)                                      |

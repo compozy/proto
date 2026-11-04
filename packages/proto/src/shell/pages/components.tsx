@@ -82,7 +82,8 @@ export function ComponentsArea({
     if (node.kind === "story" && node.file && node.story)
       go(componentView(node.file.slug, node.story.id));
     else if (node.kind === "component" && node.file) {
-      if (!expanded.has(node.id)) toggle(node.id);
+      // Only the selected component toggles; a story ancestor still opens its page.
+      if (node.id === selected || !expanded.has(node.id)) toggle(node.id);
       go(componentView(node.file.slug));
     } else if (item.expanded !== null) toggle(node.id);
   };
