@@ -240,6 +240,9 @@ describe("Review fetch router", () => {
   it("proto-share IT-008: a plain authorizer cannot bypass any key guard", async () => {
     const author = { kind: "reviewer" as const };
     const hidden = await h.store.add("flow-sign-in", input, author);
+    const message = hidden.thread[0];
+    expect(message).toBeDefined();
+    if (!message) throw new Error("The hidden comment must have an initial message");
     await h.store.add("login-form", input, author);
     const attachment = await h.store.upload(
       "flow-sign-in",
@@ -262,7 +265,7 @@ describe("Review fetch router", () => {
       [`comments/${hidden.id}`, "DELETE"],
       [`comments/${hidden.id}/replies`, "POST", { body: "reply" }],
       [`comments/${hidden.id}/status`, "PATCH", { status: "resolved" }],
-      [`comments/${hidden.id}/messages/${hidden.thread[0].id}`, "PATCH", { body: "edit" }],
+      [`comments/${hidden.id}/messages/${message.id}`, "PATCH", { body: "edit" }],
       ["reviews/flow-sign-in", "GET"],
       ["reviews/flow-sign-in/transitions", "POST", { to: "approved", confirmOpen: true }],
       [`attachments/flow-sign-in/${attachment.id}`, "GET"],

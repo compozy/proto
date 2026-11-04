@@ -89,7 +89,8 @@ export async function devWithTempStore(root: string, shellDir: string) {
     })
   );
   const stopEvents = events.subscribe(event => {
-    if (event.type !== "registry") server.publish(event.type, { key: event.key });
+    if (event.type === "comments" || event.type === "review")
+      server.publish(event.type, { key: event.key });
   });
   const stopWatch = await store.subscribe(event => events.publish(event));
   return {

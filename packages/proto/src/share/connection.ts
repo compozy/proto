@@ -279,12 +279,12 @@ export async function disconnect(
   return { removed, kept: ["otp_provider"] };
 }
 const appPath = (c: Connection) => `/accounts/${c.accountId}/access/apps/${c.accessAppId}`;
-const stale = (what: string): never => {
+function stale(what: string): never {
   throw new ProtoError(
     "share_connection_stale",
     `The Cloudflare setup changed: ${what}. Run proto share connect, or remove that policy.`
   );
-};
+}
 export async function checkConnection(c: Connection, client = new CloudflareClient(c.apiToken)) {
   await client.verify();
   if (!(await client.tunnel(c.accountId, c.tunnelId))) stale("tunnel missing");
@@ -293,11 +293,13 @@ export async function checkConnection(c: Connection, client = new CloudflareClie
     hosts.map(async host => ({ host, records: await client.records(c.zoneId, host) }))
   );
   for (const { host, records } of recordsByHost) {
+    const record = records[0];
     if (
       records.length !== 1 ||
-      records[0]!.content !== `${c.tunnelId}.cfargotunnel.com` ||
-      records[0]!.type !== "CNAME" ||
-      !records[0]!.proxied
+      !record ||
+      record.content !== `${c.tunnelId}.cfargotunnel.com` ||
+      record.type !== "CNAME" ||
+      !record.proxied
     )
       stale(`hostname ${host}`);
   }
