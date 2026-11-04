@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync, sign } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   accessAuthorizer,
@@ -166,6 +166,19 @@ describe("Access identity", () => {
         locale === "en" ? "This email was not invited" : "Este e-mail não foi convidado"
       );
       expect(html).not.toContain("private");
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      // The page is self-contained: its only inline style block is allowed by hash, nothing loads.
+      const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map(match => match[1]);
+      expect(styles).toHaveLength(1);
+      const hash = createHash("sha256")
+        .update(styles[0] ?? "")
+        .digest("base64");
+      const csp = response.headers.get("Content-Security-Policy") ?? "";
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain(`style-src 'sha256-${hash}'`);
+      expect(html).not.toMatch(/https?:\/\/|\/\/[a-z]|<script|<link|<img|src=|url\(|@import/i);
+      expect(html.match(/<h1>/g)).toHaveLength(1);
+      expect(html).toContain("<main>");
     }
   });
 });
