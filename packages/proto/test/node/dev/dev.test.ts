@@ -1297,7 +1297,13 @@ it.each(["document", "creation", "relaunch", "pool"] as const)(
               page.once("domcontentloaded", () => {
                 if (!new URL(page.url()).pathname.startsWith("/__proto/story/")) return;
                 selectedPages++;
-                if (selectedPages === (mode === "pool" ? 2 : 1)) void browser.close();
+                if (selectedPages !== (mode === "pool" ? 2 : 1)) return;
+                // A closing browser keeps reporting itself connected after its pages die;
+                // hold that window open so the next story always meets it.
+                const connected = browser.isConnected.bind(browser);
+                const closing = Date.now();
+                browser.isConnected = () => Date.now() - closing < 1500 || connected();
+                void browser.close();
               });
             });
           });

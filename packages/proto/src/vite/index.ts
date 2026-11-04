@@ -113,6 +113,9 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
         const require = createRequire(resolve(project.root, "package.json"));
         return {
           optimizeDeps: {
+            // Pre-bundling a dependency that imports the package would inline its own copy,
+            // bypassing `proto:runtime`; keep it external so the plugin resolves it.
+            exclude: ["@compozy/proto"],
             include: [
               "react",
               "react-dom",

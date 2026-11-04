@@ -96,12 +96,20 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     // must not race to create replacements or retry a broken installation for every row.
     let replacement: Promise<import("playwright").Browser> | undefined;
     let replacedBrowser: import("playwright").Browser | undefined;
+    // A closing browser can still report `isConnected()` after its pages are gone; its
+    // `disconnected` event is the authoritative loss signal.
+    const lost = new WeakSet<import("playwright").Browser>();
+    const track = (value: import("playwright").Browser) => {
+      value.once("disconnected", () => lost.add(value));
+      return value;
+    };
+    track(browser);
     const getBrowser = async () => {
-      if (browser!.isConnected()) return browser!;
+      if (browser!.isConnected() && !lost.has(browser!)) return browser!;
       if (replacedBrowser !== browser) {
         replacedBrowser = browser;
         replacement = chromium.launch({ handleSIGINT: false }).then(value => {
-          browser = value;
+          browser = track(value);
           return value;
         });
       }
@@ -117,6 +125,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           `Running gallery does not host root ${item.file.root}`
         );
       let page: import("playwright").Page | undefined;
+      let used: import("playwright").Browser | undefined;
       const abort = () => {
         void page?.close().catch(() => {});
       };
@@ -131,14 +140,15 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
       };
       let timedOut = false;
       // The page clock pauses while the story server compiles (`storyCompileAllowance`).
-      // Fail a silent page one timeout (plus margin) after its last report, any page after
-      // the whole allowance.
+      // Before its first report the host itself may still be compiling, so only the whole
+      // allowance applies; afterwards fail a page silent for one timeout (plus margin).
       const silenceBudget = timeout + 5000;
       const pageBudget = timeout + storyCompileAllowance + 5000;
-      let reportedAt = Date.now();
+      let reportedAt: number | undefined;
       let pageDeadline: ReturnType<typeof setInterval> | undefined;
       try {
-        page = await (await getBrowser()).newPage();
+        used = await getBrowser();
+        page = await used.newPage();
         options.signal?.addEventListener("abort", abort, { once: true });
         if (options.signal?.aborted) {
           abort();
@@ -175,10 +185,11 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           });
         });
         started = Date.now();
-        reportedAt = started;
+        reportedAt = undefined;
         pageDeadline = setInterval(() => {
           const now = Date.now();
-          if (now - reportedAt < silenceBudget && now - started < pageBudget) return;
+          const silent = reportedAt !== undefined && now - reportedAt >= silenceBudget;
+          if (!silent && now - started < pageBudget) return;
           timedOut = true;
           clearInterval(pageDeadline);
           void page?.close().catch(() => {});
@@ -204,6 +215,23 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
         if (last.status === "running")
           throw new Error("Story terminal acknowledgement arrived without a validated report");
       } catch (error) {
+        // A page that died under this story may be the first sign of a lost browser. Let the
+        // disconnect land before the next story chooses a browser, so it relaunches instead.
+        const browserLost = used;
+        if (
+          browserLost &&
+          !timedOut &&
+          !options.signal?.aborted &&
+          (!page || page.isClosed()) &&
+          !lost.has(browserLost)
+        )
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(resolve, 2000);
+            browserLost.once("disconnected", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
         try {
           const value = await page?.evaluate(() => document.documentElement.dataset.protoStory);
           if (typeof value === "string" && last.status === "running") {

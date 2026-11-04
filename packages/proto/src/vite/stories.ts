@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { Plugin, HotPayload, EnvironmentModuleNode } from "vite";
 import type { StoryRootConfig } from "../config.ts";
 import type { ProtoProject } from "../node/project.ts";
+import { storyCompileAllowance } from "../model/protocol.ts";
 import { presentationGuard } from "./index.ts";
 /** Peers stay bare so the root optimizer owns their module instances. */
 export function storyPlugins(
@@ -22,10 +23,9 @@ export function storyPlugins(
     "virtual:proto/story-preview",
   ];
   let stopWatching = () => {};
-  // Transforms in flight, by id. A failed transform never reaches the post hook; stale entries
-  // stop counting after `staleCompile` so a leak cannot pause story clocks forever.
+  // Transforms in flight, by id. A failed transform never reaches the post hook: its error
+  // payload clears it, and an unreported failure stops counting after the compile allowance.
   const compiling = new Map<string, number>();
-  const staleCompile = 30000;
   let notifyCompiling = () => {};
   let beat: ReturnType<typeof setInterval> | undefined;
   const compileStarted = (id: string) => {
@@ -33,7 +33,8 @@ export function storyPlugins(
     if (beat) return;
     notifyCompiling();
     beat = setInterval(() => {
-      for (const [id, at] of compiling) if (Date.now() - at > staleCompile) compiling.delete(id);
+      for (const [id, at] of compiling)
+        if (Date.now() - at > storyCompileAllowance) compiling.delete(id);
       if (compiling.size) return notifyCompiling();
       clearInterval(beat);
       beat = undefined;
@@ -90,6 +91,8 @@ export function storyPlugins(
             for (const id of [payload.err.id, payload.err.loc?.file]) {
               if (!id) continue;
               const file = id.split("?")[0]!;
+              for (const pending of compiling.keys())
+                if (pending.split("?")[0] === file) compiling.delete(pending);
               if (file === resolve(dir, root.preview) || authored(file)) entries.add(file);
               const module = moduleGraph.getModuleById(id);
               if (module) pending.add(module);
