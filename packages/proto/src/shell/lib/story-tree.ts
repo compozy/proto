@@ -67,11 +67,13 @@ function sortNodes(nodes: StoryTreeNode[]) {
  */
 function pathUnder(file: RegistryStoryFile, rootTitle: string | null) {
   const path = file.path.length ? file.path : [file.title];
+  const [first, ...rest] = path;
   const folds =
     rootTitle !== null &&
-    path.length > 1 &&
-    path[0].localeCompare(rootTitle, undefined, { sensitivity: "accent" }) === 0;
-  return folds ? path.slice(1) : path;
+    first !== undefined &&
+    rest.length > 0 &&
+    first.localeCompare(rootTitle, undefined, { sensitivity: "accent" }) === 0;
+  return folds ? rest : path;
 }
 
 /**

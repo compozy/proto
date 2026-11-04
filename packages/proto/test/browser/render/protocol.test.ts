@@ -540,7 +540,7 @@ test("replacing a failed prototype recovers without resetting subsequent same-co
 
 // Invariant: the host accepts only its configured parent origin and current nonce, for stories too.
 // Owner: render bridge; the real cross-origin host tests above own DOM/picker behavior.
-it("story bridge keeps root origins, parent windows and replay nonces isolated", () => {
+test("story bridge keeps root origins, parent windows and replay nonces isolated", () => {
   const parentMessages: unknown[] = [];
   const parent = { postMessage: (message: unknown) => parentMessages.push(message) };
   const endpoint = new EventTarget() as EventTarget & { parent: typeof parent };

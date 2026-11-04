@@ -153,23 +153,23 @@ describe("component tree", () => {
         ],
       ],
     ]);
-    const ids = tree[0].children.map(node => node.id);
+    const [group] = tree;
+    if (!group) throw new Error("No group node");
+    const ids = group.children.map(node => node.id);
     expect(new Set(ids).size).toBe(2);
     // Same-label siblings carry their file, so each row has its own accessible name.
-    expect(tree[0].children.map(node => node.detail)).toEqual([
+    expect(group.children.map(node => node.detail)).toEqual([
       "src/a-b.stories.tsx",
       "src/a-b-copy.stories.tsx",
     ]);
-    expect(revealIds(tree, "a-b-copy")).toEqual([tree[0].id, ids[1]]);
+    expect(revealIds(tree, "a-b-copy")).toEqual([group.id, ids[1]]);
   });
 
   test("a first segment repeating its root's title folds into the root node", () => {
     // Invariant: no `App › App` twin folder, so two rows never share a name (S2). Owner:
     // `buildStoryTree`. Folding needs root nodes (two or more roots) and keeps one-segment titles.
-    const roots = [
-      { id: "app", title: "App" },
-      { id: "ui", title: "UI" },
-    ];
+    const app = { id: "app", title: "App" };
+    const roots = [app, { id: "ui", title: "UI" }];
     const tree = buildStoryTree({
       storyRoots: roots,
       stories: [
@@ -193,7 +193,7 @@ describe("component tree", () => {
     expect(tree.flatMap(node => node.children).every(node => node.detail === null)).toBe(true);
     // A single root has no root node: its first segment stays a folder.
     const single = buildStoryTree({
-      storyRoots: [roots[0]],
+      storyRoots: [app],
       stories: [file("app-login", "App/Login form", "app")],
     });
     expect(shape(single)).toEqual([["group", "App", [["component", "Login form", ["Default"]]]]]);
