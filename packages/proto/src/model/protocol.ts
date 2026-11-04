@@ -65,6 +65,11 @@ export const storyResultSchema = z.object({
   durationMs: z.number().nonnegative(),
 });
 export type StoryResult = z.infer<typeof storyResultSchema>;
+/**
+ * Story-server compile time a story may wait beyond its timeout. Its clock pauses while the
+ * server compiles modules, and it reports `running` at least every second meanwhile.
+ */
+export const storyCompileAllowance = 120000;
 export type StoryStage = StoryResult["stage"];
 export type StoryStatus = StoryResult["status"];
 export const renderMessageSchema = z.discriminatedUnion("type", [

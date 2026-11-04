@@ -38,8 +38,4 @@ export type CanvasProps = { children: ReactNode; theme: "light" | "dark"; role: 
 /** Production chrome around component prototypes (`proto.canvas.tsx` export `Frame`). */
 export type FrameProps = PrototypeFrameProps;
 
-export function definePrototype<const Meta extends PrototypeMeta>(meta: Meta): Meta {
-  return meta;
-}
-
-export { protoHref, setParam, setParams, useSearch } from "./render/url-state.ts";
+export { definePrototype, protoHref, setParam, setParams, useSearch } from "./render/runtime.ts";

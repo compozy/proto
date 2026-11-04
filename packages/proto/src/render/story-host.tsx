@@ -11,7 +11,7 @@ import {
   userEvent,
   type ComposedStory,
 } from "virtual:proto/story-runtime";
-import type { StoryResult, StoryStage } from "../model/protocol.ts";
+import { storyCompileAllowance, type StoryResult, type StoryStage } from "../model/protocol.ts";
 import { createBridge } from "./bridge.ts";
 import { RenderBoundary, StoryPicker } from "./shared.tsx";
 
@@ -61,7 +61,7 @@ async function importMessage(error: unknown) {
   );
   if (!matching() && generic && import.meta.hot) {
     // HTTP rejection and the HMR error use different sockets. Neither is ordered first.
-    const remaining = Math.max(0, Math.min(500, timeout - (performance.now() - started) - 1));
+    const remaining = Math.max(0, Math.min(500, timeout - counted - 51));
     await new Promise(resolve => setTimeout(resolve, remaining));
   }
   return matching()?.message ?? message;
@@ -80,14 +80,34 @@ function report(status: StoryResult["status"], error: string | null = null) {
   document.documentElement.dataset.protoStory = JSON.stringify(result);
   bridge.post({ type: "story:status", ...result });
   if (terminal) {
-    clearTimeout(deadline);
+    clearInterval(deadline);
     lifecycle.abort();
   }
 }
-const deadline = setTimeout(
-  () => report("failed", `Story timed out at ${stage} after ${timeout} ms`),
-  timeout
-);
+// Time the story server spends compiling modules is not the story's: a cold module graph (a
+// loader importing a whole route tree, or many cold pages at once) pauses the clock, up to
+// `storyCompileAllowance`. The server reports compilation while transforms are in flight.
+let compiledAt = Number.NEGATIVE_INFINITY;
+let counted = 0;
+let tickedAt = started;
+let beatAt = started;
+const deadline = setInterval(() => {
+  const now = performance.now();
+  const compiling = now - compiledAt < 1000;
+  if (!compiling) counted += now - tickedAt;
+  tickedAt = now;
+  if (counted >= timeout) report("failed", `Story timed out at ${stage} after ${timeout} ms`);
+  else if (now - started >= timeout + storyCompileAllowance)
+    report(
+      "failed",
+      `Story timed out at ${stage} after ${Math.round(now - started)} ms, ${Math.round(now - started - counted)} ms of them compiling on the story server`
+    );
+  else if (compiling && now - beatAt >= 1000) {
+    // The runner's own deadline follows these reports while the clock is paused.
+    beatAt = now;
+    report("running");
+  }
+}, 50);
 function enter(next: StoryStage) {
   stage = next;
   report("running");
@@ -116,6 +136,9 @@ function setupUserEvent() {
   return user;
 }
 if (import.meta.hot) {
+  import.meta.hot.on("proto:story-compiling", () => {
+    compiledAt = performance.now();
+  });
   import.meta.hot.on(
     "proto:story-import-error",
     (payload: { entries: string[]; message: string }) => {

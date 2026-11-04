@@ -126,6 +126,8 @@ workers/site data after reordering roots. Stories use their preview, not `proto.
   No config returns empty arrays (human: `No stories configured.`), exit 0.
 - `proto stories run --root <id> --filter '<glob>' --theme dark --json` runs selected roots only.
   Options: `--concurrency` (6), `--timeout` ms (30000, clamped 1000–120000), `--port`.
+  The timeout counts the story's own stages; story-server compile time pauses it (up to
+  120000 ms extra), so a cold cache is not a story failure. `play` waits are not extended.
   JSON: `summary` and `stories` rows (`id`, `root`, `stage`, `status`, `hasPlay`, `durationMs`,
   `error`). Registry problems do not prevent selected stories running, but exit 1.
   Exit 0 all pass, 1 failure/empty filter, 3 missing Playwright. Existing servers must match

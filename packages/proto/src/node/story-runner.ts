@@ -1,7 +1,12 @@
 import { matchesGlob } from "node:path";
 import { validatePortRange } from "../config.ts";
 import { ProtoError } from "../model/errors.ts";
-import { storyHref, storyResultSchema, type StoryResult } from "../model/protocol.ts";
+import {
+  storyCompileAllowance,
+  storyHref,
+  storyResultSchema,
+  type StoryResult,
+} from "../model/protocol.ts";
 import { startDev } from "./dev.ts";
 import { projectId } from "./story-server.ts";
 import type { ProtoProject } from "./project.ts";
@@ -91,12 +96,20 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     // must not race to create replacements or retry a broken installation for every row.
     let replacement: Promise<import("playwright").Browser> | undefined;
     let replacedBrowser: import("playwright").Browser | undefined;
+    // A closing browser can still report `isConnected()` after its pages are gone; its
+    // `disconnected` event is the authoritative loss signal.
+    const lost = new WeakSet<import("playwright").Browser>();
+    const track = (value: import("playwright").Browser) => {
+      value.once("disconnected", () => lost.add(value));
+      return value;
+    };
+    track(browser);
     const getBrowser = async () => {
-      if (browser!.isConnected()) return browser!;
+      if (browser!.isConnected() && !lost.has(browser!)) return browser!;
       if (replacedBrowser !== browser) {
         replacedBrowser = browser;
         replacement = chromium.launch({ handleSIGINT: false }).then(value => {
-          browser = value;
+          browser = track(value);
           return value;
         });
       }
@@ -112,6 +125,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           `Running gallery does not host root ${item.file.root}`
         );
       let page: import("playwright").Page | undefined;
+      let used: import("playwright").Browser | undefined;
       const abort = () => {
         void page?.close().catch(() => {});
       };
@@ -125,10 +139,16 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
         durationMs: 0,
       };
       let timedOut = false;
-      const pageBudget = timeout + 5000;
-      let pageDeadline: ReturnType<typeof setTimeout> | undefined;
+      // The page clock pauses while the story server compiles (`storyCompileAllowance`).
+      // Before its first report the host itself may still be compiling, so only the whole
+      // allowance applies; afterwards fail a page silent for one timeout (plus margin).
+      const silenceBudget = timeout + 5000;
+      const pageBudget = timeout + storyCompileAllowance + 5000;
+      let reportedAt: number | undefined;
+      let pageDeadline: ReturnType<typeof setInterval> | undefined;
       try {
-        page = await (await getBrowser()).newPage();
+        used = await getBrowser();
+        page = await used.newPage();
         options.signal?.addEventListener("abort", abort, { once: true });
         if (options.signal?.aborted) {
           abort();
@@ -140,6 +160,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
               typeof value === "string" ? JSON.parse(value) : value
             );
             if (!parsed.success || parsed.data.story !== item.story.id) return false;
+            reportedAt = Date.now();
             if (last.status === "running") last = parsed.data;
             return last.status !== "running";
           } catch {
@@ -164,10 +185,15 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           });
         });
         started = Date.now();
-        pageDeadline = setTimeout(() => {
+        reportedAt = undefined;
+        pageDeadline = setInterval(() => {
+          const now = Date.now();
+          const silent = reportedAt !== undefined && now - reportedAt >= silenceBudget;
+          if (!silent && now - started < pageBudget) return;
           timedOut = true;
+          clearInterval(pageDeadline);
           void page?.close().catch(() => {});
-        }, pageBudget);
+        }, 250);
         await page.goto(
           storyHref(renderUrl, {
             kind: "story",
@@ -189,6 +215,23 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
         if (last.status === "running")
           throw new Error("Story terminal acknowledgement arrived without a validated report");
       } catch (error) {
+        // A page that died under this story may be the first sign of a lost browser. Let the
+        // disconnect land before the next story chooses a browser, so it relaunches instead.
+        const browserLost = used;
+        if (
+          browserLost &&
+          !timedOut &&
+          !options.signal?.aborted &&
+          (!page || page.isClosed()) &&
+          !lost.has(browserLost)
+        )
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(resolve, 2000);
+            browserLost.once("disconnected", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
         try {
           const value = await page?.evaluate(() => document.documentElement.dataset.protoStory);
           if (typeof value === "string" && last.status === "running") {
@@ -204,12 +247,12 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             status: "failed",
             error:
               timedOut || (error instanceof Error && error.name === "TimeoutError")
-                ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
+                ? `Story timed out at ${last.stage} after ${Date.now() - started}ms.`
                 : String(error).slice(0, 4000),
             durationMs: Date.now() - started,
           };
       } finally {
-        clearTimeout(pageDeadline);
+        clearInterval(pageDeadline);
         options.signal?.removeEventListener("abort", abort);
         await page?.close().catch(() => {});
       }

@@ -445,6 +445,8 @@ static sources resolve inside it. `title` defaults to the id, `static` and guard
 and `themeGlobal` to `theme`. The root config installs React/CSS/aliases without `proto()`;
 proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react-vite` at
 `~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
+A story origin serves story documents, `publicDir` files and `static` mounts only: `/` and other
+paths do not fall back to the app's `index.html`.
 Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
 
 | CLI                      | Options/result                                                                                                                       |
@@ -461,8 +463,14 @@ Each selected root first prepares its shared runtime and preview in an isolated 
 without importing a story file. This preparation uses the pool and cannot replace a story result.
 The first selected story in each file then warms that module inside the concurrent pool before
 its siblings are admitted. Waiting siblings occupy no slots, so unrelated files can run while
-a heavy module loads. Each story keeps its lifecycle timeout and appears once in the results;
-a failed first story keeps its failure row and still releases its siblings.
+a heavy module loads. Each story appears once in the results; a failed first story keeps its
+failure row and still releases its siblings.
+`--timeout` bounds the time a story spends in its own stages: preview and story import,
+loaders, render and `play`. While the story server compiles modules the story waits for (a cold
+cache, a loader importing a whole route tree, several cold pages at once), its clock pauses, for
+at most 120000 ms of extra wall time; a story still waiting then fails with the compile time in
+its error. Waits inside the story, such as a `play` `waitFor` timeout, are not extended, and
+`durationMs` stays wall time.
 Browser loss fails affected stories at their last stage; one shared relaunch
 attempt per lost browser lets remaining stories continue. A failed relaunch is reported on
 remaining rows without repeatedly launching Chromium.
