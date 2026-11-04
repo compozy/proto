@@ -763,10 +763,16 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     );
     await shellPage.waitForFunction(() => document.querySelectorAll("iframe").length === 3);
     for (const frame of shellPage.frames().filter(frame => frame !== shellPage.mainFrame())) {
+      // A failed lifecycle is terminal too: show its stage/error instead of hiding it
+      // behind the browser wait's timeout. IT-009 still requires every frame to pass.
       await frame.waitForFunction(() => {
         const value = document.documentElement.dataset.protoStory;
-        return value && JSON.parse(value).status === "passed";
+        return value && JSON.parse(value).status !== "running";
       });
+      const result = storyResultSchema.parse(
+        await frame.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
+      );
+      expect(result.status, JSON.stringify({ url: frame.url(), ...result })).toBe("passed");
       expect(await frame.locator("button").textContent()).toBe("Mock response");
       expect(await frame.locator("html").getAttribute("data-project-loader")).toBe("1");
     }
@@ -800,27 +806,33 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     expect(network.result.status).toBe("passed");
     expect(await network.page.locator("button").textContent()).toBe("Mock response");
     await network.page.close();
-    for (const [name, stage] of [
-      ["fail", "play"],
-      ["load-fail", "load"],
-      ["render-fail", "render"],
-      ["hang", "play"],
-      ["load-hang", "load"],
-      ["late", "play"],
-    ]) {
-      const { page, result } = await open(`ui-button--${name}`, true, 10000);
-      expect(result).toMatchObject({ stage, status: "failed" });
-      if (name === "late") {
-        await page.evaluate(() =>
-          (window as unknown as { finishLateStory(): void }).finishLateStory()
-        );
-        await page.waitForTimeout(100);
-        expect(
-          await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!).status)
-        ).toBe("failed");
-      }
-      await page.close();
-    }
+    // Each document owns its lifecycle and worker. Run independent failure cases
+    // together so the three 10 s deadlines overlap without shortening their budgets.
+    await Promise.all(
+      [
+        ["fail", "play"],
+        ["load-fail", "load"],
+        ["render-fail", "render"],
+        ["hang", "play"],
+        ["load-hang", "load"],
+        ["late", "play"],
+      ].map(async ([name, stage]) => {
+        const { page, result } = await open(`ui-button--${name}`, true, 10000);
+        expect(result).toMatchObject({ stage, status: "failed" });
+        if (name === "late") {
+          await page.evaluate(() =>
+            (window as unknown as { finishLateStory(): void }).finishLateStory()
+          );
+          await page.waitForTimeout(100);
+          expect(
+            await page.evaluate(
+              () => JSON.parse(document.documentElement.dataset.protoStory!).status
+            )
+          ).toBe("failed");
+        }
+        await page.close();
+      })
+    );
     const revision = project.revision;
     const changed = new Promise<void>(resolve => {
       const stop = project.watch(() => {
@@ -1214,6 +1226,28 @@ it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages",
         exitCode: 1,
         data: { error: { code: "story_not_found" } },
       });
+      // Import failures stay per-story failures even when the preparation page fails.
+      writeFileSync(
+        join(fixture.app, "preview.tsx"),
+        'throw new Error("fixture preview failure");'
+      );
+      expect(
+        await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], {
+          project,
+        })
+      ).toMatchObject({
+        exitCode: 1,
+        data: {
+          summary: { total: 1, passed: 0, failed: 1 },
+          stories: [
+            expect.objectContaining({
+              stage: "import",
+              status: "failed",
+              error: expect.stringContaining("fixture preview failure"),
+            }),
+          ],
+        },
+      });
     });
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -1242,13 +1276,13 @@ it.each(["document", "creation", "relaunch", "pool"] as const)(
             return newPage(options);
           });
         } else {
-          let contexts = 0;
+          let selectedPages = 0;
           browser.on("context", context => {
-            contexts++;
-            if (contexts !== (mode === "pool" ? 2 : 1)) return;
             context.once("page", page => {
               page.once("domcontentloaded", () => {
-                void browser.close();
+                if (!new URL(page.url()).pathname.startsWith("/__proto/story/")) return;
+                selectedPages++;
+                if (selectedPages === (mode === "pool" ? 2 : 1)) void browser.close();
               });
             });
           });
@@ -1300,9 +1334,9 @@ it.each(["document", "creation", "relaunch", "pool"] as const)(
   120000
 );
 
-// Invariant: cold roots finish their first lifecycle before other selected documents fan out.
+// Invariant: a cold file finishes its first lifecycle before its siblings fan out.
 // Owner: IT-008/IT-015 runner integration; observe real browser reports, with no timing threshold.
-it("stories IT-008: warms a cold root before the concurrent wave", async () => {
+it("stories IT-008: warms a cold file before its siblings", async () => {
   const fixture = storiesFixture();
   const { runStories } = await import("../../../src/node/story-runner.ts");
   const originalLaunch = chromium.launch.bind(chromium);
@@ -1344,6 +1378,174 @@ it("stories IT-008: warms a cold root before the concurrent wave", async () => {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 120000);
+
+// Invariant: each cold file warms once before its siblings, without blocking other files.
+// Owner: IT-008/IT-015 runner integration; real Vite transforms, HTTP and Chromium.
+it.each(["first", "later"] as const)(
+  "stories IT-008: warms cold files independently inside the default pool (%s)",
+  async position => {
+    const fixture = storiesFixture();
+    const { runStories } = await import("../../../src/node/story-runner.ts");
+    const { createServer } = await import("node:http");
+    let releaseHeavy = () => {};
+    let enteredHeavy!: () => void;
+    const heavyEntered = new Promise<void>(resolve => {
+      enteredHeavy = resolve;
+    });
+    let unrelatedPassed!: () => void;
+    const unrelatedDone = new Promise<void>(resolve => {
+      unrelatedPassed = resolve;
+    });
+    let transforms = 0;
+    let sharedPreparations = 0;
+    let heavyAfterShared: number | undefined;
+    const siblingResponses: import("node:http").ServerResponse[] = [];
+    const gate = createServer((request, response) => {
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      if (request.url === "/siblings") {
+        siblingResponses.push(response);
+        if (siblingResponses.length === 2)
+          for (const peer of siblingResponses) peer.end("siblings admitted together");
+        return;
+      }
+      transforms++;
+      heavyAfterShared = sharedPreparations;
+      releaseHeavy = () => response.end("ready");
+      enteredHeavy();
+    });
+    await new Promise<void>(resolve => gate.listen(0, "127.0.0.1", resolve));
+    const gatePort = (gate.address() as import("node:net").AddressInfo).port;
+    writeFileSync(
+      join(fixture.app, "vite.config.ts"),
+      `
+    import react from "@vitejs/plugin-react";
+    export default { plugins: [react(), {
+      name: "heavy-fixture-transform",
+      async transform(_code, id) {
+        if (id.split("?")[0].endsWith("/heavy.ts"))
+          await fetch("http://127.0.0.1:${gatePort}/");
+      },
+    }] };
+  `
+    );
+    writeFileSync(join(fixture.app, "src/heavy.ts"), 'export const label = "Heavy";');
+    writeFileSync(
+      join(
+        fixture.app,
+        position === "first" ? "src/a-heavy.stories.tsx" : "src/z-heavy.stories.tsx"
+      ),
+      `
+    import { label } from "./heavy";
+    import { http, passthrough } from "msw";
+    export default {
+      title: "A/Heavy", render: () => <button>{label}</button>,
+      parameters: { msw: { handlers: [
+        http.get("http://127.0.0.1:${gatePort}/siblings", () => passthrough()),
+      ] } },
+    };
+    const awaitSibling = async () => { await fetch("http://127.0.0.1:${gatePort}/siblings").then(response => response.text()); };
+    export const First = {};
+    export const Second = { loaders: [awaitSibling] };
+    export const Third = { loaders: [awaitSibling] };
+  `
+    );
+    writeFileSync(
+      join(
+        fixture.app,
+        position === "first" ? "src/z-unrelated.stories.tsx" : "src/a-unrelated.stories.tsx"
+      ),
+      `
+    export default { title: "Z/Unrelated", render: () => <button>Independent</button> };
+    export const Default = {};
+  `
+    );
+    const terminal: StoryResult[] = [];
+    const starts: { id: string; terminal: string[]; sharedPreparations: number }[] = [];
+    const originalLaunch = chromium.launch.bind(chromium);
+    const launch = vi.spyOn(chromium, "launch").mockImplementation(async options => {
+      const browser = await originalLaunch(options);
+      browser.on("context", context =>
+        context.on("page", page => {
+          page.on("close", () => {
+            if (new URL(page.url()).pathname === "/__proto/story-warmup") sharedPreparations++;
+          });
+        })
+      );
+      const newPage = browser.newPage.bind(browser);
+      vi.spyOn(browser, "newPage").mockImplementation(async options => {
+        const page = await newPage(options);
+        page.on("request", request => {
+          if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+            starts.push({
+              id: new URL(request.url()).pathname.split("/").at(-1)!,
+              terminal: terminal.map(result => result.story),
+              sharedPreparations,
+            });
+          }
+        });
+        const expose = page.exposeFunction.bind(page);
+        vi.spyOn(page, "exposeFunction").mockImplementation((name, callback) =>
+          expose(name, (value: string) => {
+            const result = storyResultSchema.parse(JSON.parse(value));
+            if (result.status !== "running") {
+              terminal.push(result);
+              if (result.story === "z-unrelated--default" && result.status === "passed")
+                unrelatedPassed();
+            }
+            return callback(value);
+          })
+        );
+        return page;
+      });
+      return browser;
+    });
+    let running: ReturnType<typeof runStories> | undefined;
+    try {
+      await onFreePorts(async port => {
+        running = runStories(await loadProject(fixture.app), {
+          root: "app",
+          filter: "{a-heavy--*,z-unrelated--*}",
+          port,
+        });
+        await Promise.race([Promise.all([heavyEntered, unrelatedDone]), running]);
+        expect(terminal.map(result => result.story)).toEqual(["z-unrelated--default"]);
+        expect(starts.map(start => start.id).sort()).toEqual([
+          "a-heavy--first",
+          "z-unrelated--default",
+        ]);
+        releaseHeavy();
+        const report = await running;
+        const heavyIds = ["a-heavy--first", "a-heavy--second", "a-heavy--third"];
+        expect(report.results.map(row => row.id)).toEqual(
+          position === "first"
+            ? [...heavyIds, "z-unrelated--default"]
+            : ["z-unrelated--default", ...heavyIds]
+        );
+        expect(report.results.map(row => row.status)).toEqual([
+          "passed",
+          "passed",
+          "passed",
+          "passed",
+        ]);
+        for (const sibling of starts.filter(start => /a-heavy--(second|third)/.test(start.id)))
+          expect(sibling.terminal).toContain("a-heavy--first");
+        expect(transforms).toBe(1);
+        expect(sharedPreparations).toBe(1);
+        expect(heavyAfterShared).toBe(1);
+        expect(starts.every(start => start.sharedPreparations === 1)).toBe(true);
+        expect(siblingResponses).toHaveLength(2);
+      });
+    } finally {
+      releaseHeavy();
+      for (const peer of siblingResponses) peer.end();
+      await running?.catch(() => {});
+      launch.mockRestore();
+      await new Promise<void>(resolve => gate.close(() => resolve()));
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  },
+  120000
+);
 
 // Invariant: reuse requires project identity; interrupt closes only resources owned by this run.
 // Owner: runner/dev lifecycle integration, including real TCP listeners and process signals.

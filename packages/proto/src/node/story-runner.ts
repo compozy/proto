@@ -216,26 +216,80 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
       const { story, ...result } = last;
       rows.push({ ...result, id: story, root: item.file.root });
     };
-    // Cold roots each compile their host, preview and optimized dependencies once
-    // before the concurrent wave. The first story is a real result with the usual
-    // lifecycle budget, not a hidden retry or a longer timeout.
-    const firstByRoot = new Map<string, (typeof selected)[number]>();
-    for (const item of selected) {
-      if (!firstByRoot.has(item.file.root)) firstByRoot.set(item.file.root, item);
-    }
-    await [...firstByRoot.values()].reduce(
-      (ready, item) => ready.then(() => runStory(item)),
-      Promise.resolve()
-    );
-    const pending = selected.filter(item => firstByRoot.get(item.file.root) !== item);
-    let next = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(concurrency, pending.length) }, async () => {
-        while (next < pending.length && !options.signal?.aborted) {
-          await runStory(pending[next++]!);
+    // Prime the shared host/preview graph once per root before cold file heads
+    // contend for it. No selected CSF file is imported by this preparation page.
+    const warmRoot = async (renderUrl: string) => {
+      let context: import("playwright").BrowserContext | undefined;
+      const close = () => {
+        void context?.close().catch(() => {});
+      };
+      options.signal?.addEventListener("abort", close, { once: true });
+      try {
+        context = await (await getBrowser()).newContext();
+        if (options.signal?.aborted) {
+          close();
+          return;
         }
-      })
-    );
+        const page = await context.newPage();
+        page.on("pageerror", close);
+        const budget = timeout + 5000;
+        const started = Date.now();
+        await page.goto(new URL("../story-warmup", renderUrl).href, {
+          waitUntil: "commit",
+          timeout: budget,
+        });
+        await page.waitForFunction(
+          () => !!document.documentElement?.dataset.protoStoryWarmup,
+          undefined,
+          { timeout: Math.max(1, budget - (Date.now() - started)) }
+        );
+      } catch {
+        // Preparation is not a selected story. Its failure cannot replace or
+        // discard the real per-story outcomes, which retain their own deadlines.
+      } finally {
+        options.signal?.removeEventListener("abort", close);
+        await context?.close().catch(() => {});
+      }
+    };
+    const roots = new Map<string, Map<string, typeof selected>>();
+    for (const item of selected) {
+      let files = roots.get(item.file.root);
+      if (!files) {
+        files = new Map();
+        roots.set(item.file.root, files);
+      }
+      const group = files.get(item.file.file);
+      if (group) group.push(item);
+      else files.set(item.file.file, [item]);
+    }
+    const ready: (() => Promise<void>)[] = [];
+    for (const [root, files] of roots) {
+      ready.push(async () => {
+        const renderUrl = renderUrls.get(root);
+        if (!renderUrl)
+          throw new ProtoError("project_mismatch", `Running gallery does not host root ${root}`);
+        await warmRoot(renderUrl);
+        for (const group of files.values()) {
+          ready.push(async () => {
+            await runStory(group[0]!);
+            // Failure is terminal too: keep its row and let the batch continue.
+            for (const sibling of group.slice(1)) ready.push(() => runStory(sibling));
+          });
+        }
+      });
+    }
+    const active = new Set<Promise<void>>();
+    while (ready.length || active.size) {
+      while (active.size < concurrency && ready.length && !options.signal?.aborted) {
+        const job = ready.shift()!;
+        const running: Promise<void> = job().finally(() => {
+          active.delete(running);
+        });
+        active.add(running);
+      }
+      if (!active.size) break;
+      await Promise.race(active);
+    }
     options.signal?.throwIfAborted();
     const order = new Map(selected.map((item, index) => [item.story.id, index]));
     rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);

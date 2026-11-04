@@ -170,12 +170,20 @@ export function storyPlugins(
           next();
         });
         server.middlewares.use(async (req, res, next) => {
-          if (!req.url?.startsWith("/__proto/story/")) return next();
-          const main = fileURLToPath(new URL("../render/story-host.tsx", import.meta.url));
+          const url = req.url;
+          if (!url) return next();
+          const warmup = url.split("?")[0] === "/__proto/story-warmup";
+          if (!warmup && !url.startsWith("/__proto/story/")) return next();
+          const main = fileURLToPath(
+            new URL(
+              warmup ? "../render/story-warmup.ts" : "../render/story-host.tsx",
+              import.meta.url
+            )
+          );
           res.setHeader("Content-Type", "text/html");
           res.end(
             await server.transformIndexHtml(
-              req.url,
+              url,
               `<html><body><div id="proto-story-canvas"></div><div id="proto-story-overlays"></div><script type="module" src="/@fs/${main}"></script></body></html>`
             )
           );
