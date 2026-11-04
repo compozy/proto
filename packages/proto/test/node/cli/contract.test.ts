@@ -104,9 +104,16 @@ describe("CLI contracts", { timeout: 30000 }, () => {
   it("ASTRA-001: the source entrypoint returns share status JSON", () => {
     const home = join(root, "isolated-home");
     mkdirSync(home);
-    const output = execFileSync("bun", [resolve(import.meta.dirname, "../../../src/cli/main.ts"), "share", "status", "--json"], {
-      cwd: root, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", timeout: 10_000,
-    });
+    const output = execFileSync(
+      "bun",
+      [resolve(import.meta.dirname, "../../../src/cli/main.ts"), "share", "status", "--json"],
+      {
+        cwd: root,
+        env: { ...process.env, HOME: home, USERPROFILE: home },
+        encoding: "utf8",
+        timeout: 10_000,
+      }
+    );
     expect(JSON.parse(output)).toEqual({ running: false });
   });
   // CLI/MCP owns one public result per capability, exercised through the SDK and real adapters.
@@ -749,7 +756,10 @@ it.each([
   [["login-form"], "share_no_invitees"],
   [["login-form", "--approver", "not-an-email"], "invalid_input"],
 ] as [string[], string][])("UT-003: share usage %j yields %s", async (args, code) => {
-  expect(await runCli(["share", ...args, "--json"])).toMatchObject({ exitCode: 2, data: { error: { code } } });
+  expect(await runCli(["share", ...args, "--json"])).toMatchObject({
+    exitCode: 2,
+    data: { error: { code } },
+  });
 });
 it("UT-003: a valid start without a connection points to connect", async () => {
   const { mkdtempSync } = await import("node:fs");
@@ -758,9 +768,12 @@ it("UT-003: a valid start without a connection points to connect", async () => {
   const old = process.env.HOME;
   try {
     process.env.HOME = home;
-    expect(await runCli(["share", "login-form", "--commenter", "ana@example.com", "--json"])).toMatchObject({ exitCode: 4, data: { error: { code: "share_not_connected" } } });
+    expect(
+      await runCli(["share", "login-form", "--commenter", "ana@example.com", "--json"])
+    ).toMatchObject({ exitCode: 4, data: { error: { code: "share_not_connected" } } });
   } finally {
-    if (old === undefined) delete process.env.HOME; else process.env.HOME = old;
+    if (old === undefined) delete process.env.HOME;
+    else process.env.HOME = old;
     rmSync(home, { recursive: true, force: true });
   }
 });

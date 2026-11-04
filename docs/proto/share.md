@@ -103,25 +103,25 @@ are outside this feature.
 
 Failures with `--json` use `{ "error": { "code": "…", "message": "…" } }`.
 
-| Code | Exit | Action |
-| --- | --- | --- |
-| `share_not_connected` | 4 | Run `proto share connect`. |
-| `share_target_required` | 2 | Choose a slug, `--flow`, or `--all`. |
-| `share_target_not_found` | 1 | Check the prototype slug or flow id. |
-| `share_no_invitees` | 2 | Add `--approver` or `--commenter`. |
-| `share_dirty_tree` | 1 | Commit first or use commenter-only invitations. |
-| `share_session_running` | 1 | Use `status` and `stop` on the existing session. |
-| `share_not_running` | 1 | Start a session before refreshing or stopping. |
-| `share_hostname_taken` | 1 | Connect with another `--name`. |
-| `share_connection_stale` | 4 | Reconnect; remove unexpected Access policies. |
-| `share_tunnel_timeout` | 4 | The link did not answer within 30 seconds; check the network. |
-| `share_tunnel_lost` | 4 | The connector stopped; restart the share. |
-| `cloudflared_unavailable` | 3 | Install cloudflared and retry. |
-| `cloudflare_token_invalid` | 4 | Replace the token or grant the missing permission. |
-| `cloudflare_access_not_enabled` | 4 | Enable Zero Trust once in the dashboard. |
-| `cloudflare_no_domain` | 4 | Add a domain to the account. |
-| `cloudflare_api_error` | 4 | Check Cloudflare's reported error and retry. |
-| `snapshot_stale` | HTTP 409 | Reload before approving the new version. |
+| Code                            | Exit     | Action                                                        |
+| ------------------------------- | -------- | ------------------------------------------------------------- |
+| `share_not_connected`           | 4        | Run `proto share connect`.                                    |
+| `share_target_required`         | 2        | Choose a slug, `--flow`, or `--all`.                          |
+| `share_target_not_found`        | 1        | Check the prototype slug or flow id.                          |
+| `share_no_invitees`             | 2        | Add `--approver` or `--commenter`.                            |
+| `share_dirty_tree`              | 1        | Commit first or use commenter-only invitations.               |
+| `share_session_running`         | 1        | Use `status` and `stop` on the existing session.              |
+| `share_not_running`             | 1        | Start a session before refreshing or stopping.                |
+| `share_hostname_taken`          | 1        | Connect with another `--name`.                                |
+| `share_connection_stale`        | 4        | Reconnect; remove unexpected Access policies.                 |
+| `share_tunnel_timeout`          | 4        | The link did not answer within 30 seconds; check the network. |
+| `share_tunnel_lost`             | 4        | The connector stopped; restart the share.                     |
+| `cloudflared_unavailable`       | 3        | Install cloudflared and retry.                                |
+| `cloudflare_token_invalid`      | 4        | Replace the token or grant the missing permission.            |
+| `cloudflare_access_not_enabled` | 4        | Enable Zero Trust once in the dashboard.                      |
+| `cloudflare_no_domain`          | 4        | Add a domain to the account.                                  |
+| `cloudflare_api_error`          | 4        | Check Cloudflare's reported error and retry.                  |
+| `snapshot_stale`                | HTTP 409 | Reload before approving the new version.                      |
 
 ## Live conformance before release
 

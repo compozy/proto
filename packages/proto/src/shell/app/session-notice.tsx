@@ -44,8 +44,7 @@ export function SessionNotice() {
         <Info className="size-4 shrink-0 text-primary" />
       )}
       <span className="min-w-0 flex-1">
-        <b className="font-semibold">{t(ended ? "session.ended" : "session.newVersion")}</b>{" "}
-        {note}
+        <b className="font-semibold">{t(ended ? "session.ended" : "session.newVersion")}</b> {note}
       </span>
       {confirming && draft && !ended ? (
         <span className="flex shrink-0 gap-2">

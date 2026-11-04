@@ -384,7 +384,9 @@ export async function browserServer(
           args: [
             "--no-proxy-server",
             ...(names.length
-              ? [`--host-resolver-rules=${names.map(name => `MAP ${name} 127.0.0.1:${port}`).join(",")}`]
+              ? [
+                  `--host-resolver-rules=${names.map(name => `MAP ${name} 127.0.0.1:${port}`).join(",")}`,
+                ]
               : []),
             ...(options.blockThirdPartyCookies ? ["--test-third-party-cookie-phaseout"] : []),
           ],

@@ -44,7 +44,12 @@ export function commandDefinition(capability: Capability) {
 export type CliResult = { exitCode: number; data: unknown; completion?: Promise<CliResult> };
 export async function runCli(
   argv: string[],
-  options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string>; share?: import("../share/session.ts").ShareRuntime } = {}
+  options: {
+    cwd?: string;
+    project?: ProtoProject;
+    readToken?: () => Promise<string>;
+    share?: import("../share/session.ts").ShareRuntime;
+  } = {}
 ): Promise<CliResult> {
   try {
     if (argv.length === 1 && ["--version", "-v"].includes(argv[0]!))
@@ -54,10 +59,13 @@ export async function runCli(
       const data = await shareCommand(argv.slice(1), options);
       if (data && typeof data === "object" && "closed" in data) {
         return {
-          exitCode: 0, data: data.summary,
-          completion: data.closed.then(error => error
-            ? { exitCode: error.exit ?? 1, data: errorBody(error) }
-            : { exitCode: 0, data: undefined }),
+          exitCode: 0,
+          data: data.summary,
+          completion: data.closed.then(error =>
+            error
+              ? { exitCode: error.exit ?? 1, data: errorBody(error) }
+              : { exitCode: 0, data: undefined }
+          ),
         };
       }
       return { exitCode: 0, data };

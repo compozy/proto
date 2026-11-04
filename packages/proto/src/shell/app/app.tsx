@@ -117,11 +117,7 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: unknown }
   }
   /** Recover a failed lazy page with a document reload that clears the cached import rejection. */
   render() {
-    return this.state.error ? (
-      <PageFailure error={this.state.error} />
-    ) : (
-      this.props.children
-    );
+    return this.state.error ? <PageFailure error={this.state.error} /> : this.props.children;
   }
 }
 

@@ -164,7 +164,11 @@ export async function buildAndSwap(
     // Prune before the final swap so a cleanup error cannot report a failed refresh
     // after replacing the live version. The currently served directory always stays.
     for (const entry of await readdir(directory, { withFileTypes: true }))
-      if (entry.isDirectory() && entry.name !== snapshot && join(directory, entry.name) !== previous)
+      if (
+        entry.isDirectory() &&
+        entry.name !== snapshot &&
+        join(directory, entry.name) !== previous
+      )
         await rm(join(directory, entry.name), { recursive: true, force: true });
     await rename(temporary, current);
     published = true;

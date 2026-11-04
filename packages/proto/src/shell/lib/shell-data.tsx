@@ -87,9 +87,9 @@ class ShellEvents {
   #listeners = new Map<ShellEventType, Set<EventListener>>();
   #source: EventSource | null = null;
   #url: string | null;
-  #onLost: (() => void) | undefined;
+  #onLost: ((events: ShellEvents) => void) | undefined;
 
-  constructor(url: string | null, onLost?: () => void) {
+  constructor(url: string | null, onLost?: (events: ShellEvents) => void) {
     this.#url = url;
     this.#onLost = onLost;
   }
@@ -106,13 +106,13 @@ class ShellEvents {
       if (this.#source !== source) return;
       if (source.readyState === EventSource.CLOSED) {
         this.#source = null;
-        this.#onLost?.();
+        this.#onLost?.(this);
         return;
       }
       failures += 1;
       if (failures < lostAfter) return;
       failures = 0;
-      this.#onLost?.();
+      this.#onLost?.(this);
     });
     source.addEventListener("open", () => {
       failures = 0;
@@ -224,7 +224,8 @@ function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNod
   // A stream the browser stopped retrying, or one that keeps failing to reconnect, is a session
   // check; a live session reopens a closed stream (one still retrying is left to the browser).
   const [events] = useState(
-    () => new ShellEvents(env.bootstrap.eventsUrl, () => session.failure(() => events.reconnect()))
+    () =>
+      new ShellEvents(env.bootstrap.eventsUrl, stream => session.failure(() => stream.reconnect()))
   );
   const query = useQuery(registryQuery(env));
   useEffect(() => {

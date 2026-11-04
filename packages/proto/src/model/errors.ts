@@ -13,7 +13,11 @@ export type ErrorSpec = {
 };
 
 export const errors = {
-  share_tunnel_timeout: { exit: 4, status: null, message: "The link did not start answering. Check your network." },
+  share_tunnel_timeout: {
+    exit: 4,
+    status: null,
+    message: "The link did not start answering. Check your network.",
+  },
   share_tunnel_lost: { exit: 4, status: null, message: "The tunnel stopped; the link is closed." },
   share_target_not_found: {
     exit: 1,
@@ -25,17 +29,53 @@ export const errors = {
     status: null,
     message: "Commit first, or invite with --commenter. An approval must name a commit.",
   },
-  share_not_connected: { exit: 4, status: null, message: "Cloudflare is not connected. Run proto share connect." },
-  share_target_required: { exit: 2, status: null, message: "Choose one: a slug, --flow <id> or --all." },
-  share_no_invitees: { exit: 2, status: null, message: "Invite someone with --approver or --commenter." },
+  share_not_connected: {
+    exit: 4,
+    status: null,
+    message: "Cloudflare is not connected. Run proto share connect.",
+  },
+  share_target_required: {
+    exit: 2,
+    status: null,
+    message: "Choose one: a slug, --flow <id> or --all.",
+  },
+  share_no_invitees: {
+    exit: 2,
+    status: null,
+    message: "Invite someone with --approver or --commenter.",
+  },
   share_not_running: { exit: 1, status: null, message: "Nothing is being shared." },
-  share_session_running: { exit: 1, status: null, message: "A share session is already running. Run proto share stop." },
-  share_hostname_taken: { exit: 1, status: null, message: "The share hostname is already in use. Choose another with --name." },
-  share_connection_stale: { exit: 4, status: null, message: "The Cloudflare setup changed. Run proto share connect, or remove that policy." },
+  share_session_running: {
+    exit: 1,
+    status: null,
+    message: "A share session is already running. Run proto share stop.",
+  },
+  share_hostname_taken: {
+    exit: 1,
+    status: null,
+    message: "The share hostname is already in use. Choose another with --name.",
+  },
+  share_connection_stale: {
+    exit: 4,
+    status: null,
+    message: "The Cloudflare setup changed. Run proto share connect, or remove that policy.",
+  },
   cloudflared_unavailable: { exit: 3, status: null, message: "Install cloudflared and retry." },
-  cloudflare_token_invalid: { exit: 4, status: null, message: "The token is invalid or lacks the required Cloudflare permissions." },
-  cloudflare_access_not_enabled: { exit: 4, status: null, message: "Enable Zero Trust once at dash.cloudflare.com/one." },
-  cloudflare_no_domain: { exit: 4, status: null, message: "Add a domain to this Cloudflare account." },
+  cloudflare_token_invalid: {
+    exit: 4,
+    status: null,
+    message: "The token is invalid or lacks the required Cloudflare permissions.",
+  },
+  cloudflare_access_not_enabled: {
+    exit: 4,
+    status: null,
+    message: "Enable Zero Trust once at dash.cloudflare.com/one.",
+  },
+  cloudflare_no_domain: {
+    exit: 4,
+    status: null,
+    message: "Add a domain to this Cloudflare account.",
+  },
   cloudflare_api_error: { exit: 4, status: null, message: "The Cloudflare API request failed." },
 
   invalid_input: { exit: 2, status: 400, message: "Invalid request input." },

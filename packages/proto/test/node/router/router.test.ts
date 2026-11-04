@@ -241,7 +241,11 @@ describe("Review fetch router", () => {
     const author = { kind: "reviewer" as const };
     const hidden = await h.store.add("flow-sign-in", input, author);
     await h.store.add("login-form", input, author);
-    const attachment = await h.store.upload("flow-sign-in", { name: "shot.png", bytes: png }, author);
+    const attachment = await h.store.upload(
+      "flow-sign-in",
+      { name: "shot.png", bytes: png },
+      author
+    );
     router = createReviewRouter({
       store: h.store,
       registry: () => registry,
@@ -271,7 +275,9 @@ describe("Review fetch router", () => {
       expect(await response.json()).toMatchObject({ error: { code: "comment_not_found" } });
     }
     const listed = await (await router(request("comments"))).json();
-    expect(listed.comments.map((comment: { slug: string }) => comment.slug)).toEqual(["login-form"]);
+    expect(listed.comments.map((comment: { slug: string }) => comment.slug)).toEqual([
+      "login-form",
+    ]);
     expect(await h.store.get(hidden.id)).toEqual(hidden);
     expect((await h.store.review("flow-sign-in")).events).toEqual([]);
     expect((await h.store.readAttachment("flow-sign-in", attachment.id)).bytes).toEqual(png);

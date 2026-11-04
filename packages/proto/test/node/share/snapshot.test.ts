@@ -64,9 +64,9 @@ it("UT-001: a prototype scope retains only its specs, diagnostics and roles", as
   expect(scoped.specs).toEqual({ auth: "Auth" });
   expect(scoped.roles).toEqual({ member: "Member" });
   expect(scoped.problems).toEqual([]);
-  expect(
-    scoped.warnings.filter(warning => warning.proto).map(warning => warning.proto)
-  ).toEqual(["login-form"]);
+  expect(scoped.warnings.filter(warning => warning.proto).map(warning => warning.proto)).toEqual([
+    "login-form",
+  ]);
   expect(await scopedProject(project, { kind: "all" }).registry()).toEqual(registry);
   const missing = [
     { kind: "prototype", slug: "missing" },
@@ -91,7 +91,8 @@ it("UT-002: a flow scope retains exactly the prototypes rendered by its steps", 
 function repository() {
   const root = mkdtempSync(join(tmpdir(), "proto-share-git-"));
   roots.push(root);
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   git("init", "--quiet");
   git("config", "user.name", "Share test");
   git("config", "user.email", "share@example.com");

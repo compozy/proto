@@ -29,7 +29,9 @@ describe("Remote authorization and render grants", () => {
     const hidden = await h.options.storage.store.add("second", input, { kind: "reviewer" });
     const path = join(h.options.gallery.dir, "__proto/registry.json");
     const registry = JSON.parse(await readFile(path, "utf8"));
-    registry.prototypes = registry.prototypes.filter((item: { slug: string }) => item.slug !== "second");
+    registry.prototypes = registry.prototypes.filter(
+      (item: { slug: string }) => item.slug !== "second"
+    );
     await writeFile(path, JSON.stringify(registry));
     h.options.restrictReviewToRegistry = true;
     h.rebuild();
@@ -45,7 +47,9 @@ describe("Remote authorization and render grants", () => {
     }
     expect((await (await h.request("api/comments")).json()).comments).toEqual([]);
     expect((await h.request("api/comments", "POST", { ...input, key: "second" })).status).toBe(404);
-    expect((await h.request("api/comments", "POST", { ...input, key: "flow-sign-in" })).status).toBe(201);
+    expect(
+      (await h.request("api/comments", "POST", { ...input, key: "flow-sign-in" })).status
+    ).toBe(201);
     expect(
       (await h.request("api/reviews/login-form/transitions", "POST", { to: "approved" })).status
     ).toBe(200);
