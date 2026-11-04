@@ -188,8 +188,9 @@ export function StoryPage({
 /**
  * The host's verdict for this document: Running, Passed, or Failed with the stage named. No chip
  * for a story without `play` unless it failed; Replay (a fresh document, so `play` runs again)
- * only when the host reported `hasPlay: true`. A failed frame reloads when the registry changes
- * (a story file was saved), so a fixed story recovers without a shell reload.
+ * only when the host reported `hasPlay: true`. An edit reloads the story document in place and
+ * its first report starts a new run (`useRenderFrame`), so a fixed story recovers without a shell
+ * reload; as a fallback a failed frame also reloads when the registry changes.
  */
 export function PlayStatus({ frame }: { frame: RenderFrameHandle }) {
   const t = useT();

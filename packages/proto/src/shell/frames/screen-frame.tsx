@@ -8,6 +8,7 @@ import { FrameSkeleton, RenderErrorCard, SlowNotice } from "./frame-status";
 import {
   useRenderFrame,
   type FrameContext,
+  isStoryTarget,
   type FrameTarget,
   type RenderFrameHandle,
 } from "./use-render-frame";
@@ -59,6 +60,11 @@ export function ScreenFrame({
     { slugs, onContext, onMessage }
   );
   const ready = box.width > 0 && box.height > 0;
+  const failed = frame.status.kind === "error";
+  // A failed story keeps its document, hidden behind the failure card: an edit to the story, its
+  // preview or a module it imports reloads that document in place (Vite `full-reload`), and its
+  // first report clears the failure (US-007.AC-2). Prototype frames drop a failed document.
+  const keepDocument = isStoryTarget(target) && frame.src !== null;
   return (
     <>
       {toolbar?.(geometry, frame)}
@@ -69,9 +75,10 @@ export function ScreenFrame({
               className="shell-frame relative overflow-hidden rounded-xl bg-background"
               style={{ width: frameWidth * scale, height: frameHeight * scale }}
             >
-              {frame.status.kind === "error" ? (
+              {frame.status.kind === "error" && (
                 <RenderErrorCard title={title} status={frame.status} onReload={frame.reload} />
-              ) : (
+              )}
+              {(!failed || keepDocument) && (
                 <>
                   {/* oxlint-disable react-doctor/iframe-missing-sandbox -- Authored prototypes require scripts and real origins; dev/remote use separate origins and static builds trust bundled code. See docs/proto/performance.md. */}
                   <iframe
@@ -80,7 +87,12 @@ export function ScreenFrame({
                     ref={iframe}
                     src={frame.src ?? undefined}
                     title={title}
-                    className="absolute top-0 left-0 origin-top-left border-0 bg-background"
+                    aria-hidden={failed || undefined}
+                    tabIndex={failed ? -1 : undefined}
+                    className={cn(
+                      "absolute top-0 left-0 origin-top-left border-0 bg-background",
+                      failed && "invisible"
+                    )}
                     style={{ width: frameWidth, height: frameHeight, transform: `scale(${scale})` }}
                   />
                   {/* oxlint-enable react-doctor/iframe-missing-sandbox */}

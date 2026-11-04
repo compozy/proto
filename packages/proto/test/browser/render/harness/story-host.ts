@@ -4,7 +4,8 @@
  * real host and its lifecycle are covered against real Storybook in `test/node/dev`; here only
  * the shell side is under test. `--import-fail` fails at `import` and `--render-fail` at
  * `render`, both before `ready`; every other story renders and posts `ready`, and runs its
- * `play` only when the URL asks for it, counted in `html.dataset.playCalls`.
+ * `play` only when the URL asks for it, counted in `html.dataset.playCalls`. A rendered story
+ * answers the shell's `pick:start` (mode in `html.dataset.picking`) with the clicked element.
  */
 import { protocolVersion } from "../../../../src/model/protocol.ts";
 
@@ -34,6 +35,38 @@ if (story.endsWith("--import-fail")) {
   const button = document.createElement("button");
   button.textContent = story;
   document.body.append(button);
+  window.addEventListener("message", event => {
+    const data = event.data as { frame?: unknown; type?: unknown; mode?: unknown } | null;
+    if (event.source !== window.parent || data?.frame !== frame) return;
+    if (data.type === "pick:start") html.dataset.picking = String(data.mode);
+    if (data.type === "pick:cancel") delete html.dataset.picking;
+  });
+  button.addEventListener("click", () => {
+    if (!html.dataset.picking) return;
+    delete html.dataset.picking;
+    const rect = button.getBoundingClientRect();
+    const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    post({
+      type: "pick:result",
+      target: {
+        kind: "element",
+        selector: "button",
+        testId: null,
+        tag: "button",
+        text: button.textContent ?? "",
+        source: null,
+        sourceChain: [],
+        rect: box,
+        rectNormalized: {
+          x: box.x / window.innerWidth,
+          y: box.y / window.innerHeight,
+          width: box.width / window.innerWidth,
+          height: box.height / window.innerHeight,
+        },
+        offset: null,
+      },
+    });
+  });
   post({ type: "ready", slug, state: story });
   if (hasPlay && params.get("play") === "1") {
     html.dataset.playCalls = String(Number(html.dataset.playCalls) + 1);

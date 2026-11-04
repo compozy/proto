@@ -9,6 +9,7 @@ import type {
   RegistryStoryFile,
   RegistryWarning,
 } from "../../model/registry";
+import type { View } from "./view";
 
 export type StoryTreeNode = {
   /** Stable across registry refreshes: the expanded set is keyed by it. */
@@ -65,7 +66,11 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
     if (!siblings) continue;
     const path = file.path.length ? file.path : [file.title];
     for (const [index, segment] of path.entries()) {
-      const id = pathNodeId(file.root, path.slice(0, index + 1));
+      const last = index === path.length - 1;
+      let id = pathNodeId(file.root, path.slice(0, index + 1));
+      // Two files on one title are an index problem; should both ever be indexed, each keeps its
+      // own component node so none of their stories is hidden.
+      if (last && nodes.get(id)?.file) id = `${id}#${file.slug}`;
       let node = nodes.get(id);
       if (!node) {
         node = {
@@ -80,7 +85,7 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
         nodes.set(id, node);
         siblings.push(node);
       }
-      if (index === path.length - 1 && !node.file) {
+      if (last && !node.file) {
         node.kind = "component";
         node.file = file;
         // Stories come before nested components (`UI/Button` and `UI/Button/Icon`).
@@ -169,6 +174,20 @@ export function resolveStoryView(
   if (story === null) return { kind: "component", file, story: null };
   const found = file.stories.find(item => item.id === story);
   return found ? { kind: "component", file, story: found } : { kind: "missing-story", file, story };
+}
+
+/** Whether the app declares story roots: without them the Components area does not exist. */
+export function hasStoryRoots(registry: Pick<Registry, "storyRoots">) {
+  return (registry.storyRoots?.length ?? 0) > 0;
+}
+
+/**
+ * The view a link opens: in an app without story roots a `?components` link (hand-typed or stale)
+ * falls back to the overview instead of an empty Components area (US-012.AC-2). A `?c=` link
+ * keeps its view and resolves to a not-found component (US-002.EC-2).
+ */
+export function availableView(view: View, registry: Pick<Registry, "storyRoots">): View {
+  return view.area === "components" && !hasStoryRoots(registry) ? { area: "overview" } : view;
 }
 
 /** Problems and warnings of story roots (they carry `root`), for the Components banner. */

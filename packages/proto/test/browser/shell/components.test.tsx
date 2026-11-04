@@ -1,5 +1,5 @@
 /**
- * The Components area (`_tests.md` IT-003, IT-004; `_uiux.md` S2–S3). No other suite owns it:
+ * The Components area (`_tests.md` IT-003, IT-004, IT-025; `_uiux.md` S2–S4). No other suite owns it:
  * the tree is windowed whatever its size, and the component page's thumbnails load from a
  * story root on another origin (`test/browser/render/__proto/story`, a protocol harness host),
  * never run `play`, and fail one by one.
@@ -17,7 +17,9 @@ import {
   useShellData,
   type ShellEnv,
 } from "../../../src/shell/lib/shell-data.tsx";
+import { componentView, type View } from "../../../src/shell/lib/view.ts";
 import { ComponentPage } from "../../../src/shell/pages/components.tsx";
+import { StoryPage } from "../../../src/shell/pages/story-page.tsx";
 import { VirtualTree, type VirtualTreeItem } from "../../../src/shell/ui/virtual-tree.tsx";
 import { bootstrapFor, storyRegistry } from "../../harness/fixtures.ts";
 
@@ -182,5 +184,35 @@ describe("component page", () => {
         "document.documentElement.dataset.playCalls"
       )
     ).toBe("0");
+  });
+
+  test("IT-025 a story file with module mocks shows the notice on its story page; others do not", async () => {
+    // Invariant: US-007.EC-1, the page says mocks are inert instead of rendering silently.
+    // Owner: the story page (`StoryPage` reading the indexer's `story_mock_unsupported`).
+    const page = (slug: string) => {
+      const file = storyRegistry.stories?.find(item => item.slug === slug);
+      if (!file) throw new Error(`No ${slug} fixture`);
+      const story = file.stories[0];
+      const view = componentView(file.slug, story.id) as Extract<View, { area: "component" }>;
+      return mount(
+        <LocaleProvider locale="en">
+          <ShellDataProvider env={env}>
+            <Ready>
+              <StoryPage view={view} theme="light" file={file} story={story} />
+            </Ready>
+          </ShellDataProvider>
+        </LocaleProvider>
+      );
+    };
+    const notice = (container: HTMLElement) => container.querySelector('[role="note"]');
+
+    const mocked = page("ui-button");
+    await vi.waitFor(() => expect(notice(mocked)).not.toBeNull());
+    expect(notice(mocked)?.textContent).toContain("Module mocks are not applied");
+    expect(notice(mocked)?.textContent).toContain("sb.mock or mocked");
+
+    const plain = page("ui-card");
+    await vi.waitFor(() => expect(plain.querySelector("iframe")).not.toBeNull());
+    expect(notice(plain)).toBeNull();
   });
 });

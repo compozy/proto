@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { RegistryStoryFile } from "../../../src/model/registry.ts";
 import { useLocation } from "../../../src/shell/lib/navigation.ts";
 import {
+  availableView,
   buildStoryTree,
   resolveStoryView,
   revealIds,
@@ -18,7 +19,7 @@ import {
   type StoryTreeNode,
 } from "../../../src/shell/lib/story-tree.ts";
 import { parseView } from "../../../src/shell/lib/view.ts";
-import { storyRegistry } from "../../harness/fixtures.ts";
+import { registry, storyRegistry } from "../../harness/fixtures.ts";
 
 describe("parseView", () => {
   test("UT-022 a screen URL opens the screen view with its state, width and theme", () => {
@@ -135,6 +136,28 @@ describe("component tree", () => {
     ]);
   });
 
+  test("two files on one title each keep a component node, so no story is hidden", () => {
+    // Invariant: every indexed story is reachable in the tree (OPUS-007, `_dx.md` title rule).
+    // Owner: `buildStoryTree`.
+    const tree = buildStoryTree({
+      storyRoots: [{ id: "ui", title: "UI" }],
+      stories: [file("a-b", "A/B"), file("a-b-copy", "A/B")],
+    });
+    expect(shape(tree)).toEqual([
+      [
+        "group",
+        "A",
+        [
+          ["component", "B", ["Default"]],
+          ["component", "B", ["Default"]],
+        ],
+      ],
+    ]);
+    const ids = tree[0].children.map(node => node.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(revealIds(tree, "a-b-copy")).toEqual([tree[0].id, ids[1]]);
+  });
+
   test("a deep link expands the tree down to its story", () => {
     // Invariant: US-002.AC-3. Owner: the tree model (`revealIds`, `visibleRows`).
     const tree = buildStoryTree(storyRegistry);
@@ -167,6 +190,25 @@ describe("component tree", () => {
     expect(resolveStoryView(storyRegistry, "ui-button", "ui-button--primary")).toMatchObject({
       kind: "component",
       story: { id: "ui-button--primary" },
+    });
+  });
+});
+
+describe("availableView", () => {
+  test("a Components link in an app without story roots opens the overview; `?c=` stays not found", () => {
+    // Invariant: no empty Components area without stories (US-012.AC-2, US-002.EC-2, OPUS-013).
+    // Owner: `availableView` and `resolveStoryView`, which the shell's page selection applies.
+    const components = parseView("?components").view;
+    expect(components).toEqual({ area: "components" });
+    expect(availableView(components, registry)).toEqual({ area: "overview" });
+    expect(availableView(components, { storyRoots: [] })).toEqual({ area: "overview" });
+    expect(availableView(components, storyRegistry)).toEqual({ area: "components" });
+
+    const component = parseView("?c=ui-button").view;
+    expect(availableView(component, registry)).toBe(component);
+    expect(resolveStoryView(registry, "ui-button", null)).toEqual({
+      kind: "missing-component",
+      slug: "ui-button",
     });
   });
 });

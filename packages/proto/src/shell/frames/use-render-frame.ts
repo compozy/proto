@@ -125,7 +125,10 @@ type Frame = {
   /** The only origin this document's messages are accepted from, and the one it is posted to. */
   origin: string | null;
   status: FrameStatus;
-  /** The last `story:status` of a story document; a terminal result is never replaced. */
+  /**
+   * The last `story:status` of a story document; a terminal result is never replaced by a later
+   * report of the same document, only by a new document's first report.
+   */
   result: StoryResult | null;
 };
 
@@ -137,6 +140,13 @@ const resultOf = (message: Extract<RenderMessage, { type: "story:status" }>): St
   error: message.error,
   durationMs: message.durationMs,
 });
+
+/**
+ * The first report of every story document. A document never sends it again, so receiving it
+ * after a result means the iframe now holds a new document under the same nonce.
+ */
+const isNewDocument = (message: Extract<RenderMessage, { type: "story:status" }>) =>
+  message.stage === "import" && message.status === "running";
 
 /** Own frame tickets, nonce-scoped messaging and navigation without reloading unchanged documents. */
 export function useRenderFrame(
@@ -234,18 +244,23 @@ export function useRenderFrame(
       if (message.type === "story:status") {
         // Only story documents report a lifecycle, and only for the story they host.
         if (storyId === null || message.story !== storyId) return;
-        setFrame(current =>
-          current.nonce === nonce
-            ? {
-                ...current,
-                status: nextStatus(current.status, message),
-                result:
-                  current.result && current.result.status !== "running"
-                    ? current.result
-                    : resultOf(message),
-              }
-            : current
-        );
+        setFrame(current => {
+          if (current.nonce !== nonce) return current;
+          // A story edit reloads the iframe in place (Vite `full-reload`): the new document keeps
+          // the URL and nonce and opens with `import`/`running`. That report starts a new run, so
+          // the previous document's verdict and failure card go (BR 7). Within one document the
+          // first terminal result stays (Invariant 11).
+          if (isNewDocument(message))
+            return { ...current, status: initialStatus, result: resultOf(message) };
+          return {
+            ...current,
+            status: nextStatus(current.status, message),
+            result:
+              current.result && current.result.status !== "running"
+                ? current.result
+                : resultOf(message),
+          };
+        });
         onMessage?.(message);
         messages.emit(message);
         return;

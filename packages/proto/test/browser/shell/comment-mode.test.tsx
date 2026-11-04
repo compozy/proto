@@ -1,6 +1,6 @@
 /**
- * Comment mode, shell side (S8; `_tests.md` IT-027 shell half, E2E-014 shell half, US-016,
- * US-017; Safety Invariant 7). This page plays the shell on http://127.0.0.1:<port>: the real
+ * Comment mode, shell side (S8; `_tests.md` IT-027 shell half, IT-014 shell half, E2E-014 shell
+ * half, US-016, US-017; Safety Invariant 7). This page plays the shell on http://127.0.0.1:<port>: the real
  * `ScreenFrame` with the comment-mode slots, the real render host in a cross-origin iframe on
  * http://localhost:<port> (render harness prototypes `card` and the hostile `forge`), and the real
  * review router over an in-memory store answering `/__proto/api/` (`review-harness.ts`).
@@ -17,7 +17,7 @@ import type { ReviewTarget } from "../../../src/shell/app/slots.tsx";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
 import { go } from "../../../src/shell/lib/navigation.ts";
-import { screenView, type View } from "../../../src/shell/lib/view.ts";
+import { componentView, screenView, type View } from "../../../src/shell/lib/view.ts";
 import { ShellDataProvider, useShellData } from "../../../src/shell/lib/shell-data.tsx";
 import {
   commentModeSlots,
@@ -26,6 +26,7 @@ import {
   useCommentMode,
 } from "../../../src/shell/review/comment-mode/index.ts";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
+import { commentView } from "../../../src/shell/review/format.ts";
 import { env, registry, slugs } from "./comment-fixtures.ts";
 import { installBackend, type Backend } from "./review-harness.ts";
 
@@ -300,6 +301,70 @@ describe("IT-027: comment mode drives the render host's picker", () => {
     await expect.element(page.getByTestId("focused")).toHaveTextContent("card-2");
     await vi.waitFor(() =>
       expect(far.element().getBoundingClientRect().top).toBeLessThan(before - 20)
+    );
+  });
+});
+
+describe("IT-014 (shell half): comments on a story", () => {
+  /** The story page's wiring of the slots on one story frame (root `ui`, stand-in story host). */
+  function StoryScreen() {
+    const target = {
+      kind: "story",
+      key: "story--ui-button",
+      slug: "ui-button",
+      story: "ui-button--primary",
+    } as const;
+    const frame = commentModeSlots.screenFrame!(target);
+    return (
+      <>
+        <div className="flex items-center gap-2 p-2">{commentModeSlots.canvasTools!(target)}</div>
+        <ScreenFrame
+          target={{
+            kind: "story",
+            root: "ui",
+            slug: "ui-button",
+            story: "ui-button--primary",
+            theme: "light",
+            play: true,
+          }}
+          width={600}
+          title="UI/Button · Primary"
+          slugs={slugs}
+          className="flex-1"
+          onMessage={frame.onMessage}
+          overlay={frame.overlay}
+        />
+      </>
+    );
+  }
+
+  test("a pick on a story creates a story--<slug> comment with the story id as state; the inbox opens that story", async () => {
+    // Invariant: US-008.AC-1 and AC-2, review key `story--<component slug>` with `state` = story
+    // id and no app source, opened back on that story. Owner: the comment layer on a story frame
+    // (`ScreenCommentLayer`); `proto comments list` (AC-3) belongs to the CLI contract suite.
+    const container = mount(<StoryScreen />, componentView("ui-button", "ui-button--primary"));
+    const frame = await renderFrame(container);
+    const picking = () =>
+      frame.eval<string | null>("document.documentElement.dataset.picking ?? null");
+    await userEvent.click(page.getByTestId("comment-tool"));
+    await vi.waitFor(async () => expect(await picking()).toBe("element"));
+
+    await frame.click(8, 8);
+    await expect.element(page.getByTestId("comment-composer")).toBeVisible();
+    await userEvent.fill(page.getByRole("textbox"), "Primary needs more contrast.");
+    await userEvent.click(page.getByRole("button", { name: "Comment", exact: true }));
+
+    await vi.waitFor(() => expect(backend.comments).toHaveLength(1));
+    expect(stored()).toMatchObject({
+      id: "story--ui-button-1",
+      slug: "story--ui-button",
+      context: { state: "ui-button--primary", theme: "light", viewport: { width: 600 } },
+      target: { kind: "element", selector: "button", source: null, sourceChain: [] },
+      thread: [{ body: "Primary needs more contrast.", author: "reviewer" }],
+    });
+    await expect.element(page.getByTestId("comment-pin")).toHaveTextContent("1");
+    expect(commentView(stored())).toEqual(
+      componentView("ui-button", "ui-button--primary", { comment: "story--ui-button-1" })
     );
   });
 });

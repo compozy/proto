@@ -11,7 +11,7 @@ import { LocaleProvider, useT } from "../lib/i18n";
 import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
-import { resolveStoryView } from "../lib/story-tree";
+import { availableView, hasStoryRoots, resolveStoryView } from "../lib/story-tree";
 import { useBootstrap, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
@@ -214,7 +214,7 @@ function Browse({
     overlay === null
   );
   const review = useReviewData() !== null;
-  const page = pageFor(view, registry, theme, choice, t, review);
+  const page = pageFor(availableView(view, registry), registry, theme, choice, t, review);
   const onAction = (action: string) => {
     if (action === "theme") toggleTheme();
     else if (action === "health") go({ area: "settings", section: "health" });
@@ -377,6 +377,9 @@ function pageFor(
     case "component": {
       const components = { label: t("rail.components"), to: { area: "components" } as View };
       const resolved = resolveStoryView(registry, view.slug, view.story);
+      // Without story roots there is no Components area to show the not-found state in.
+      if (resolved.kind === "missing-component" && !hasStoryRoots(registry))
+        return area(view.slug, <NotFound kind="component" id={view.slug} back="overview" />);
       if (resolved.kind === "missing-component")
         return {
           crumbs: [components, { label: view.slug }],
@@ -439,12 +442,15 @@ function pageFor(
 function NotFound({
   kind,
   id,
+  back,
 }: {
   kind: "spec" | "flow" | "prototype" | "component" | "story";
   id: string;
+  /** Where the back link goes; components and stories default to the Components area. */
+  back?: "overview";
 }) {
   const t = useT();
-  const components = kind === "component" || kind === "story";
+  const components = back !== "overview" && (kind === "component" || kind === "story");
   return (
     <div className="shell-dots grid min-h-0 flex-1 place-items-center p-6">
       <div className="w-full max-w-[440px] rounded-2xl border border-border bg-[var(--shell-panel)] p-6 text-center">
