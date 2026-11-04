@@ -62,7 +62,12 @@ control port. They do not require the caller's current directory to be the share
 
 Concurrent refresh requests share one build. A failed build keeps the previous snapshot live.
 Reviewers receive a new-version event and reload before approving; an approval from an older snapshot
-is refused. Agents can answer through `proto comments reply <id> --note "…"`; filesystem changes are
+is refused. The open gallery keeps showing the version it loaded and offers "A new version is
+available" with Reload, which keeps the current screen (it asks first when a comment is unsent). It
+also notices a missed event after its event stream reconnects, or when a frame fails to load a chunk
+of the replaced version. When the review API stops answering and the bootstrap retry fails too, the
+gallery shows "This session ended" with Reload, which leads to the Access login or its error page;
+a passing network failure shows nothing. Agents can answer through `proto comments reply <id> --note "…"`; filesystem changes are
 sent to reviewers over SSE. These commands are CLI-only; agents never approve reviews.
 
 Ctrl+C removes invitations, ends the connector, closes both servers, removes temporary snapshots and
@@ -129,3 +134,13 @@ Record these manual observations with a real email login: an uninvited address i
 shortening the Access application's `session_duration`; what a new reviewer sees after stop; and how
 application-scoped policy operations handle an attached reusable policy. Restore the application or
 reconnect after these checks. These observations require Cloudflare and cannot be proved by the fake API.
+
+The local suites cover the browser side without Cloudflare. `test/node/e2e/shell-review.test.ts`
+runs a real share session behind the TLS harness of `test/node/server/harness.ts`, which maps the
+shell and render hostnames to a local port and adds a signed Access assertion to shell requests
+(E2E-001, E2E-004). `test/node/server/server.test.ts` proves that a same-site render iframe renders
+with third-party cookies blocked in Chromium and in WebKit (E2E-003). Chromium maps the hostnames
+with `--host-resolver-rules`; WebKit has no such flag, so it reaches them through Playwright's
+`proxy` launch option and a local forward proxy that tunnels `CONNECT` to the harness. If WebKit
+cannot run that way on a platform, check the rendered prototype in a real Safari during the live
+run instead.

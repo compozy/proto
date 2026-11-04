@@ -502,6 +502,49 @@ describe("Remote authorization and render grants", () => {
       await transport.close();
     }
   }, 120000);
+  // Invariant: a render origin on the gallery's own site is not third-party (ADR-003): the
+  // render grant cookie works with third-party cookies blocked in Chromium, and in WebKit.
+  // Owner: remote server render grants over the TLS harness; proto-share E2E-003.
+  it.each(["chromium", "webkit"] as const)(
+    "proto-share E2E-003 (%s): a same-site render iframe renders with third-party cookies blocked",
+    async engine => {
+      h.options.allowSameSiteRender = true;
+      const transport = await browserServer(h, undefined, {
+        public: "proto-test.example.com",
+        render: "proto-test-render.example.com",
+      });
+      await buildRemoteGallery(h);
+      const browser = await transport.launch(engine, { blockThirdPartyCookies: true });
+      try {
+        const context = await browser.newContext({ ignoreHTTPSErrors: true });
+        await context.addCookies([
+          {
+            name: "session",
+            value: "review",
+            url: h.options.publicOrigin,
+            secure: true,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+        const page = await context.newPage();
+        await page.goto(`${h.options.publicOrigin}/proto/?p=login-form`);
+        await page
+          .frameLocator("iframe")
+          .first()
+          .getByTestId("remote-pick")
+          .waitFor({ timeout: 60_000 });
+        expect(transport.seen.some(r => r.host === "proto-test-render.example.com")).toBe(true);
+        expect((await context.cookies(h.options.renderOrigin)).map(c => c.name)).toContain(
+          "__Host-proto-render"
+        );
+      } finally {
+        await browser.close();
+        await transport.close();
+      }
+    },
+    120000
+  );
   it("IT-024: image, edit, discard, SSE and credential-revoke rows for all columns", async () => {
     for (const who of ["review", "comment", "bearer", ""]) {
       const headers: Record<string, string> =

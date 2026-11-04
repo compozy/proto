@@ -2,7 +2,8 @@
  * The shell's environment and data: `bootstrap.json` first (the only way the prebuilt shell
  * learns where it runs — no `import.meta.env`, no HMR client), then the registry snapshot from
  * `registryUrl`, refreshed on SSE `registry` events when `eventsUrl` is set. Other slices
- * subscribe to `comments` and `review` events through `useShellEvents`.
+ * subscribe to `comments` and `review` events through `useShellEvents`. In a share (bootstrap
+ * `snapshot`), `session` watches the served version and the session itself (`session-watch.ts`).
  */
 import {
   QueryClientProvider,
@@ -14,6 +15,7 @@ import {
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
 
 import { createShellQueryClient } from "./query";
+import { SessionWatch } from "./session-watch";
 import { useStore } from "@xstate/store-react";
 import { previewLogic, PreviewSchedulerProvider } from "./preview-scheduler";
 
@@ -36,6 +38,8 @@ async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Pro
   const response = await fetch(new URL(bootstrapHref, base), {
     headers: { accept: "application/json" },
     credentials: "same-origin",
+    // A share compares the live version against this page's; never answer from a cache.
+    cache: "no-store",
     signal,
   });
   if (!response.ok) throw new Error(`bootstrap.json answered ${response.status}`);
@@ -64,43 +68,52 @@ async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Regist
   return body;
 }
 
-export type ShellEventType = "registry" | "comments" | "review";
-type EventListener = (data: { key?: string }) => void;
+export type ShellEventType = "registry" | "comments" | "review" | "snapshot";
+/** `key` names a changed review; `id` the new version of a `snapshot` event. */
+type EventData = { key?: string; id?: string };
+type EventListener = (data: EventData) => void;
 
 /**
  * One EventSource per shell, fanned out to subscribers by event type. It connects with the first
- * subscriber and closes with the last, so creating it has no side effect.
+ * subscriber and closes with the last, so creating it has no side effect. `onClosed` runs when
+ * the browser gives up reconnecting (the stream answered something other than events).
  */
 class ShellEvents {
   #listeners = new Map<ShellEventType, Set<EventListener>>();
   #source: EventSource | null = null;
   #url: string | null;
+  #onClosed: (() => void) | undefined;
 
-  constructor(url: string | null) {
+  constructor(url: string | null, onClosed?: () => void) {
     this.#url = url;
+    this.#onClosed = onClosed;
   }
 
   /** Open the shared event stream and reconcile observed data after a reconnect gap. */
-  #connect() {
+  #connect(afterGap = false) {
     if (!this.#url || this.#source) return;
-    this.#source = new EventSource(new URL(this.#url, document.baseURI));
-    let interrupted = false;
-    this.#source.addEventListener("error", () => {
+    const source = new EventSource(new URL(this.#url, document.baseURI));
+    this.#source = source;
+    let interrupted = afterGap;
+    source.addEventListener("error", () => {
       interrupted = true;
+      if (source.readyState !== EventSource.CLOSED || this.#source !== source) return;
+      this.#source = null;
+      this.#onClosed?.();
     });
-    this.#source.addEventListener("open", () => {
+    source.addEventListener("open", () => {
       if (!interrupted) return;
       interrupted = false;
       // The server does not replay missed events. Reconcile every observed slice after a gap.
       for (const listeners of this.#listeners.values())
         for (const listener of listeners) listener({});
     });
-    for (const type of ["registry", "comments", "review"] as const) {
-      this.#source.addEventListener(type, event => {
-        let data: { key?: string } = {};
+    for (const type of ["registry", "comments", "review", "snapshot"] as const) {
+      source.addEventListener(type, event => {
+        let data: EventData = {};
         try {
           const parsed: unknown = JSON.parse((event as MessageEvent<string>).data || "{}");
-          if (parsed && typeof parsed === "object") data = parsed as { key?: string };
+          if (parsed && typeof parsed === "object") data = parsed as EventData;
         } catch {
           // An event without a JSON body still means "refetch".
         }
@@ -122,6 +135,11 @@ class ShellEvents {
       }
     };
   }
+
+  /** Reopen a stream the browser closed, reconciling every subscriber once it is back. */
+  reconnect() {
+    if ([...this.#listeners.values()].some(set => set.size > 0)) this.#connect(true);
+  }
 }
 
 type RegistryState =
@@ -129,7 +147,12 @@ type RegistryState =
   | { status: "error"; message: string }
   | { status: "ready"; registry: Registry };
 
-type ShellData = ShellEnv & { registry: RegistryState; events: ShellEvents; reload: () => void };
+type ShellData = ShellEnv & {
+  registry: RegistryState;
+  events: ShellEvents;
+  session: SessionWatch;
+  reload: () => void;
+};
 
 const ShellDataContext = createContext<ShellData | null>(null);
 
@@ -177,13 +200,28 @@ export function ShellDataProvider({
 /** Keep the registry query fresh from SSE while retaining the last successful snapshot on failure. */
 function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNode }) {
   const client = useQueryClient();
-  const [events] = useState(() => new ShellEvents(env.bootstrap.eventsUrl));
+  const [session] = useState(
+    () =>
+      new SessionWatch(
+        env.bootstrap.snapshot,
+        async () => (await loadBootstrap()).bootstrap.snapshot ?? null
+      )
+  );
+  // A stream the browser stopped retrying is a session check; a live session reopens it.
+  const [events] = useState(
+    () => new ShellEvents(env.bootstrap.eventsUrl, () => session.failure(() => events.reconnect()))
+  );
   const query = useQuery(registryQuery(env));
   useEffect(() => {
     return events.subscribe("registry", () => {
       void client.invalidateQueries({ queryKey: registryQuery(env).queryKey });
     });
   }, [client, env, events]);
+  useEffect(() => {
+    // A new version, or a reconnect after a gap (listeners receive `{}`): compare versions.
+    if (!session.snapshot) return;
+    return events.subscribe("snapshot", () => session.compare());
+  }, [events, session]);
   // Structural sharing keeps unchanged prototypes/flows stable across registry events.
   // A failed refresh leaves the last successful registry on screen.
   const registry: RegistryState = query.data
@@ -197,6 +235,7 @@ function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNod
         ...env,
         registry,
         events,
+        session,
         reload: () => {
           void query.refetch();
         },

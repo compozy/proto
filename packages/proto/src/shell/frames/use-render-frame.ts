@@ -90,7 +90,7 @@ export function useRenderFrame(
   target: FrameTarget,
   options: Options
 ) {
-  const { renderUrl, renderOrigin, registry } = useShellData();
+  const { renderUrl, renderOrigin, registry, session } = useShellData();
   // Remote galleries protect the render origin: each load carries a short-lived ticket.
   const tickets = useRenderTickets();
   const [ticket, setTicket] = useState<{ nonce: string; value: string } | null>(null);
@@ -217,6 +217,12 @@ export function useRenderFrame(
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
   }, [iframe, nonce, renderOrigin, slugs, registry, onContext, onMessage, tickets, messages]);
+
+  // In a share, a frame that failed to load may be asking for a replaced version's chunk (S1).
+  const failed = frame.status.kind === "error";
+  useEffect(() => {
+    if (failed) session.compare();
+  }, [failed, nonce, session]);
 
   const loading = frame.status.kind === "loading" && !frame.status.slow;
   useEffect(() => {

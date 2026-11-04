@@ -7,7 +7,8 @@
  * harmless on the same-origin dev router) and never send a bearer: the shell is a browser
  * session. A 401 `auth_required` calls `onAuthRequired` with the server's `signInUrl` before it
  * rejects, so the shell can show the session-expired banner (S18) and keep unsent drafts.
- * Every failure rejects with a `ReviewApiError` carrying a code of `src/model/errors.ts`.
+ * Every failure rejects with a `ReviewApiError` carrying a code of `src/model/errors.ts`; a
+ * request that never got an answer also calls `onNetworkError` (the share session check, S4).
  */
 import { z } from "zod";
 
@@ -102,11 +103,14 @@ export type ReviewApi = {
   /** URL of an attachment's bytes (served as a download, `nosniff`). */
   attachmentUrl(key: string, attachment: { id: string; type: string; url?: string }): string;
   review(key: string, signal?: AbortSignal): Promise<ReviewState>;
-  /** Approve (`confirmOpen` when comments are open) or reopen a key. */
+  /**
+   * Approve (`confirmOpen` when comments are open) or reopen a key. `snapshot` is the version
+   * this page loaded; a share refuses a different live one with 409 `snapshot_stale`.
+   */
   transition(
     key: string,
     to: "approved" | "in_review",
-    options?: { confirmOpen?: boolean }
+    options?: { confirmOpen?: boolean; snapshot?: string }
   ): Promise<ReviewState>;
   /** Remote only: the signed-in principal (null when the session ended). */
   session(): Promise<BootstrapPrincipal | null>;
@@ -124,6 +128,8 @@ export type ReviewApiOptions = {
   base?: string;
   /** Called on 401 `auth_required` (session expired) with the server's sign-in URL. */
   onAuthRequired?: (signInUrl: string | null) => void;
+  /** Called when a request got no HTTP answer at all (not when it was aborted). */
+  onNetworkError?: () => void;
   fetch?: typeof fetch;
 };
 
@@ -177,6 +183,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       });
     } catch (error) {
       if (init.signal?.aborted) throw error;
+      options.onNetworkError?.();
       throw new ReviewApiError("network_error", String(error), null);
     }
     if (response.status === 204) return null;
@@ -254,7 +261,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     async transition(key, to, transition = {}) {
       return state(
         await request("POST", `reviews/${id(key)}/transitions`, {
-          json: { to, confirmOpen: transition.confirmOpen },
+          json: { to, confirmOpen: transition.confirmOpen, snapshot: transition.snapshot },
         })
       );
     },

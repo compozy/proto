@@ -127,7 +127,7 @@ jobs:
       - run: bun run --cwd packages/proto build
       - run: npm pack ./dist/package --dry-run --ignore-scripts
         working-directory: packages/proto
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install --with-deps chromium webkit
         working-directory: packages/proto
       - run: bun run --cwd packages/proto test:tarball
       - name: Require integrated slices before publication

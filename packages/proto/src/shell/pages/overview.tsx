@@ -51,6 +51,8 @@ function PageHeading({
 export function Overview({ theme }: { theme: "light" | "dark" }) {
   const t = useT();
   const registry = useRegistry();
+  // A share serves a fixed snapshot to reviewers: authoring prompts have no place there (S3).
+  const shared = useShellData().bootstrap.snapshot != null;
   if (!registry.prototypes.length) return <EmptyGallery />;
   const groups = groupRegistry(registry);
   const specs = groups.specs.filter(group => group.prototypes.length || group.flows.length);
@@ -64,13 +66,15 @@ export function Overview({ theme }: { theme: "light" | "dark" }) {
           screens: t("count.screens", { count: registry.prototypes.length }),
         })}
         aside={
-          <Link
-            to={{ area: "drafts" }}
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-[13px] font-medium hover:bg-muted"
-          >
-            <Plus className="size-4" />
-            {t("drafts.new")}
-          </Link>
+          shared ? undefined : (
+            <Link
+              to={{ area: "drafts" }}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-[13px] font-medium hover:bg-muted"
+            >
+              <Plus className="size-4" />
+              {t("drafts.new")}
+            </Link>
+          )
         }
       />
       {specs.length > 0 && (

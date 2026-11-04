@@ -116,6 +116,7 @@ function AppOpenPill() {
 
 function Approve({ reviewKey, title }: { reviewKey: string; title: string }) {
   const t = useT();
+  const { session } = useShellData();
   const state = useReviewState(reviewKey).data;
   const mutate = useReviewMutation();
   const [confirming, setConfirming] = useState(false);
@@ -132,11 +133,20 @@ function Approve({ reviewKey, title }: { reviewKey: string; title: string }) {
   const approve = async (confirmOpen: boolean) => {
     setError(null);
     try {
-      await mutate(reviewKey, api => api.transition(reviewKey, "approved", { confirmOpen }));
+      // A share approves the version on screen: the id captured when this page loaded.
+      const snapshot = session.snapshot ?? undefined;
+      await mutate(reviewKey, api =>
+        api.transition(reviewKey, "approved", { confirmOpen, snapshot })
+      );
       setConfirming(false);
     } catch (failure) {
+      // A newer version is live: the new-version notice explains it; the dialog stays closed.
+      if (isReviewApiError(failure, "snapshot_stale")) {
+        setConfirming(false);
+        session.stale();
+      }
       // Someone added a comment meanwhile: confirm with the fresh count.
-      if (isReviewApiError(failure, "review_has_open_comments")) setConfirming(true);
+      else if (isReviewApiError(failure, "review_has_open_comments")) setConfirming(true);
       else setError(isReviewApiError(failure) ? failure.message : String(failure));
     }
   };

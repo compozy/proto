@@ -24,6 +24,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Shell, ShellSubHeader, ShellTopBar, type Crumb } from "./chrome";
 import { Link } from "./link";
 import { SearchPalette } from "./search-palette";
+import { SessionNotice } from "./session-notice";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { SessionExpiredBanner, SignInPage } from "../review/auth/auth";
 import { ReviewProvider, useReviewData } from "../review/data";
@@ -117,15 +118,24 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: unknown }
   /** Recover a failed lazy page with a document reload that clears the cached import rejection. */
   render() {
     return this.state.error ? (
-      <Fatal
-        title="This page could not load"
-        message={String(this.state.error)}
-        onRetry={() => window.location.reload()}
-      />
+      <PageFailure error={this.state.error} />
     ) : (
       this.props.children
     );
   }
+}
+
+/** A failed page in a share may be a chunk of a replaced version: compare versions (S1). */
+function PageFailure({ error }: { error: unknown }) {
+  const { session } = useShellData();
+  useEffect(() => session.compare(), [session]);
+  return (
+    <Fatal
+      title="This page could not load"
+      message={String(error)}
+      onRetry={() => window.location.reload()}
+    />
+  );
 }
 
 function App() {
@@ -222,6 +232,7 @@ function Browse({
         onSearch={() => setOverlay("search")}
       />
       <SessionExpiredBanner />
+      <SessionNotice />
       <main id="shell-main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
         <PageBoundary key={view.area}>
           <Suspense
