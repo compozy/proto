@@ -5,9 +5,12 @@
  * the shell side is under test. `--import-fail` fails at `import` and `--render-fail` at
  * `render`, both before `ready`; every other story renders and posts `ready`, and runs its
  * `play` only when the URL asks for it, counted in `html.dataset.playCalls`. A rendered story
- * answers the shell's `pick:start` (mode in `html.dataset.picking`) with the clicked element.
+ * answers the shell's `pick:start` (mode in `html.dataset.picking`) with the clicked element and
+ * its `anchors:watch` with the real render-side measurement (`src/render/anchors.ts`), as the
+ * real story host does through `StoryPicker`, so comment pins can place themselves.
  */
-import { protocolVersion } from "../../../../src/model/protocol.ts";
+import { anchorSchema, protocolVersion } from "../../../../src/model/protocol.ts";
+import { watchAnchors } from "../../../../src/render/anchors.ts";
 
 const params = new URLSearchParams(window.location.search);
 const story = params.get("story") ?? "";
@@ -35,11 +38,22 @@ if (story.endsWith("--import-fail")) {
   const button = document.createElement("button");
   button.textContent = story;
   document.body.append(button);
+  let unwatch = () => {};
   window.addEventListener("message", event => {
-    const data = event.data as { frame?: unknown; type?: unknown; mode?: unknown } | null;
+    const data = event.data as {
+      frame?: unknown;
+      type?: unknown;
+      mode?: unknown;
+      anchors?: unknown;
+    } | null;
     if (event.source !== window.parent || data?.frame !== frame) return;
     if (data.type === "pick:start") html.dataset.picking = String(data.mode);
     if (data.type === "pick:cancel") delete html.dataset.picking;
+    if (data.type === "anchors:watch") {
+      unwatch();
+      const anchors = anchorSchema.array().parse(data.anchors);
+      unwatch = watchAnchors(window, anchors, rects => post({ type: "anchors", rects }));
+    }
   });
   button.addEventListener("click", () => {
     if (!html.dataset.picking) return;
