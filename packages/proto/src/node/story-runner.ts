@@ -131,11 +131,15 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             });
             await page.addInitScript(() => {
               new MutationObserver(() => {
-                const value = document.documentElement?.dataset.protoStory;
-                if (value)
-                  void (
-                    window as unknown as { __protoStoryReport(value: unknown): Promise<void> }
-                  ).__protoStoryReport(value);
+                const html = document.documentElement;
+                const value = html?.dataset.protoStory;
+                if (!html || typeof value !== "string") return;
+                void (window as unknown as { __protoStoryReport(value: unknown): Promise<boolean> })
+                  .__protoStoryReport(value)
+                  .then(terminal => {
+                    // A synchronous polling flag, acknowledged only after Node validates the report.
+                    if (terminal) html.dataset.protoStoryTerminal = "true";
+                  });
               }).observe(document, {
                 subtree: true,
                 attributes: true,
@@ -161,27 +165,19 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             );
             const remaining = Math.max(1, pageBudget - (Date.now() - started));
             await page.waitForFunction(
-              async () => {
-                const value = document.documentElement.dataset.protoStory;
-                return (
-                  value &&
-                  (await (
-                    window as unknown as { __protoStoryReport(value: unknown): Promise<boolean> }
-                  ).__protoStoryReport(value))
-                );
-              },
+              () => document.documentElement.dataset.protoStoryTerminal === "true",
               undefined,
               { timeout: remaining }
             );
             if (last.status === "running")
-              last = storyResultSchema.parse(
-                JSON.parse(await page.evaluate(() => document.documentElement.dataset.protoStory!))
-              );
+              throw new Error("Story terminal acknowledgement arrived without a validated report");
           } catch (error) {
             try {
               const value = await page.evaluate(() => document.documentElement.dataset.protoStory);
-              if (value && last.status === "running")
-                last = storyResultSchema.parse(JSON.parse(value));
+              if (typeof value === "string" && last.status === "running") {
+                const parsed = storyResultSchema.safeParse(JSON.parse(value));
+                if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
+              }
             } catch {
               /* A dead document has no readable result. */
             }

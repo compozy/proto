@@ -327,7 +327,10 @@ try {
           join(app, "proto.config.ts"),
           `export default { title: "Tarball stories", stories: { roots: [{ id: "ui", stories: "src/**/*.stories.tsx", preview: "preview.ts", vite: "vite.stories.ts" }] } };`
         );
-        await writeFile(join(app, "preview.ts"), "export default {};");
+        await writeFile(
+          join(app, "preview.ts"),
+          "export const beforeAll = () => new Promise(resolve => setTimeout(resolve, 200)); export default {};"
+        );
         await writeFile(
           join(app, "vite.stories.ts"),
           'import react from "@vitejs/plugin-react"; export default {plugins:[react()]};'
@@ -360,6 +363,13 @@ try {
           );
           assert.deepEqual(report.summary, { total: 1, passed: 1, failed: 0 });
           assert.equal(report.stories[0].stage, "render");
+          assert.equal(report.stories[0].status, "passed");
+          assert.equal(report.stories[0].hasPlay, false);
+          assert.equal(report.stories[0].error, null);
+          assert.ok(
+            report.stories[0].durationMs >= 200,
+            "Run must include the awaited preview setup"
+          );
         });
       });
     } finally {

@@ -13,8 +13,9 @@ import {
 } from "virtual:proto/story-runtime";
 import type { StoryResult, StoryStage } from "../model/protocol.ts";
 import { createBridge } from "./bridge.ts";
-import { RenderBoundary, RenderCommit, StoryPicker } from "./shared.tsx";
+import { RenderBoundary, StoryPicker } from "./shared.tsx";
 
+import { RenderCommit } from "./render-commit.ts";
 import { messageOf } from "./errors.ts";
 
 // Public Storybook entry points do not export this event constant.

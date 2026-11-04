@@ -1,11 +1,4 @@
-import {
-  Component,
-  useEffect,
-  useState,
-  useLayoutEffect,
-  type ErrorInfo,
-  type ReactNode,
-} from "react";
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import type { Anchor, PickMode } from "../model/protocol.ts";
 import type { Bridge } from "./bridge.ts";
 import { watchAnchors } from "./anchors.ts";
@@ -89,16 +82,4 @@ export function StoryPicker({ bridge }: { bridge: Bridge }) {
       }}
     />
   ) : null;
-}
-
-/** Notify the host only after React has committed the story subtree. */
-export function RenderCommit({
-  children,
-  onCommit,
-}: {
-  children: ReactNode;
-  onCommit: () => void;
-}) {
-  useLayoutEffect(() => onCommit(), [onCommit]);
-  return children;
 }

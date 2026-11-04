@@ -61,14 +61,16 @@ export async function loadProject(
   const storyCache: StoryCache = new Map();
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshRequest = 0;
-  async function publishLatest(request: number): Promise<void> {
-    if (request !== refreshRequest || !listeners.size) return;
-    const registry = await project.registry();
-    if (request !== refreshRequest || !listeners.size) return;
-    // A concurrent read can finish a newer build before this continuation runs.
-    // Follow that snapshot instead of losing the refresh notification.
-    if (revisions.get(registry) !== generation) return publishLatest(request);
-    for (const listener of listeners) listener(registry);
+  function publishLatest(request: number): Promise<void> {
+    if (request !== refreshRequest || !listeners.size) return Promise.resolve();
+    // Subscribe publication directly to the read. A refresh/unsubscribe during that read
+    // still invalidates delivery; these completion checks cannot move ahead of the read.
+    return project.registry().then(registry => {
+      if (request !== refreshRequest || !listeners.size) return;
+      // A concurrent read can finish a newer build before this continuation runs.
+      if (revisions.get(registry) !== generation) return publishLatest(request);
+      for (const listener of listeners) listener(registry);
+    });
   }
   const refresh = () => {
     cached = undefined;
