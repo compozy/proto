@@ -42,6 +42,9 @@ export function storyViteConfig(
     configFile: resolve(dir, root.vite),
     root: dir,
     mode: "proto-story",
+    // The origin serves story documents only: no app `index.html` at `/` or as SPA fallback,
+    // which would load the whole app and discover its dependencies late. Public files remain.
+    appType: "custom",
     cacheDir: resolve(dir, "node_modules/.cache/proto/stories", root.id),
     plugins: storyPlugins(project, root, `http://127.0.0.1:${ports.shell}`),
     resolve: { dedupe: ["react", "react-dom", "storybook", "@storybook/react-vite"] },

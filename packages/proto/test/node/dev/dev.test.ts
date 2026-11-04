@@ -633,11 +633,26 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     expect(registry.storyRoots?.map(root => root.id)).toEqual(["app", "ui"]);
     expect(registry.stories?.map(file => file.stories.length)).toEqual([9, 1]);
     expect(registry.prototypes).toEqual([]);
+    writeFileSync(
+      join(fixture.app, "index.html"),
+      '<div id="app-index"></div><script type="module" src="/src/main.tsx"></script>'
+    );
     dev = await onFreePorts(port => startDev(project, { port, quiet: true }));
     const bootstrap = bootstrapSchema.parse(
       await fetch(`${dev.origin}/__proto/bootstrap.json`).then(response => response.json())
     );
     expect(bootstrap.projectId).toMatch(/^[a-f0-9]{16}$/);
+    // The story origin never serves the app document (no index or SPA fallback); public files stay.
+    for (const path of ["/", "/settings/plan"]) {
+      const page = await fetch(new URL(path, bootstrap.storyRoots![0]!.renderUrl), {
+        headers: { accept: "text/html" },
+      });
+      expect(page.status).toBe(404);
+      expect(await page.text()).not.toContain("app-index");
+    }
+    expect(
+      (await fetch(new URL("/mockServiceWorker.js", bootstrap.storyRoots![0]!.renderUrl))).status
+    ).toBe(200);
     expect(bootstrap.storyRoots).toHaveLength(2);
     for (const [index, root] of bootstrap.storyRoots!.entries()) {
       expect(Number(new URL(root.renderUrl).port)).toBe(

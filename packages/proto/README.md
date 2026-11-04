@@ -445,6 +445,8 @@ static sources resolve inside it. `title` defaults to the id, `static` and guard
 and `themeGlobal` to `theme`. The root config installs React/CSS/aliases without `proto()`;
 proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react-vite` at
 `~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
+A story origin serves story documents, `publicDir` files and `static` mounts only: `/` and other
+paths do not fall back to the app's `index.html`.
 Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
 
 | CLI                      | Options/result                                                                                                                       |
