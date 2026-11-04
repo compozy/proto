@@ -20,7 +20,7 @@ it("IT-015 every catalog operation has CLI and MCP or an explicit exclusion", ()
       if (capability.store) expect(tool?.inputSchema.properties).toHaveProperty("remote");
     } else expect(capability.exclusion).toBeTruthy();
   }
-  expect(mcpTools).toHaveLength(22);
+  expect(mcpTools).toHaveLength(25);
 });
 it("IT-015 MCP results equal CLI JSON through the actual SDK transport", async () => {
   const project = await loadProject(fixtureApp);

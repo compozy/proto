@@ -160,3 +160,21 @@ when the app is already set up (`bun run proto init --skills --app app`). For an
 
 Preview lifetime, query caching, intent prefetch, HMR and React Compiler checks are documented in
 [Gallery performance and React checks](../proto/performance.md).
+
+## Existing Storybook stories
+
+Configure optional `stories.roots` to browse CSF components alongside prototypes. Each root names
+an id, story globs, preview and a dedicated Vite config with the app's React/CSS/aliases and no
+`proto()` boundary. Reuse `vite.shared.ts`; the old `vite.presentation.ts` integration is retired.
+Providers live in `proto.canvas.tsx`, replacing the old `preview/canvas.tsx` path. Story previews
+remain independent of that prototype canvas.
+
+Use `proto stories list --root <id> --filter '<story-id-glob>' --json`,
+`proto stories run --root <id> --json`, and `proto stories url <story-id>`.
+Components open at `/?components`, component pages at `/?c=<slug>`, and stories at
+`/?c=<slug>&story=<story-id>`. The review key is `story--<slug>`; `comments add` requires
+`--state <story-id>` on that key. `comments list --slug story--<slug>` reads its threads.
+
+There are two base servers and one per selected story root. `check` validates story config and
+index without loading its graph; `stories run` checks the actual lifecycle. Both local and remote
+`build` omit stories with `stories_not_built` until local static story support ships.

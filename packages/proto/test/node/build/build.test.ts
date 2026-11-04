@@ -319,3 +319,20 @@ it("UT-044: remote builds require an explicit boolean CLI flag or Node option", 
   await buildProject(project, options);
   expect(await mode()).toBe("read-only");
 }, 120000);
+
+// Invariant: pre-static-story builds ship a complete story-free gallery despite story problems/peers.
+// Owner: static build orchestration; local coverage belongs to S6 when static stories ship.
+it.each([undefined, "https://gallery.example.test"])("stories IT-027: omits stories for remote %s", async remote => {
+  const { root, project, options } = await fixture();
+  project.config.stories = { roots: [{ id: "ui", title: "UI", dir: ".", stories: ["src/**/*.stories.tsx"], preview: "missing.ts", vite: "missing-vite.ts", static: [], themeGlobal: "theme", guards: { forbidRuntimeImports: [] } }] };
+  await writeFile(join(root, "src/broken.stories.tsx"), "export default {");
+  expect((await project.registry()).problems.some(problem => problem.code.startsWith("story_"))).toBe(true);
+  const result = await buildProject(project, { ...options, remote });
+  expect(result.warnings).toContainEqual(expect.objectContaining({ code: "stories_not_built" }));
+  const registry = JSON.parse(await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8"));
+  const bootstrap = JSON.parse(await readFile(join(root, "dist-proto/__proto/bootstrap.json"), "utf8"));
+  expect(registry).not.toHaveProperty("stories");
+  expect(registry).not.toHaveProperty("storyRoots");
+  expect(bootstrap).not.toHaveProperty("storyRoots");
+  expect(registry.problems).toEqual([]);
+}, 30000);

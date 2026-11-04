@@ -31,7 +31,7 @@ async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expect
 import { createConnection, createServer } from "node:net";
 import { once } from "node:events";
 import { request } from "node:http";
-import { beforeAll, afterAll, expect, it } from "vitest";
+import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import { loadProject } from "../../../src/node/project.ts";
 import { startDev, hostAllowed } from "../../../src/node/dev.ts";
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
@@ -1023,6 +1023,98 @@ it("rolls back startup when a story port is occupied", async () => {
       await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
   } finally {
     await new Promise<void>(resolve => occupied.close(() => resolve()));
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);
+
+// Invariant: CLI/MCP run real stories, keep failures bounded and report unrelated index problems.
+// Owner: story runner integration in the canonical dev suite (real Chromium and root servers).
+it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages", async () => {
+  const fixture = storiesFixture();
+  const { runCli } = await import("../../../src/cli/main.ts");
+  const { executeTool } = await import("../../../src/mcp.ts");
+  const { formatHuman } = await import("../../../src/cli/human.ts");
+  try {
+    const project = await loadProject(fixture.app);
+    writeFileSync(join(fixture.root, "packages/ui/vite.config.ts"), 'throw new Error("unselected root started");');
+    await onFreePorts(async port => {
+      const argv = ["stories", "run", "--root", "app", "--filter", "ui-button--{plain,fail,load-hang}", "--timeout", "10000", "--port", String(port), "--json"];
+      const result = await runCli(argv, { project });
+      expect(result).toMatchObject({ exitCode: 1, data: {
+        summary: { total: 3, passed: 1, failed: 2 },
+        stories: expect.arrayContaining([
+          expect.objectContaining({ id: "ui-button--plain", stage: "render", status: "passed", hasPlay: false, error: null, durationMs: expect.any(Number) }),
+          expect.objectContaining({ id: "ui-button--fail", stage: "play", status: "failed" }),
+          expect.objectContaining({ id: "ui-button--load-hang", stage: "load", status: "failed" }),
+        ]),
+      } });
+      expect(formatHuman(argv, result).stdout).toContain("3 stories: 1 passed, 2 failed");
+      for (const candidate of [port, port + 1, port + 2, port + 3])
+        await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
+      writeFileSync(join(fixture.app, "src/broken.stories.tsx"), "export default {");
+      expect(await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], { project })).toMatchObject({ exitCode: 1, data: {
+        summary: { total: 1, passed: 1, failed: 0 }, problems: expect.arrayContaining([expect.objectContaining({ code: "story_parse" })]),
+      } });
+      rmSync(join(fixture.app, "src/broken.stories.tsx"));
+      expect(await executeTool("proto_stories_run", { filter: "ui-button--plain", port }, project)).toMatchObject({ summary: { total: 1, passed: 1, failed: 0 } });
+      expect(await runCli(["stories", "run", "--filter", "absent"], { project })).toMatchObject({ exitCode: 1, data: { error: { code: "story_not_found" } } });
+    });
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+}, 180000);
+
+// Invariant: reuse requires project identity; interrupt closes only resources owned by this run.
+// Owner: runner/dev lifecycle integration, including real TCP listeners and process signals.
+it("stories IT-016: refuses another project, reuses its own server and cleans up on SIGINT", async () => {
+  const fixture = storiesFixture();
+  const other = storiesFixture();
+  const { runStories } = await import("../../../src/node/story-runner.ts");
+  const { runCli } = await import("../../../src/cli/main.ts");
+  try {
+    const project = await loadProject(fixture.app);
+    await onFreePorts(async port => {
+      const dev = await startDev(project, { port, quiet: true, storyRoots: ["app"] });
+      try {
+        await expect(runStories(await loadProject(other.app), { port, filter: "ui-button--plain" })).rejects.toMatchObject({ code: "project_mismatch" });
+        expect((await runStories(project, { port, filter: "ui-button--plain" })).results[0]?.status).toBe("passed");
+        const running = runCli(["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)], { project });
+        // A real host request proves the shared server is ready before delivering the interrupt.
+        await expect.poll(async () => (await fetch(`${dev.origin}/__proto/bootstrap.json`)).ok).toBe(true);
+        process.emit("SIGINT");
+        expect((await running).exitCode).toBe(1);
+        expect((await fetch(`${dev.origin}/__proto/bootstrap.json`)).ok).toBe(true);
+      } finally { await dev.close(); }
+      const running = runCli(["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)], { project });
+      await expect.poll(async () => {
+        try { return (await fetch(`http://127.0.0.1:${port}/__proto/bootstrap.json`)).ok; } catch { return false; }
+      }).toBe(true);
+      process.emit("SIGINT");
+      expect((await running).exitCode).toBe(1);
+      for (const candidate of [port, port + 1, port + 2])
+        await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
+    });
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(other.root, { recursive: true, force: true });
+  }
+}, 180000);
+
+
+// Invariant: unavailable Chromium maps to the registered dependency exit and closes owned servers.
+// Owner: runner's browser-launch I/O boundary; dev listeners remain real.
+it("stories IT-015: missing Playwright returns exit 3 and releases ports", async () => {
+  const fixture = storiesFixture();
+  const { runCli } = await import("../../../src/cli/main.ts");
+  const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("Chromium missing"));
+  try {
+    const project = await loadProject(fixture.app);
+    await onFreePorts(async port => {
+      expect(await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], { project }))
+        .toMatchObject({ exitCode: 3, data: { error: { code: "playwright_missing" } } });
+      for (const candidate of [port, port + 1, port + 2])
+        await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
+    });
+  } finally {
+    launch.mockRestore();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 120000);

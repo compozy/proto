@@ -71,6 +71,10 @@ test(
           const packedManifest = JSON.parse(
             await readFile(join(installed, "package.json"), "utf8")
           );
+          for (const peer of ["storybook", "@storybook/react-vite"]) {
+            assert.equal(packedManifest.peerDependencies[peer], "~10.6.0");
+            assert.equal(packedManifest.peerDependenciesMeta[peer].optional, true);
+          }
           for (const [key, entry] of Object.entries(packedManifest.exports)) {
             if (key.endsWith("/*")) continue;
             assert.ok(existsSync(join(installed, entry.types)));
@@ -163,6 +167,17 @@ try {
           run("node", ["smoke.mjs"], app);
         }
       );
+      // Invariant: stories are optional for existing consumers; CLI discovery needs no Storybook.
+      // Owner: real published-tarball adoption (IT-019).
+      await t.test("stories commands are available without optional peers", () => {
+        const bin = join(installed, "src/cli/main.js");
+        assert.ok(!existsSync(join(app, "node_modules/storybook")));
+        assert.ok(!existsSync(join(app, "node_modules/@storybook/react-vite")));
+        assert.equal(run("node", [bin, "stories", "list"], app).trim(), "No stories configured.");
+        assert.deepEqual(JSON.parse(run("node", [bin, "stories", "list", "--json"], app)), { roots: [], stories: [] });
+        const commands = JSON.parse(run("node", [bin, "--help", "--json"], app)).commands;
+        for (const command of ["stories list", "stories run", "stories url"]) assert.ok(commands.includes(command));
+      });
       await t.test("catalog build emits the static read-only distribution", async () => {
         run("node", [join(installed, "src/cli/main.js"), "build", "--json"], app);
         const bootstrap = JSON.parse(
@@ -286,6 +301,26 @@ try {
           assert.match(result.stdout + result.stderr, /production_boundary/);
         }
       );
+      // Invariant: installed public commands load optional peers from a fresh consumer.
+      // Owner: real published-tarball adoption and E2E-003 transcripts.
+      await t.test("story peers enable list, run and url from the installed tarball", async () => {
+        run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--save-dev", "--save-exact",
+          "storybook@10.6.3", "@storybook/react-vite@10.6.3", `playwright@${manifest.devDependencies.playwright}`], app);
+        await writeFile(join(app, "proto.config.ts"), `export default { title: "Tarball stories", stories: { roots: [{ id: "ui", stories: "src/**/*.stories.tsx", preview: "preview.ts", vite: "vite.stories.ts" }] } };`);
+        await writeFile(join(app, "preview.ts"), "export default {};");
+        await writeFile(join(app, "vite.stories.ts"), 'import react from "@vitejs/plugin-react"; export default {plugins:[react()]};');
+        await writeFile(join(app, "src/button.stories.tsx"), 'export default {title:"UI/Button"}; export const Primary = {render: () => <button>Primary</button>};');
+        const bin = join(installed, "src/cli/main.js");
+        const listed = JSON.parse(run("node", [bin, "stories", "list", "--root", "ui", "--filter", "ui-button*", "--json"], app));
+        assert.deepEqual(listed.roots, [{ id: "ui", files: 1, stories: 1 }]);
+        assert.equal(listed.stories[0].stories[0].id, "ui-button--primary");
+        assert.equal(run("node", [bin, "stories", "url", "ui-button--primary"], app).trim(), "http://127.0.0.1:4400/?c=ui-button&story=ui-button--primary");
+        await onFreePorts(async port => {
+          const report = JSON.parse(run("node", [bin, "stories", "run", "--root", "ui", "--port", String(port), "--json"], app));
+          assert.deepEqual(report.summary, { total: 1, passed: 1, failed: 0 });
+          assert.equal(report.stories[0].stage, "render");
+        });
+      });
     } finally {
       await rm(temp, { recursive: true, force: true });
     }

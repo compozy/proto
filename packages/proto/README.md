@@ -408,7 +408,7 @@ Environment: `PROTO_PORT`, `PROTO_POLL=1`, `PROTO_REMOTE_URL`, `PROTO_REMOTE_TOK
 - **Milestone 2:** remote review server, `--remote` CLI and MCP, credentials.
 - **Then:** a documentation site.
 
-Out of scope: frameworks other than React + Vite, replacing Storybook, visual regression diffing,
+Out of scope: frameworks other than React + Vite, Storybook's addon panels, visual regression diffing,
 a hosted SaaS, and syncing local and remote review data.
 
 ## Contributing
@@ -420,3 +420,56 @@ conventions, and follow the [Code of Conduct](https://github.com/compozy/proto/b
 ## License
 
 [MIT](https://github.com/compozy/proto/blob/main/LICENSE) © 2026 Pedro Nauck and Compozy contributors
+
+### Existing Storybook stories
+
+Opt in per app; apps without `stories` need no Storybook dependency:
+
+```ts
+stories: {
+  roots: [{
+    id: "ui", dir: "../packages/ui", stories: "src/**/*.stories.tsx",
+    preview: ".storybook/preview.ts", vite: "vite.stories.ts",
+    static: [{ from: "public", to: "/" }], themeGlobal: "theme",
+    guards: { forbidRuntimeImports: ["src/data.ts"] },
+  }],
+}
+```
+
+`id` matches `^[a-z][a-z0-9-]*$`. `dir` defaults to `.`; globs, preview, Vite config and
+static sources resolve inside it. `title` defaults to the id, `static` and guards to empty,
+and `themeGlobal` to `theme`. The root config installs React/CSS/aliases without `proto()`;
+proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react-vite` at
+`~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
+Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
+
+| CLI | Options/result |
+| --- | --- |
+| `proto stories list` | `--root`, `--filter` on story ids, `--json`; no config prints `No stories configured.` (exit 0) |
+| `proto stories run` | `--root`, `--filter`, `--theme light\|dark`, `--concurrency` (6), `--timeout` in ms (30000, clamped 1000–120000), `--port`, `--json` |
+| `proto stories url <id>` | Gallery URL `/?c=<component>&story=<id>` |
+
+Run JSON contains `summary: { total, passed, failed }` and `stories` rows with `id`, `root`,
+`stage` (`import`, `load`, `render`, `play`), `status`, `hasPlay`, `durationMs` and `error`.
+Index problems are reported alongside results; selected stories still run. Exit is 0 when all
+pass, 1 on failure, index problems or an empty selection, and 3 for missing Playwright/Chromium.
+Only selected roots start. Existing servers are reused only after a `projectId` match;
+interrupt closes owned servers/browser and emits no partial report.
+
+MCP exposes `proto_stories_list({ root?, filter? })`,
+`proto_stories_run({ root?, filter?, theme?, concurrency?, timeout?, port? })` (root or filter
+required) and `proto_stories_url({ id })`, returning the same JSON as the CLI.
+
+Story comments use `story--<component slug>`. `comments add` requires `--state <story-id>` from
+that component, plus the usual `--note` and `--selector`. Read with
+`comments list --slug story--<component slug>`. Remote review rejects these keys.
+`check` validates story configuration and index without loading the story graph. Local and
+remote `build` currently omit stories with `stories_not_built`; story problems and missing peers
+do not fail those builds. Application production bundles gain no story runtime.
+
+Errors: `invalid_input` (exit 2) for unknown roots or missing/invalid comment state;
+`story_not_found` (1) for unknown ids/empty filters; `project_mismatch` (1) for a different
+project on the requested port; `port_in_use` (1); `playwright_missing`, `storybook_missing`
+and `storybook_unsupported` (3). Story index problems include `story_parse`,
+`story_id_duplicate`, `story_slug_duplicate`, `story_slug_invalid`, `story_preview_missing`;
+warnings include `story_mock_unsupported`, `story_title_dynamic`, `story_glob_empty`.

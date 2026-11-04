@@ -360,3 +360,23 @@ it("isolates story root guards and reports import failures with their chain", as
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 180000);
+
+// Invariant: configuring story roots never injects story/Storybook runtime into production graphs.
+// Owner: production Vite boundary, asserted against emitted chunk modules rather than source text.
+it("stories IT-026: configured stories add nothing to the production bundle", async () => {
+  const { storiesFixture } = await import("../app-fixture.ts");
+  const { proto } = await import("../../../src/vite/index.ts");
+  const fixture = storiesFixture();
+  try {
+    writeFileSync(join(fixture.app, "src/production.ts"), 'document.title = "Production";');
+    const result = await build({
+      root: fixture.app, configFile: false, logLevel: "silent",
+      plugins: proto(),
+      build: { write: false, rollupOptions: { input: join(fixture.app, "src/production.ts") } },
+    });
+    const outputs = Array.isArray(result) ? result : [result];
+    const modules = outputs.flatMap(output => "output" in output ? output.output.flatMap(chunk => chunk.type === "chunk" ? Object.keys(chunk.modules) : []) : []);
+    expect(modules).toContain(join(fixture.app, "src/production.ts"));
+    expect(modules.some(id => /stories\.tsx|storybook|story-host|story-runtime/.test(id))).toBe(false);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});

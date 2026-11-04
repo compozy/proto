@@ -132,6 +132,7 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     const flow = (await project.registry()).flows[0]!.id;
     const cases: Record<string, Record<string, string | boolean>> = {
       list: {},
+      "stories list": {},
       check: {},
       url: { slug: "login-form" },
       "flow list": {},
@@ -169,11 +170,11 @@ describe("CLI contracts", { timeout: 30000 }, () => {
       await Promise.all([server.connect(left), client.connect(right)]);
       expect(Object.keys(cases).sort()).toEqual(
         catalog
-          .filter(c => c.mcp)
+          .filter(c => c.mcp && !["stories run", "stories url"].includes(c.cli))
           .map(c => c.cli)
           .sort()
       );
-      for (const capability of catalog.filter(c => c.mcp)) {
+      for (const capability of catalog.filter(c => c.mcp && !["stories run", "stories url"].includes(c.cli))) {
         reset();
         const args = cases[capability.cli]!;
         const argv = [
@@ -776,4 +777,52 @@ it("UT-003: a valid start without a connection points to connect", async () => {
     else process.env.HOME = old;
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+// Invariant: story commands expose the indexed identity and comments validate the component's story.
+// Owner: CLI/MCP contracts; canonical suite uses real story discovery and FileStore.
+describe("stories CLI contracts", () => {
+  let fixture: ReturnType<typeof import("../app-fixture.ts").storiesFixture>;
+  let project: ProtoProject;
+  beforeEach(async () => {
+    const { storiesFixture } = await import("../app-fixture.ts");
+    fixture = storiesFixture();
+    project = await loadProject(fixture.app);
+  });
+  afterEach(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const cli = (...argv: string[]) => runCli(argv, { project });
+  it("UT-016 / E2E-003: lists, filters and links the public story identity", async () => {
+    const { executeTool } = await import("../../../src/mcp.ts");
+    const { formatHuman } = await import("../../../src/cli/human.ts");
+    const argv = ["stories", "list", "--root", "app", "--filter", "ui-button--primary"];
+    const result = await cli(...argv);
+    expect(result).toMatchObject({ exitCode: 0, data: {
+      roots: [{ id: "app", files: 1, stories: 1 }],
+      stories: [{ slug: "ui-button", stories: [{ id: "ui-button--primary", play: true }] }],
+    } });
+    expect(formatHuman(argv, result).stdout).toBe(
+      "app  UI/Button  ui-button  1 story\n    Primary  ui-button--primary  play"
+    );
+    expect(await executeTool("proto_stories_list", { root: "app", filter: "ui-button--primary" }, project)).toEqual(result.data);
+    const url = await cli("stories", "url", "ui-button--primary");
+    expect(url).toEqual({ exitCode: 0, data: { url: "http://127.0.0.1:4400/?c=ui-button&story=ui-button--primary" } });
+    expect(await executeTool("proto_stories_url", { id: "ui-button--primary" }, project)).toEqual(url.data);
+    expect(await cli("stories", "url", "missing")).toMatchObject({ exitCode: 1, data: { error: { code: "story_not_found" } } });
+    for (const command of ["list", "run"])
+      expect(await cli("stories", command, "--root", "nope")).toMatchObject({ exitCode: 2, data: { error: { code: "invalid_input", message: 'Unknown root "nope".' } } });
+    await expect(executeTool("proto_stories_run", {}, project)).rejects.toMatchObject({ code: "invalid_input" });
+    delete project.config.stories;
+    const empty = await cli("stories", "list");
+    expect(empty).toEqual({ exitCode: 0, data: { roots: [], stories: [] } });
+    expect(formatHuman(["stories", "list"], empty).stdout).toBe("No stories configured.");
+  });
+  it("UT-022: requires and validates state before adding a story comment", async () => {
+    const add = (...args: string[]) => cli("comments", "add", "story--ui-button", ...args);
+    expect(await add()).toMatchObject({ exitCode: 2, data: { error: { code: "invalid_input", message: "--state is required on story keys." } } });
+    expect(await add("--state", "ui-badge--default", "--note", "x", "--selector", "button")).toMatchObject({ exitCode: 2, data: { error: { code: "invalid_input" } } });
+    expect(await add("--state", "ui-button--primary", "--note", "Ring", "--selector", "button")).toMatchObject({ exitCode: 0, data: { comment: { slug: "story--ui-button", context: { state: "ui-button--primary" } } } });
+    expect(await cli("comments", "list", "--slug", "story--ui-button")).toMatchObject({ exitCode: 0, data: { comments: [{ slug: "story--ui-button" }] } });
+    writeFileSync(join(fixture.app, "src/story-foo.proto.tsx"), 'export const meta = {title:"Story foo",states:[{id:"default",label:"Default"}]}; export default function View(){return null}');
+    expect(await cli("comments", "add", "story-foo", "--note", "x", "--selector", "button")).toMatchObject({ exitCode: 0, data: { comment: { context: { state: "default" } } } });
+  });
 });

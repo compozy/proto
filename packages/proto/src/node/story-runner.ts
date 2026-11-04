@@ -1,10 +1,12 @@
 import { matchesGlob } from "node:path";
+import { validatePortRange } from "../config.ts";
 import { ProtoError } from "../model/errors.ts";
 import { storyHref, storyResultSchema, type StoryResult } from "../model/protocol.ts";
 import { startDev } from "./dev.ts";
 import { projectId } from "./story-server.ts";
 import type { ProtoProject } from "./project.ts";
 export type StoryRunOptions = {
+  port?: number;
   root?: string;
   filter?: string;
   concurrency?: number;
@@ -13,11 +15,11 @@ export type StoryRunOptions = {
   signal?: AbortSignal;
 };
 export type StoryRunRow = Omit<StoryResult, "story"> & { id: string; root: string };
-/** Internal batch engine; deliberately absent from the capability catalog. */
+/** Shared headless story lifecycle engine for the CLI, MCP and parity harness. */
 export async function runStories(project: ProtoProject, options: StoryRunOptions = {}) {
   const registry = await project.registry();
   if (options.root && !registry.storyRoots?.some(root => root.id === options.root))
-    throw new ProtoError("invalid_input", "Unknown story root");
+    throw new ProtoError("invalid_input", `Unknown root "${options.root}".`);
   const selected = (registry.stories ?? [])
     .filter(file => !options.root || file.root === options.root)
     .flatMap(file =>
@@ -25,9 +27,13 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
         .filter(story => !options.filter || matchesGlob(story.id, options.filter))
         .map(story => ({ file, story }))
     );
-  if (!selected.length) throw new ProtoError("story_not_found");
+  if (!selected.length)
+    throw new ProtoError(
+      "story_not_found",
+      `No story matches ${options.filter ?? options.root ?? "the selection"}.`
+    );
   const timeout = Math.min(120000, Math.max(1000, options.timeout ?? 30000));
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? 6;
   if (
     !Number.isInteger(concurrency) ||
     concurrency < 1 ||
@@ -37,33 +43,41 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     throw new ProtoError("invalid_input", "Invalid runner concurrency or timeout");
   let browser: import("playwright").Browser | undefined;
   let owned: Awaited<ReturnType<typeof startDev>> | undefined;
-  const origin = `http://127.0.0.1:${project.config.dev.port}`;
+  const port = options.port ?? project.config.dev.port;
+  validatePortRange(port, project.config.stories?.roots.length ?? 0);
+  const origin = `http://127.0.0.1:${port}`;
+  const mismatch = () => new ProtoError(
+    "project_mismatch",
+    `The server on ${port} belongs to another project; pass --port.`
+  );
+  options.signal?.throwIfAborted();
   let bootstrap:
     | { projectId?: string; storyRoots?: { id: string; renderUrl: string }[] }
     | undefined;
   let response: Response | undefined;
   try {
-    response = await fetch(`${origin}/__proto/bootstrap.json`, {
-      signal: AbortSignal.timeout(1000),
-    });
-  } catch {
-    owned = await startDev(project, {
-      quiet: true,
-      storyRoots: [...new Set(selected.map(item => item.file.root))],
-    });
-    bootstrap = { projectId: projectId(project.root), storyRoots: owned.storyRoots };
-  }
-  if (response) {
     try {
-      bootstrap = await response.json();
+      response = await fetch(`${origin}/__proto/bootstrap.json`, {
+        signal: AbortSignal.timeout(1000),
+      });
     } catch {
-      throw new ProtoError("project_mismatch");
+      owned = await startDev(project, {
+        quiet: true,
+        port,
+        storyRoots: [...new Set(selected.map(item => item.file.root))],
+      });
+      bootstrap = { projectId: projectId(project.root), storyRoots: owned.storyRoots };
     }
-    if (!response.ok || bootstrap?.projectId !== projectId(project.root))
-      throw new ProtoError("project_mismatch");
-  }
-  const rows: StoryRunRow[] = [];
-  try {
+    if (response) {
+      try {
+        bootstrap = await response.json();
+      } catch {
+        throw mismatch();
+      }
+      if (!response.ok || bootstrap?.projectId !== projectId(project.root)) throw mismatch();
+    }
+    const rows: StoryRunRow[] = [];
+    options.signal?.throwIfAborted();
     try {
       browser = await (await import("playwright")).chromium.launch();
     } catch {
@@ -85,9 +99,10 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             );
           const page = await activeBrowser.newPage();
           const abort = () => {
-            void page.close();
+            void page.close().catch(() => {});
           };
           options.signal?.addEventListener("abort", abort, { once: true });
+          if (options.signal?.aborted) abort();
           const started = Date.now();
           let last: StoryResult = {
             story: item.story.id,
@@ -97,27 +112,29 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             error: null,
             durationMs: 0,
           };
+          let timedOut = false;
           const pageDeadline = setTimeout(() => {
-            void page.close();
-          }, timeout + 5000);
-          await page.exposeFunction("__protoStoryReport", (value: unknown) => {
-            const parsed = storyResultSchema.safeParse(value);
-            if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
-          });
-          await page.addInitScript(() => {
-            new MutationObserver(() => {
-              const value = document.documentElement?.dataset.protoStory;
-              if (value)
-                void (
-                  window as unknown as { __protoStoryReport(value: unknown): Promise<void> }
-                ).__protoStoryReport(JSON.parse(value));
-            }).observe(document, {
-              subtree: true,
-              attributes: true,
-              attributeFilter: ["data-proto-story"],
-            });
-          });
+            timedOut = true;
+            void page.close().catch(() => {});
+          }, timeout);
           try {
+            await page.exposeFunction("__protoStoryReport", (value: unknown) => {
+              const parsed = storyResultSchema.safeParse(value);
+              if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
+            });
+            await page.addInitScript(() => {
+              new MutationObserver(() => {
+                const value = document.documentElement?.dataset.protoStory;
+                if (value)
+                  void (
+                    window as unknown as { __protoStoryReport(value: unknown): Promise<void> }
+                  ).__protoStoryReport(JSON.parse(value));
+              }).observe(document, {
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["data-proto-story"],
+              });
+            });
             await page.goto(
               storyHref(renderUrl, {
                 kind: "story",
@@ -128,9 +145,9 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
                 play: true,
                 timeout,
               }),
-              { waitUntil: "commit", timeout: timeout + 5000 }
+              { waitUntil: "commit", timeout }
             );
-            const remaining = Math.max(1, timeout + 5000 - (Date.now() - started));
+            const remaining = Math.max(1, timeout - (Date.now() - started));
             await page.waitForFunction(
               () => {
                 const value = document.documentElement.dataset.protoStory;
@@ -152,22 +169,30 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             last = {
               ...last,
               status: "failed",
-              error: String(error).slice(0, 4000),
+              error: timedOut
+                ? `Story timed out at ${last.stage} after ${timeout}ms.`
+                : String(error).slice(0, 4000),
               durationMs: Date.now() - started,
             };
           } finally {
             clearTimeout(pageDeadline);
             options.signal?.removeEventListener("abort", abort);
-            await page.close();
+            await page.close().catch(() => {});
           }
           const { story, ...result } = last;
           rows.push({ ...result, id: story, root: item.file.root });
         }
       })
     );
+    options.signal?.throwIfAborted();
+    const order = new Map(selected.map((item, index) => [item.story.id, index]));
+    rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
     return { results: rows, problems: registry.problems, warnings: registry.warnings };
   } finally {
-    await browser?.close();
-    await owned?.close();
+    try {
+      await browser?.close();
+    } finally {
+      await owned?.close();
+    }
   }
 }

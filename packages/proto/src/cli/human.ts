@@ -42,6 +42,7 @@ type Event = {
 type Review = { key: string; status: string; open: number; events: Event[] };
 type Problem = {
   code: string;
+  root?: string;
   file?: string;
   line?: number;
   column?: number;
@@ -166,7 +167,7 @@ const problemLine = (mark: string, problem: Problem) => {
   const where = problem.file
     ? `${problem.file}${problem.line ? `:${problem.line}${problem.column ? `:${problem.column}` : ""}` : ""}`
     : "";
-  return `${mark} ${[where, problem.code, problem.message ?? [problem.proto, problem.state].filter(Boolean).join(" ")].filter(Boolean).join("  ")}`;
+  return `${mark} ${[problem.root, where, problem.code, problem.message ?? [problem.proto, problem.state].filter(Boolean).join(" ")].filter(Boolean).join("  ")}`;
 };
 
 const message = (data: unknown) => {
@@ -231,6 +232,37 @@ export function formatHuman(
     );
   }
   switch (command) {
+    case "stories url":
+      return out(String(data.url));
+    case "stories list": {
+      const files = data.stories as import("../model/registry.ts").RegistryStoryFile[];
+      const roots = data.roots as { id: string }[];
+      if (!roots.length) return out("No stories configured.");
+      return out(
+        files.map(file => [
+          `${file.root}  ${file.title}  ${file.slug}  ${file.stories.length} ${file.stories.length === 1 ? "story" : "stories"}`,
+          table(file.stories.map(story => ["  ", story.name, story.id, story.play ? "play" : ""])),
+        ].join("\n")).join("\n")
+      );
+    }
+    case "stories run": {
+      const rows = data.stories as import("../node/story-runner.ts").StoryRunRow[];
+      const summary = data.summary as { total: number; passed: number; failed: number };
+      return {
+        stdout: [
+          table(rows.map(row => [
+            row.status === "passed" ? "pass" : "fail",
+            row.id,
+            row.status === "passed" ? `${row.durationMs}ms` : `${row.stage}   ${row.error ?? ""}`,
+          ])),
+          `${summary.total} stories: ${summary.passed} passed, ${summary.failed} failed`,
+        ].join("\n"),
+        stderr: [
+          ...((data.problems ?? []) as Problem[]).map(problem => problemLine("✗", problem)),
+          ...((data.warnings ?? []) as Problem[]).map(warning => problemLine("!", warning)),
+        ].join("\n"),
+      };
+    }
     case "list": {
       const prototypes = data.prototypes as {
         slug: string;

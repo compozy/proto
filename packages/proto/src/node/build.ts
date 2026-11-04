@@ -28,7 +28,22 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
   if (options.output === undefined) await rm(output, { recursive: true, force: true });
   const staging = await mkdtemp(join(project.root, ".proto-build-"));
   try {
-    const registry = await project.registry();
+    const indexed = await project.registry();
+    const { stories: _stories, storyRoots: _storyRoots, ...snapshot } = indexed;
+    const registry = {
+      ...snapshot,
+      problems: indexed.problems.filter(
+        problem => !problem.root && !problem.code.startsWith("story_")
+      ),
+      warnings: indexed.warnings.filter(
+        warning => !warning.root && !warning.code.startsWith("story_")
+      ),
+    };
+    if (project.config.stories)
+      registry.warnings.push({
+        code: "stories_not_built",
+        message: "Stories are omitted from this build.",
+      });
     if (registry.problems.length) throw new Error(JSON.stringify({ problems: registry.problems }));
     const shell = options.shellDir ?? fileURLToPath(new URL("../../dist/shell/", import.meta.url));
     if (!existsSync(join(shell, "index.html")))

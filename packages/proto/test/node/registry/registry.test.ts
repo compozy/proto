@@ -403,3 +403,20 @@ it("publishes the newest generation once after a concurrent registry read during
     stop();
   }
 });
+
+// Invariant: check reports story index diagnostics without importing the story or root Vite config.
+// Owner: project registry/check contract; graph code would throw if accidentally loaded.
+it("stories UT-021: check reports root and file without loading stories", async () => {
+  const { storiesFixture } = await import("../app-fixture.ts");
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const { checkProject } = await import("../../../src/node/check.ts");
+  const fixture = storiesFixture();
+  try {
+    rmSync(join(fixture.app, "preview.tsx"));
+    writeFileSync(join(fixture.app, "vite.config.ts"), 'throw new Error("story graph loaded");');
+    const result = await checkProject(await loadProject(fixture.app));
+    expect(result.ok).toBe(false);
+    expect(result.problems).toContainEqual(expect.objectContaining({ code: "story_preview_missing", root: "app", file: "preview.tsx" }));
+    expect(result).not.toHaveProperty("error");
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});

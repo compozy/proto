@@ -199,7 +199,13 @@ export async function runCli(
       typeof data === "object" &&
       ("error" in data ||
         ("problems" in data && Array.isArray(data.problems) && data.problems.length > 0));
-    return { exitCode: failure ? 1 : 0, data };
+    const storyFailure =
+      capability.cli === "stories run" &&
+      data &&
+      typeof data === "object" &&
+      (("summary" in data && (data.summary as { failed: number }).failed > 0) ||
+        ("problems" in data && Array.isArray(data.problems) && data.problems.length > 0));
+    return { exitCode: failure || storyFailure ? 1 : 0, data };
   } catch (error) {
     if (error instanceof ProtoError) return { exitCode: error.exit ?? 1, data: errorBody(error) };
     if (error instanceof UsageError)
