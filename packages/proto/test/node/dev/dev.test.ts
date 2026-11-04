@@ -1547,6 +1547,70 @@ it.each(["first", "later"] as const)(
   120000
 );
 
+// Invariant: story-server compile time does not spend `--timeout`, while a silent hang still fails
+// at its stage after exactly that budget. Owner: IT-015 runner integration; a real slow Vite
+// transform behind a loader's dynamic import (as a page story's route tree), real Chromium.
+it("stories IT-015: compiling a cold module graph does not spend the story timeout", async () => {
+  const fixture = storiesFixture();
+  const { runStories } = await import("../../../src/node/story-runner.ts");
+  try {
+    // Longer than the runner's silence margin too: only compile heartbeats keep the page alive.
+    writeFileSync(
+      join(fixture.app, "vite.config.ts"),
+      `
+    import react from "@vitejs/plugin-react";
+    export default { plugins: [react(), {
+      name: "slow-fixture-transform",
+      async transform(_code, id) {
+        if (id.split("?")[0].endsWith("/route-tree.ts"))
+          await new Promise(resolve => setTimeout(resolve, 7000));
+      },
+    }] };
+  `
+    );
+    writeFileSync(join(fixture.app, "src/route-tree.ts"), 'export const label = "Routes";');
+    writeFileSync(
+      join(fixture.app, "src/page.stories.tsx"),
+      `
+    export default { title: "Pages/Home", render: (_args, { loaded }) => <button>{loaded.label}</button> };
+    export const Home = {
+      loaders: [async () => ({ label: (await import("./route-tree")).label })],
+      play: async ({ canvas }) => { await canvas.findByRole("button", { name: "Routes" }); },
+    };
+  `
+    );
+    await onFreePorts(async port => {
+      const report = await runStories(await loadProject(fixture.app), {
+        root: "app",
+        filter: "{pages-home--home,ui-button--load-hang}",
+        timeout: 1000,
+        port,
+      });
+      expect(report.results).toHaveLength(2);
+      expect(report.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "pages-home--home",
+            stage: "play",
+            status: "passed",
+            error: null,
+          }),
+          expect.objectContaining({
+            id: "ui-button--load-hang",
+            stage: "load",
+            status: "failed",
+            error: "Story timed out at load after 1000 ms",
+          }),
+        ])
+      );
+      const page = report.results.find(row => row.id === "pages-home--home")!;
+      expect(page.durationMs).toBeGreaterThanOrEqual(7000);
+    });
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);
+
 // Invariant: reuse requires project identity; interrupt closes only resources owned by this run.
 // Owner: runner/dev lifecycle integration, including real TCP listeners and process signals.
 it("stories IT-016: refuses another project, reuses its own server and cleans up on SIGINT", async () => {

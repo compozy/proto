@@ -1,7 +1,12 @@
 import { matchesGlob } from "node:path";
 import { validatePortRange } from "../config.ts";
 import { ProtoError } from "../model/errors.ts";
-import { storyHref, storyResultSchema, type StoryResult } from "../model/protocol.ts";
+import {
+  storyCompileAllowance,
+  storyHref,
+  storyResultSchema,
+  type StoryResult,
+} from "../model/protocol.ts";
 import { startDev } from "./dev.ts";
 import { projectId } from "./story-server.ts";
 import type { ProtoProject } from "./project.ts";
@@ -125,8 +130,13 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
         durationMs: 0,
       };
       let timedOut = false;
-      const pageBudget = timeout + 5000;
-      let pageDeadline: ReturnType<typeof setTimeout> | undefined;
+      // The page clock pauses while the story server compiles (`storyCompileAllowance`).
+      // Fail a silent page one timeout (plus margin) after its last report, any page after
+      // the whole allowance.
+      const silenceBudget = timeout + 5000;
+      const pageBudget = timeout + storyCompileAllowance + 5000;
+      let reportedAt = Date.now();
+      let pageDeadline: ReturnType<typeof setInterval> | undefined;
       try {
         page = await (await getBrowser()).newPage();
         options.signal?.addEventListener("abort", abort, { once: true });
@@ -140,6 +150,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
               typeof value === "string" ? JSON.parse(value) : value
             );
             if (!parsed.success || parsed.data.story !== item.story.id) return false;
+            reportedAt = Date.now();
             if (last.status === "running") last = parsed.data;
             return last.status !== "running";
           } catch {
@@ -164,10 +175,14 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           });
         });
         started = Date.now();
-        pageDeadline = setTimeout(() => {
+        reportedAt = started;
+        pageDeadline = setInterval(() => {
+          const now = Date.now();
+          if (now - reportedAt < silenceBudget && now - started < pageBudget) return;
           timedOut = true;
+          clearInterval(pageDeadline);
           void page?.close().catch(() => {});
-        }, pageBudget);
+        }, 250);
         await page.goto(
           storyHref(renderUrl, {
             kind: "story",
@@ -204,12 +219,12 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             status: "failed",
             error:
               timedOut || (error instanceof Error && error.name === "TimeoutError")
-                ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
+                ? `Story timed out at ${last.stage} after ${Date.now() - started}ms.`
                 : String(error).slice(0, 4000),
             durationMs: Date.now() - started,
           };
       } finally {
-        clearTimeout(pageDeadline);
+        clearInterval(pageDeadline);
         options.signal?.removeEventListener("abort", abort);
         await page?.close().catch(() => {});
       }
