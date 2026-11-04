@@ -5,6 +5,7 @@
  * Replay exists only when the host says the story has `play`; the registry `play` flag is a
  * listing hint and never drives it. Controls, Docs and Accessibility tabs do not exist in v1.
  */
+import type { StoryFrameTarget, StoryResult } from "../../model/protocol";
 import type { RegistryStory, RegistryStoryFile } from "../../model/registry";
 import { storyKey } from "../../model/registry";
 import {
@@ -25,7 +26,7 @@ import { go } from "../lib/navigation";
 import { useRegistry, useShellEvent } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { hasModuleMocks } from "../lib/story-tree";
-import { componentView, type View } from "../lib/view";
+import { componentView, type View, type Width } from "../lib/view";
 import { CopyablePath, ThemeLabel } from "../screen/inspector-parts";
 import { ViewportControl } from "../screen/viewport-control";
 import { Button } from "../ui/button";
@@ -112,38 +113,13 @@ export function StoryPage({
         >
           {hasModuleMocks(registry, file) && <MockNotice />}
           {view.compare ? (
-            <>
-              <div className="flex shrink-0 items-center justify-end gap-2 px-4 pt-4">
-                <CompareToggle pressed onPressed={setCompare} />
-              </div>
-              <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 px-6 py-5 xl:gap-8">
-                {(["light", "dark"] as const).map(side => {
-                  const width = view.width === "fit" ? 1440 : view.width;
-                  return (
-                    <div key={side} className="flex min-h-0 min-w-0 flex-col gap-2.5">
-                      <ScreenFrame
-                        target={{ ...frameTarget, theme: side }}
-                        width={width}
-                        title={`${title} · ${side}`}
-                        slugs={noSlugs}
-                        className="flex-1"
-                        toolbar={(_, frame) => (
-                          <ThemeLabel
-                            theme={side}
-                            aside={
-                              <>
-                                <PlayStatus frame={frame} />
-                                {width}
-                              </>
-                            }
-                          />
-                        )}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+            <StoryCompare
+              target={frameTarget}
+              width={view.width}
+              title={title}
+              onCompare={setCompare}
+              onWidth={width => update({ width }, { replace: true })}
+            />
           ) : (
             <ScreenFrame
               target={frameTarget}
@@ -197,54 +173,138 @@ export function StoryPage({
  * reload; as a fallback a failed frame also reloads when the registry changes.
  */
 export function PlayStatus({ frame }: { frame: RenderFrameHandle }) {
-  const t = useT();
-  const { result } = frame;
-  const failed = frame.status.kind === "error" || result?.status === "failed";
+  const failed = isFailed(frame);
   useShellEvent("registry", () => {
     if (failed) frame.reload();
   });
-  if (!result || (result.hasPlay !== true && result.status !== "failed")) return null;
+  const result = shownResult(frame.result);
+  if (!result) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <StatusChip result={result} />
+      {result.hasPlay === true && <ReplayButton onReplay={frame.reload} />}
+    </span>
+  );
+}
+
+/** The frame failed (a frame error or a failed lifecycle report). */
+const isFailed = (frame: RenderFrameHandle) =>
+  frame.status.kind === "error" || frame.result?.status === "failed";
+
+/** The result a chip shows: a story with `play`, or any failure; nothing before a report. */
+function shownResult(result: StoryResult | null) {
+  if (!result) return null;
+  return result.hasPlay === true || result.status === "failed" ? result : null;
+}
+
+const chipTones: Record<StoryResult["status"], string> = {
+  running: "border-border text-muted-foreground",
+  passed: "border-[color-mix(in_oklch,var(--tone-end)_40%,transparent)] text-[var(--tone-end)]",
+  failed: "border-destructive/40 bg-destructive/10 text-destructive",
+};
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden="true"
+      className="size-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+    />
+  );
+}
+
+/** Running (spinner), Passed or Failed at a stage with the host's message. */
+function StatusChip({ result }: { result: StoryResult }) {
+  const t = useT();
   const label =
     result.status === "failed"
       ? t("story.failed", { stage: result.stage })
       : t(result.status === "passed" ? "story.passed" : "story.running");
+  const error = result.status === "failed" ? result.error : null;
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <span
-        role="status"
-        aria-label={t("story.status")}
-        title={result.error ?? undefined}
-        data-status={result.status}
-        className={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-full border px-2.5 font-sans text-xs",
-          result.status === "running" && "border-border text-muted-foreground",
-          result.status === "passed" &&
-            "border-[color-mix(in_oklch,var(--tone-end)_40%,transparent)] text-[var(--tone-end)]",
-          result.status === "failed" && "border-destructive/40 bg-destructive/10 text-destructive"
-        )}
-      >
-        {result.status === "running" ? (
-          <span
-            aria-hidden="true"
-            className="size-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
-          />
-        ) : result.status === "passed" ? (
-          <CircleCheck className="size-3.5 shrink-0" />
-        ) : (
-          <TriangleAlert className="size-3.5 shrink-0" />
-        )}
-        <span className="shrink-0">{label}</span>
-        {result.status === "failed" && result.error && (
-          <span className="min-w-0 truncate">· {result.error}</span>
-        )}
-      </span>
-      {result.hasPlay === true && (
-        <Button variant="outline" size="sm" onClick={frame.reload}>
-          <RotateCcw data-icon="inline-start" />
-          {t("story.replay")}
-        </Button>
+    <span
+      role="status"
+      aria-label={t("story.status")}
+      title={result.error ?? undefined}
+      data-status={result.status}
+      className={cn(
+        "flex h-7 min-w-0 items-center gap-1.5 rounded-full border px-2.5 font-sans text-xs",
+        chipTones[result.status]
       )}
+    >
+      <ChipIcon status={result.status} />
+      <span className="shrink-0">{label}</span>
+      {error && <span className="min-w-0 truncate">· {error}</span>}
     </span>
+  );
+}
+
+function ChipIcon({ status }: { status: StoryResult["status"] }) {
+  if (status === "running") return <Spinner />;
+  if (status === "passed") return <CircleCheck className="size-3.5 shrink-0" />;
+  return <TriangleAlert className="size-3.5 shrink-0" />;
+}
+
+/** Replay: a fresh document, so `play` runs again. */
+function ReplayButton({ onReplay }: { onReplay: () => void }) {
+  const t = useT();
+  return (
+    <Button variant="outline" size="sm" onClick={onReplay}>
+      <RotateCcw data-icon="inline-start" />
+      {t("story.replay")}
+    </Button>
+  );
+}
+
+/**
+ * Compare: the story in light and dark side by side, with the toggle and the viewport control.
+ * At `fit` each pane fits its own half at full scale, so a component stays legible; a chosen
+ * width applies to both panes (scaled down only when it does not fit). The story's own
+ * `parameters.layout` applies inside each document.
+ */
+function StoryCompare({
+  target,
+  width,
+  title,
+  onCompare,
+  onWidth,
+}: {
+  target: Omit<StoryFrameTarget, "width">;
+  width: Width;
+  title: string;
+  onCompare: (compare: boolean) => void;
+  onWidth: (width: Width) => void;
+}) {
+  return (
+    <>
+      <div className="flex shrink-0 items-center justify-end gap-2 px-4 pt-4">
+        <CompareToggle pressed onPressed={onCompare} />
+        <ViewportControl width={width} fitWidth={0} onWidth={onWidth} />
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 px-6 py-5 xl:gap-8">
+        {(["light", "dark"] as const).map(side => (
+          <div key={side} className="flex min-h-0 min-w-0 flex-col gap-2.5">
+            <ScreenFrame
+              target={{ ...target, theme: side }}
+              width={width}
+              title={`${title} · ${side}`}
+              slugs={noSlugs}
+              className="flex-1"
+              toolbar={(geometry, frame) => (
+                <ThemeLabel
+                  theme={side}
+                  aside={
+                    <>
+                      <PlayStatus frame={frame} />
+                      {geometry.width}
+                    </>
+                  }
+                />
+              )}
+            />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

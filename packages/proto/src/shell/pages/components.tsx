@@ -199,7 +199,10 @@ function ProblemsBanner() {
       </summary>
       <ul className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto text-foreground">
         {[...problems, ...warnings].map(item => (
-          <li key={`${item.code}:${item.root}:${item.file}:${item.message}`} className="flex min-w-0 gap-2 font-mono text-[11px]">
+          <li
+            key={`${item.code}:${item.root}:${item.file}:${item.message}`}
+            className="flex min-w-0 gap-2 font-mono text-[11px]"
+          >
             <span className="shrink-0 text-muted-foreground">{item.code}</span>
             <span className="min-w-0 break-words">
               {[item.root, item.file].filter(Boolean).join("/")}

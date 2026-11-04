@@ -19,35 +19,11 @@ import { SessionWatch } from "./session-watch";
 import { useStore } from "@xstate/store-react";
 import { previewLogic, PreviewSchedulerProvider } from "./preview-scheduler";
 
-import { bootstrapSchema, type Bootstrap } from "../../model/bootstrap";
+import { bootstrapSchema } from "../../model/bootstrap";
 import type { Registry } from "../../model/registry";
+import { bootstrapHref, type ShellEnv } from "./shell-env";
 
-/** Relative, so the shell works under any base path (static builds, remote `basePath`). */
-export const bootstrapHref = "__proto/bootstrap.json";
-
-export type ShellEnv = {
-  bootstrap: Bootstrap;
-  /** Absolute prototype render base (bootstrap `renderUrl` resolved against the document). */
-  renderUrl: string;
-  /** The only origin prototype frames accept messages from; stories use `frameEndpoint`. */
-  renderOrigin: string;
-};
-
-/** Where one frame loads and the only origin its messages are accepted from. */
-export type FrameEndpoint = { renderUrl: string; origin: string };
-
-/**
- * The endpoint of a frame target: the render host for a prototype (`root` null), or that story
- * root's server from bootstrap `storyRoots`. Null when no server runs for the root (a root left
- * out of `proto dev`, or a build without stories): such a frame never loads.
- */
-export function frameEndpoint(env: ShellEnv, root: string | null): FrameEndpoint | null {
-  if (root === null) return { renderUrl: env.renderUrl, origin: env.renderOrigin };
-  const story = env.bootstrap.storyRoots?.find(item => item.id === root);
-  if (!story) return null;
-  const renderUrl = new URL(story.renderUrl, document.baseURI).href;
-  return { renderUrl, origin: new URL(renderUrl).origin };
-}
+export type { FrameEndpoint, ShellEnv } from "./shell-env";
 
 /** Fetch and validate the shell bootstrap, resolving render URLs against the document base. */
 async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Promise<ShellEnv> {

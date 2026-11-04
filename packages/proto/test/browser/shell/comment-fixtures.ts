@@ -6,11 +6,7 @@
  */
 import type { Registry, RegistryPrototype } from "../../../src/model/registry.ts";
 import type { ShellEnv } from "../../../src/shell/lib/shell-data.tsx";
-import {
-  bootstrapFor,
-  registry as shellRegistry,
-  storyRegistry,
-} from "../../harness/fixtures.ts";
+import { bootstrapFor, registry as shellRegistry, storyRegistry } from "../../harness/fixtures.ts";
 
 export const renderOrigin = window.location.origin.replace("127.0.0.1", "localhost");
 const renderUrl = `${renderOrigin}/test/browser/render/__proto/render/index.html`;
