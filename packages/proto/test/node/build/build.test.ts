@@ -297,6 +297,8 @@ it("E2E-010 shell UI: read-only hides mutations and default build explains absen
 // Owner: build/CLI orchestration; a configured remote target must never change plain build mode.
 it("UT-044: remote builds require an explicit boolean CLI flag or Node option", async () => {
   const { runCli } = await import("../../../src/cli/main.ts");
+  // CLI builds use the package shell, unlike the Node fixtures' explicit shellDir.
+  if (!existsSync(join(shell, "index.html"))) await buildShell(shell);
   const { root, project, options } = await fixture();
   project.config.review.remote = { url: "https://gallery.example.com/proto/" };
   vi.stubEnv("PROTO_REMOTE_URL", "");

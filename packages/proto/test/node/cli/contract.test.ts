@@ -869,7 +869,7 @@ describe("stories CLI contracts", () => {
     });
     writeFileSync(
       join(fixture.app, "src/story-foo.proto.tsx"),
-      'export const meta = {title:"Story foo",states:[{id:"default",label:"Default"}]}; export default function View(){return null}'
+      'import { definePrototype } from "@compozy/proto"; export const meta = definePrototype({title:"Story foo",states:[{id:"default",label:"Default"}]}); export default function View(){return null}'
     );
     expect(
       await cli("comments", "add", "story-foo", "--note", "x", "--selector", "button")

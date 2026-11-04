@@ -51,6 +51,9 @@ Story index problems, missing/unsupported peers and root build failures fail loc
 `build.includeReview` includes local `story--` snapshots. `proto build --remote` omits stories
 permanently with `stories_not_built`; remote review does not accept story keys.
 
+With MSW 2.14+, use `msw-storybook-addon` 2.0.7 or a compatible newer release; 2.0.6 relies on
+the removed `worker.context` field and fails during preview import.
+
 For MSW, place `mockServiceWorker.js` in that root's public directory or a static mount at `/`,
 and initialize it in the preview with a base-aware URL:
 

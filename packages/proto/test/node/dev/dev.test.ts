@@ -5,12 +5,16 @@ import { checkStorybookPeers, storyViteConfig } from "../../../src/node/story-se
 import { storyHref, storyResultSchema, type StoryResult } from "../../../src/model/protocol.ts";
 import { onFreePorts } from "../ports.ts";
 import { appFixture, appFiles, storiesFixture } from "../app-fixture.ts";
-async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string) {
+async function readEvent(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  expected: string,
+  accept: (text: string) => boolean = () => true
+) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const collected = (async () => {
     let text = "";
     const decoder = new TextDecoder();
-    while (!text.includes(expected)) {
+    while (!text.includes(expected) || !accept(text)) {
       const part = await reader.read();
       if (part.done) throw new Error("SSE closed before " + expected);
       text += decoder.decode(part.value, { stream: true });
@@ -42,7 +46,8 @@ import { existsSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 let sharedBrowser: Browser | undefined;
 beforeAll(async () => {
   app = appFixture("proto-dev-app-", appFiles);
-  if (existsSync(chromium.executablePath())) sharedBrowser = await chromium.launch();
+  if (existsSync(chromium.executablePath()))
+    sharedBrowser = await chromium.launch({ handleSIGINT: false });
 }, 60000);
 afterAll(async () => {
   await sharedBrowser?.close();
@@ -778,16 +783,17 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     const picking = shellPage.frames().find(frame => frame.url().includes("frame=network-0"))!;
     await picking.getByTestId("proto-picker").waitFor();
     expect(
-      await picking.evaluate(async () => {
+      // A browser source string keeps Vitest's SSR dynamic-import transform out of this realm.
+      await picking.evaluate(`(async () => {
         const runtime = "/@id/__x00__virtual:proto/story-runtime";
         const { within } = await import(runtime);
         return {
           document: within(document.body).getAllByTestId("proto-picker").length,
-          canvas: within(document.getElementById("proto-story-canvas")!).queryAllByTestId(
+          canvas: within(document.getElementById("proto-story-canvas")).queryAllByTestId(
             "proto-picker"
           ).length,
         };
-      })
+      })()`)
     ).toEqual({ document: 1, canvas: 0 });
     await shellPage.close();
     const network = await open("ui-button--network");
@@ -1013,7 +1019,18 @@ it("refreshes story discovery and reruns edited frames, including syntax recover
     const preview = join(fixture.app, "preview.tsx");
     for (const source of ['sb.mock("fixture-module");', null, "export {};"]) {
       const previousRevision = project.revision;
-      const updated = readEvent(reader, "event: registry");
+      // Earlier story edits can leave registry events buffered on this same stream.
+      // Require a complete event for a revision newer than the preview edit's starting point.
+      const updated = readEvent(reader, "event: registry", text =>
+        text
+          .split("\n\n")
+          .slice(0, -1)
+          .some(event => {
+            if (!event.includes("event: registry")) return false;
+            const data = event.split("\n").find(line => line.startsWith("data: "));
+            return !!data && JSON.parse(data.slice(6)).revision > previousRevision;
+          })
+      );
       if (source === null) rmSync(preview);
       else writeFileSync(preview, source);
       await updated;

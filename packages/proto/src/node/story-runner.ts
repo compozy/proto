@@ -81,7 +81,8 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     const rows: StoryRunRow[] = [];
     options.signal?.throwIfAborted();
     try {
-      browser = await (await import("playwright")).chromium.launch();
+      // The CLI owns SIGINT cancellation and closes pages/servers before returning its exit code.
+      browser = await (await import("playwright")).chromium.launch({ handleSIGINT: false });
     } catch {
       throw new ProtoError("playwright_missing");
     }

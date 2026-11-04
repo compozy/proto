@@ -477,6 +477,9 @@ The read-only bootstrap carries relative `storyRoots`; `projectId` remains dev-o
 missing peers do not fail remote builds. Remote stores continue rejecting story keys.
 Application production bundles gain no story runtime.
 
+With MSW 2.14+, use `msw-storybook-addon` 2.0.7 or a compatible newer release; 2.0.6 relies on
+the removed `worker.context` field and fails during preview import.
+
 MSW previews must use a base-aware worker URL (put the worker in the root's `publicDir` or a
 `static` mount at `/`):
 
