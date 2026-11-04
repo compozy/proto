@@ -806,27 +806,33 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     expect(network.result.status).toBe("passed");
     expect(await network.page.locator("button").textContent()).toBe("Mock response");
     await network.page.close();
-    for (const [name, stage] of [
-      ["fail", "play"],
-      ["load-fail", "load"],
-      ["render-fail", "render"],
-      ["hang", "play"],
-      ["load-hang", "load"],
-      ["late", "play"],
-    ]) {
-      const { page, result } = await open(`ui-button--${name}`, true, 10000);
-      expect(result).toMatchObject({ stage, status: "failed" });
-      if (name === "late") {
-        await page.evaluate(() =>
-          (window as unknown as { finishLateStory(): void }).finishLateStory()
-        );
-        await page.waitForTimeout(100);
-        expect(
-          await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!).status)
-        ).toBe("failed");
-      }
-      await page.close();
-    }
+    // Each document owns its lifecycle and worker. Run independent failure cases
+    // together so the three 10 s deadlines overlap without shortening their budgets.
+    await Promise.all(
+      [
+        ["fail", "play"],
+        ["load-fail", "load"],
+        ["render-fail", "render"],
+        ["hang", "play"],
+        ["load-hang", "load"],
+        ["late", "play"],
+      ].map(async ([name, stage]) => {
+        const { page, result } = await open(`ui-button--${name}`, true, 10000);
+        expect(result).toMatchObject({ stage, status: "failed" });
+        if (name === "late") {
+          await page.evaluate(() =>
+            (window as unknown as { finishLateStory(): void }).finishLateStory()
+          );
+          await page.waitForTimeout(100);
+          expect(
+            await page.evaluate(
+              () => JSON.parse(document.documentElement.dataset.protoStory!).status
+            )
+          ).toBe("failed");
+        }
+        await page.close();
+      })
+    );
     const revision = project.revision;
     const changed = new Promise<void>(resolve => {
       const stop = project.watch(() => {
