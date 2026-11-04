@@ -52,6 +52,8 @@ export type View =
       slug: string;
       story: string | null;
       width: Width;
+      /** Light and dark side by side (`compare=themes`, story only). */
+      compare: boolean;
       /** A story comment to focus (`?c=…&story=…&comment=story--ui-button-3`). */
       comment: string | null;
     }
@@ -112,6 +114,7 @@ function readArea(params: URLSearchParams): View {
       slug: component,
       story: params.get("story") || null,
       width: readWidth(params.get("w")),
+      compare: params.get("compare") === "themes",
       comment: params.get("comment") || null,
     };
   }
@@ -164,6 +167,7 @@ export function viewSearch({ view, theme }: Location) {
       entries.push(["c", view.slug]);
       if (view.story) entries.push(["story", view.story]);
       if (view.width !== "fit") entries.push(["w", String(view.width)]);
+      if (view.compare) entries.push(["compare", "themes"]);
       if (view.comment) entries.push(["comment", view.comment]);
       break;
     case "settings":
@@ -205,8 +209,20 @@ export function screenView(
 }
 
 /** A component page, or one of its stories, with the defaults every link starts from. */
-export function componentView(slug: string, story: string | null = null): View {
-  return { area: "component", slug, story, width: "fit", comment: null };
+export function componentView(
+  slug: string,
+  story: string | null = null,
+  options: Partial<Extract<View, { area: "component" }>> = {}
+): View {
+  return {
+    area: "component",
+    slug,
+    story,
+    width: "fit",
+    compare: false,
+    comment: null,
+    ...options,
+  };
 }
 
 /** The rail area a view belongs to. */

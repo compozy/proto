@@ -1,4 +1,4 @@
-/** S13 ⌘K search: prototypes, states, flows, comments and actions, ranked (UT-025). */
+/** S13 ⌘K search: prototypes, states, flows, components, stories, comments and actions (UT-025). */
 import { useId, useState } from "react";
 
 import { useT, type Translate } from "../lib/i18n";
@@ -8,6 +8,8 @@ import { useRegistry } from "../lib/shell-data";
 import { useCommentSearchItems } from "../review/review-ui";
 import { Kbd } from "../ui/kbd";
 import {
+  Blocks,
+  BookOpen,
   Columns2,
   Keyboard,
   MessageSquare,
@@ -20,11 +22,21 @@ import {
 import { cn } from "../ui/utils";
 import { ShellModal } from "./chrome";
 
-const groupOrder: SearchGroup[] = ["screens", "states", "flows", "comments", "actions"];
+const groupOrder: SearchGroup[] = [
+  "screens",
+  "states",
+  "flows",
+  "components",
+  "stories",
+  "comments",
+  "actions",
+];
 const icons: Record<SearchGroup, typeof Monitor> = {
   screens: Monitor,
   states: Monitor,
   flows: Workflow,
+  components: Blocks,
+  stories: BookOpen,
   comments: MessageSquare,
   actions: Keyboard,
 };

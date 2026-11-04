@@ -1,21 +1,22 @@
 /**
- * S11 comments inbox (`/?comments=open|waiting|resolved`): every thread across prototypes and
- * flows, grouped by key, filtered by author kind and spec; the detail pane shows the thread and
- * a preview of the commented state with its pin, and opens it in context (`?p=…&comment=<id>`).
+ * S11 comments inbox (`/?comments=open|waiting|resolved`): every thread across prototypes, flows
+ * and components (`story--` keys, routed by the model's `keyKind`), grouped by key, filtered by
+ * author kind and spec; the detail pane shows the thread and a preview of the commented state or
+ * story with its pin, and opens it in context (`?p=…&comment=<id>`, `?c=…&story=…&comment=<id>`).
  */
 import { useState } from "react";
 
 import type { ReviewComment } from "../../../model/review";
-import { flowOfKey, type Registry } from "../../../model/registry";
+import { flowOfKey, keyKind, storyOfKey, type Registry } from "../../../model/registry";
 import { Link } from "../../app/link";
-import { Preview } from "../../frames/preview";
+import { Preview, type PreviewTarget } from "../../frames/preview";
 import { useLocale, useT } from "../../lib/i18n";
 import { go } from "../../lib/navigation";
-import { prototypeIndex, specTitle } from "../../lib/registry-model";
+import { specTitle } from "../../lib/registry-model";
 import { useRegistry } from "../../lib/shell-data";
 import { type InboxFilter } from "../../lib/view";
 import { Avatar, AvatarFallback } from "../../ui/avatar";
-import { Bot, ExternalLink, Monitor, Workflow } from "../../ui/icons";
+import { Blocks, Bot, ExternalLink, Monitor, Workflow } from "../../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../../ui/native-select";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { cn } from "../../ui/utils";
@@ -25,50 +26,40 @@ import {
   byActivity,
   commentNumber,
   commentView,
+  describeKey,
   initials,
   isWaiting,
   relativeTime,
+  type KeySubject,
 } from "../format";
 import { ThreadCard } from "../threads/thread-card";
 
-type Item = {
-  comment: ReviewComment;
-  title: string;
-  spec: string | null;
-  kind: "screen" | "flow";
-};
+type Item = KeySubject & { comment: ReviewComment };
 
-/** The prototype state a comment shows (flow comments: the step's prototype). */
-function previewTarget(registry: Registry, comment: ReviewComment) {
-  const flow = flowOfKey(comment.slug);
-  if (!flow)
-    return { slug: comment.slug, state: comment.context.state, role: comment.context.role };
+/** What a comment shows: a prototype state, a flow step's prototype, or its story. */
+function previewTarget(registry: Registry, comment: ReviewComment): PreviewTarget | null {
+  const kind = keyKind(comment.slug);
+  const theme = comment.context.theme ?? "light";
+  if (kind === "story") {
+    const file = registry.stories?.find(item => item.slug === storyOfKey(comment.slug));
+    const story = file?.stories.find(item => item.id === comment.context.state);
+    return file && story
+      ? { kind: "story", root: file.root, slug: file.slug, story: story.id, theme }
+      : null;
+  }
+  if (kind === "prototype")
+    return {
+      slug: comment.slug,
+      state: comment.context.state,
+      role: comment.context.role,
+      theme,
+    };
   const node = registry.flows
-    .find(item => item.id === flow)
+    .find(item => item.id === flowOfKey(comment.slug))
     ?.nodes.find(item => comment.target.kind === "node" && item.id === comment.target.node);
   return node?.kind === "prototype"
-    ? { slug: node.proto, state: node.state, role: node.role ?? null }
+    ? { slug: node.proto, state: node.state, role: node.role ?? null, theme }
     : null;
-}
-
-/** Resolve inbox titles and specs through catalog indexes, retaining identity when an entry is missing. */
-function describe(
-  prototypes: ReadonlyMap<string, Registry["prototypes"][number]>,
-  flows: ReadonlyMap<string, Registry["flows"][number]>,
-  comment: ReviewComment
-): Item {
-  const flow = flowOfKey(comment.slug);
-  if (flow) {
-    const found = flows.get(flow);
-    return { comment, title: found?.title ?? flow, spec: found?.spec ?? null, kind: "flow" };
-  }
-  const prototype = prototypes.get(comment.slug);
-  return {
-    comment,
-    title: prototype?.title ?? comment.slug,
-    spec: prototype?.spec ?? null,
-    kind: "screen",
-  };
 }
 
 /** Filter the shared comments collection and show a selected thread without per-key list requests. */
@@ -81,9 +72,10 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
   const [spec, setSpec] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const comments = query.data ?? [];
-  const prototypes = prototypeIndex(registry);
-  const flows = new Map(registry.flows.map(item => [item.id, item]));
-  const described = comments.map(item => describe(prototypes, flows, item));
+  const described: Item[] = comments.map(comment => ({
+    ...describeKey(comment.slug, comment.context.state, registry),
+    comment,
+  }));
   const counts = {
     open: comments.filter(item => item.status === "open").length,
     waiting: comments.filter(isWaiting).length,
@@ -180,6 +172,8 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
                 <h2 className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">
                   {first.kind === "flow" ? (
                     <Workflow className="size-3" />
+                  ) : first.kind === "story" ? (
+                    <Blocks className="size-3" />
                   ) : (
                     <Monitor className="size-3" />
                   )}
@@ -223,8 +217,9 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="truncate font-mono">
-                                #{commentNumber(item.comment)} · {item.comment.context.state}
+                                #{commentNumber(item.comment)} · {item.detail}
                               </span>
+                              {item.flag && <KeyFlag flag={item.flag} />}
                               <span className="ml-auto shrink-0 whitespace-nowrap">
                                 {relativeTime(item.comment.updatedAt, locale)}
                               </span>
@@ -277,9 +272,7 @@ function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[14px] font-semibold">{item.title}</h2>
           <div className="truncate font-mono text-[11px] text-muted-foreground">
-            {[item.spec && specTitle(registry, item.spec), item.comment.context.state]
-              .filter(Boolean)
-              .join(" · ")}
+            {[item.spec && specTitle(registry, item.spec), item.detail].filter(Boolean).join(" · ")}
           </div>
         </div>
         <Link
@@ -294,7 +287,7 @@ function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
         {target ? (
           <div className="shell-frame overflow-hidden rounded-xl">
             <Preview
-              key={`${target.slug}-${target.state}`}
+              key={JSON.stringify(target)}
               target={{ ...target, theme: item.comment.context.theme ?? theme }}
               title={t("preview.of", { title: item.title })}
               width={width}
@@ -320,5 +313,15 @@ function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/** A story comment whose story (`stale`) or component (`orphaned`) is gone: kept and flagged. */
+function KeyFlag({ flag }: { flag: "stale" | "orphaned" }) {
+  const t = useT();
+  return (
+    <span className="shrink-0 rounded-full border border-[color-mix(in_oklch,var(--tone-warning)_40%,transparent)] px-1.5 font-sans text-[10px] text-[var(--tone-warning)]">
+      {t(flag === "stale" ? "inbox.stale" : "inbox.orphaned")}
+    </span>
   );
 }

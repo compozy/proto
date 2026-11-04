@@ -9,7 +9,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import type { ElementTarget, Rect, RenderMessage } from "../../../model/protocol";
 import type { ReviewComment } from "../../../model/review";
-import type { ReviewTarget } from "../../app/slots";
+import type { FrameReviewTarget } from "../../app/slots";
 import type { FrameGeometry } from "../../frames/screen-frame";
 import type { RenderFrameHandle } from "../../frames/use-render-frame";
 import { useT } from "../../lib/i18n";
@@ -32,19 +32,22 @@ import {
   pinPosition,
   startPick,
   type ActivePick,
+  type ConfinedPick,
   type PickSession,
 } from "./pick";
 import { useCommentMode } from "./state";
 
-type PrototypeTarget = Extract<ReviewTarget, { kind: "prototype" }>;
-
-/** Coordinate frame picking, anchor measurements, pins and the composer for the active prototype. */
+/**
+ * Coordinate frame picking, anchor measurements, pins and the composer for the active prototype
+ * state or story. A story comment records the story id as its state and no source: story files
+ * are not source-tagged, so a pick there carries no app source (`_spec.md` § Data Models).
+ */
 export function ScreenCommentLayer({
   target,
   frame,
   geometry,
 }: {
-  target: PrototypeTarget;
+  target: FrameReviewTarget;
   frame: RenderFrameHandle;
   geometry: FrameGeometry;
 }) {
@@ -55,7 +58,11 @@ export function ScreenCommentLayer({
   const registry = useRegistry();
   const location = useLocation();
   const theme = useResolvedTheme(location.theme);
-  const prototype = registry.prototypes.find(item => item.slug === target.slug);
+  const state = target.kind === "story" ? target.story : target.state;
+  const prototype =
+    target.kind === "prototype"
+      ? registry.prototypes.find(item => item.slug === target.slug)
+      : undefined;
   const requestedRole = location.view.area === "screen" ? location.view.role : null;
   const role = prototype ? resolveRole(registry, prototype, requestedRole) : null;
   const writable = Boolean(review?.writable);
@@ -63,9 +70,7 @@ export function ScreenCommentLayer({
   const all = useComments({ key: target.key, status: "all" }).data ?? [];
   const pinned = all.filter(
     comment =>
-      comment.status === "open" &&
-      comment.context.state === target.state &&
-      comment.target.kind !== "node"
+      comment.status === "open" && comment.context.state === state && comment.target.kind !== "node"
   );
 
   const [rects, setRects] = useState<ReadonlyMap<string, Rect | null>>(new Map());
@@ -131,7 +136,10 @@ export function ScreenCommentLayer({
     session.current = null;
     // The prototype can post a result while the real picker is still running: end it either way.
     frame.send({ type: "pick:cancel" });
-    const confined = confinePick(message.target, registrySourceRoots(registry));
+    const confined: ConfinedPick =
+      target.kind === "story"
+        ? { ok: true, target: { ...message.target, source: null, sourceChain: [] } }
+        : confinePick(message.target, registrySourceRoots(registry));
     if (!confined.ok) {
       setRefused(true);
       mode.setTool("select");
@@ -158,7 +166,7 @@ export function ScreenCommentLayer({
         attachments: input.attachments,
         target: draft,
         context: {
-          state: target.state,
+          state,
           theme,
           role,
           viewport: { width: geometry.width, height: geometry.height },
@@ -207,7 +215,7 @@ export function ScreenCommentLayer({
                 <DraftHeader
                   draft={draft}
                   number={nextNumber(all)}
-                  meta={t("comment.meta", { state: target.state, theme, width: geometry.width })}
+                  meta={t("comment.meta", { state, theme, width: geometry.width })}
                 />
               }
             />

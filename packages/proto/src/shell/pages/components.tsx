@@ -1,245 +1,304 @@
 /**
- * The Components area, minimal (spec slice 1): story roots and their component files from
- * `registry.stories`, a component's stories as thumbnails (never `play`), and a story in its
- * own story frame with `play` and Replay. The virtualized tree, component page and story page
- * of `_uiux.md` S2–S4 replace these pieces; frames always go through `useRenderFrame`.
+ * The Components area (`_uiux.md` S2, S3): a windowed component tree by title next to the open
+ * page (a prompt, a component page or a story page), and the component page with its
+ * description and one `play`-free thumbnail per story. The tree keeps no history state: what is
+ * open lives in the URL, and the tree expands to it.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
-import type { RenderMessage } from "../../model/protocol";
-import type { Registry, RegistryStory, RegistryStoryFile } from "../../model/registry";
+import { storyKey, type RegistryStoryFile } from "../../model/registry";
+import { ShellSubHeader } from "../app/chrome";
 import { Link } from "../app/link";
+import { useSlots, type ReviewTarget } from "../app/slots";
 import { Preview } from "../frames/preview";
-import { ScreenFrame } from "../frames/screen-frame";
 import { useT } from "../lib/i18n";
+import { go } from "../lib/navigation";
 import { useRegistry } from "../lib/shell-data";
-import { componentView, type Width } from "../lib/view";
-import { Button } from "../ui/button";
-import { RotateCcw } from "../ui/icons";
+import {
+  buildStoryTree,
+  initialExpanded,
+  revealIds,
+  storyDiagnostics,
+  storyNodeId,
+  visibleRows,
+  type StoryTreeNode,
+} from "../lib/story-tree";
+import { componentView } from "../lib/view";
+import { BookOpen, Blocks, ChevronRight, TriangleAlert } from "../ui/icons";
+import { Skeleton } from "../ui/skeleton";
 import { cn } from "../ui/utils";
+import { VirtualTree, type VirtualTreeItem } from "../ui/virtual-tree";
 
-type StoryStatusMessage = Extract<RenderMessage, { type: "story:status" }>;
-
-const noSlugs: ReadonlySet<string> = new Set();
-
-/** Story files grouped by root, in registry root order, each sorted by title. */
-export function storyGroups(registry: Registry) {
-  const files = registry.stories ?? [];
-  return (registry.storyRoots ?? []).map(root => ({
-    root,
-    files: files
-      .filter(file => file.root === root.id)
-      .sort((a, b) => a.title.localeCompare(b.title)),
-  }));
-}
+type TreeItem = VirtualTreeItem & { node: StoryTreeNode };
 
 /**
- * `file` null is the area itself (`?components`); `story` null is the component (`?c=<slug>`).
- * The caller resolves unknown slugs and story ids to its not-found page.
+ * The area layout: the tree on the left, `children` (the open page) on the right. `slug` and
+ * `story` name what is open; the tree expands to it on first render and whenever it changes.
  */
-export function ComponentsPage({
-  file,
+export function ComponentsArea({
+  slug,
   story,
-  width,
-  theme,
+  children,
 }: {
-  file: RegistryStoryFile | null;
-  story: RegistryStory | null;
-  width: Width;
-  theme: "light" | "dark";
+  slug: string | null;
+  story: string | null;
+  children: ReactNode;
 }) {
   const t = useT();
   const registry = useRegistry();
-  const groups = storyGroups(registry);
-  const empty = groups.every(group => group.files.length === 0);
+  const tree = buildStoryTree(registry);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set([...initialExpanded(tree), ...(slug ? revealIds(tree, slug) : [])])
+  );
+  // A deep link or another component: expand to it (adjusted during render, no Effect).
+  const [revealed, setRevealed] = useState(slug);
+  if (slug !== revealed) {
+    setRevealed(slug);
+    if (slug) setExpanded(current => new Set([...current, ...revealIds(tree, slug)]));
+  }
+  const toggle = (id: string) =>
+    setExpanded(current => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const items: TreeItem[] = visibleRows(tree, expanded).map(row => ({
+    id: row.node.id,
+    level: row.level,
+    expanded: row.node.children.length ? row.expanded : null,
+    parent: row.parent,
+    position: row.position,
+    size: row.size,
+    node: row.node,
+  }));
+  const selected = story
+    ? storyNodeId(story)
+    : slug
+      ? (revealIds(tree, slug).at(-1) ?? null)
+      : null;
+  const loading = (registry.storyRoots?.length ?? 0) > 0 && registry.stories === undefined;
+  const open = (item: TreeItem) => {
+    const { node } = item;
+    if (node.kind === "story" && node.file && node.story)
+      go(componentView(node.file.slug, node.story.id));
+    else if (node.kind === "component" && node.file) {
+      if (!expanded.has(node.id)) toggle(node.id);
+      go(componentView(node.file.slug));
+    } else if (item.expanded !== null) toggle(node.id);
+  };
   return (
     <div className="flex min-h-0 flex-1">
       <nav
         aria-label={t("rail.components")}
-        className="w-72 shrink-0 overflow-y-auto border-r border-border bg-[var(--shell-panel)] p-3"
+        className="flex w-72 shrink-0 flex-col border-r border-border bg-[var(--shell-panel)]"
       >
-        {groups.map(group => (
-          <section key={group.root.id} className="mb-4">
-            <h2 className="px-2 pb-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-              {group.root.title}
-            </h2>
-            <ul className="flex flex-col gap-0.5">
-              {group.files.map(item => (
-                <li key={item.slug}>
-                  <Link
-                    to={componentView(item.slug)}
-                    aria-current={item.slug === file?.slug && !story ? "page" : undefined}
-                    className={cn(
-                      "block truncate rounded-md px-2 py-1 text-[13px] hover:bg-muted",
-                      item.slug === file?.slug && "font-semibold text-primary"
-                    )}
-                  >
-                    {item.title}
-                  </Link>
-                  {item.slug === file?.slug && (
-                    <ul className="mt-0.5 ml-3 flex flex-col gap-0.5 border-l border-border pl-2">
-                      {item.stories.map(entry => (
-                        <li key={entry.id}>
-                          <Link
-                            to={componentView(item.slug, entry.id)}
-                            aria-current={entry.id === story?.id ? "page" : undefined}
-                            className={cn(
-                              "block truncate rounded-md px-2 py-0.5 text-[12px] hover:bg-muted",
-                              entry.id === story?.id && "bg-muted font-medium"
-                            )}
-                          >
-                            {entry.name}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
+        {loading ? (
+          <div
+            role="status"
+            aria-label={t("components.loading")}
+            className="flex flex-col gap-2 p-4"
+          >
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-4 w-2/5" />
+          </div>
+        ) : tree.length === 0 ? (
+          <p className="p-4 text-[13px] text-muted-foreground">{t("components.empty")}</p>
+        ) : (
+          <VirtualTree
+            label={t("components.tree")}
+            items={items}
+            selected={selected}
+            onToggle={item => toggle(item.id)}
+            onOpen={open}
+            className="flex-1 py-2"
+            renderRow={(item, state) => <TreeRow item={item} {...state} />}
+          />
+        )}
       </nav>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {file && story ? (
-          <StoryView key={story.id} file={file} story={story} width={width} theme={theme} />
-        ) : file ? (
-          <ComponentView file={file} theme={theme} />
-        ) : (
-          <div className="shell-dots grid flex-1 place-items-center p-6">
-            <p className="text-[13px] text-muted-foreground">
-              {empty ? t("components.empty") : t("components.pick")}
-            </p>
-          </div>
-        )}
+        <ProblemsBanner />
+        {children}
       </div>
     </div>
   );
 }
 
-/** A component file: its description, path and one `play`-free thumbnail per story. */
-function ComponentView({ file, theme }: { file: RegistryStoryFile; theme: "light" | "dark" }) {
+/** One tree row: indent, disclosure, kind icon and label; an empty root says so. */
+function TreeRow({
+  item,
+  focused,
+  selected,
+}: {
+  item: TreeItem;
+  focused: boolean;
+  selected: boolean;
+}) {
   const t = useT();
-  const count = t("count.stories", { count: file.stories.length });
-  const meta = [t("components.file"), file.file, count].join(" · ");
+  const { node } = item;
+  const Icon = node.kind === "component" ? Blocks : node.kind === "story" ? BookOpen : null;
   return (
-    <div className="shell-dots min-h-0 flex-1 overflow-y-auto px-5 py-6 xl:px-8">
-      <h1 className="text-[18px] font-semibold">{file.title}</h1>
-      {file.description && (
-        <p className="mt-2 max-w-[720px] text-[13px] whitespace-pre-line text-muted-foreground">
-          {file.description}
-        </p>
+    <div
+      className={cn(
+        "mx-2 flex h-full min-w-0 flex-1 cursor-default items-center gap-1.5 rounded-md pr-2 text-[13px] hover:bg-muted",
+        focused && "ring-1 ring-primary/40 ring-inset",
+        selected && "bg-[var(--shell-primary-soft)] font-medium text-[var(--shell-primary-text)]",
+        node.kind === "root" &&
+          "font-mono text-[11px] tracking-wide text-muted-foreground uppercase"
       )}
-      <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-        {meta}
-      </p>
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {file.stories.map((story, index) => (
-          <article
-            key={story.id}
-            className="group relative overflow-hidden rounded-2xl border border-border bg-[var(--shell-panel)] hover:border-primary/50"
-          >
-            <div className="border-b border-border">
-              <Preview
-                target={{
-                  kind: "story",
-                  root: file.root,
-                  slug: file.slug,
-                  story: story.id,
-                  theme,
-                }}
-                title={t("preview.of", { title: story.name })}
-                order={index}
-              />
-            </div>
-            <h2 className="truncate p-3 text-[13px] font-semibold">
-              <Link
-                to={componentView(file.slug, story.id)}
-                className="outline-none after:absolute after:inset-0 after:content-['']"
-              >
-                {story.name}
-              </Link>
-            </h2>
-          </article>
+      style={{ paddingLeft: (item.level - 1) * 14 + 4 }}
+    >
+      <ChevronRight
+        aria-hidden="true"
+        className={cn(
+          "size-3.5 shrink-0 text-muted-foreground transition-transform",
+          item.expanded === null && "invisible",
+          item.expanded && "rotate-90"
+        )}
+      />
+      {Icon && <Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />}
+      <span className="min-w-0 truncate">{node.label}</span>
+      {node.kind === "root" && node.children.length === 0 && (
+        <span className="ml-auto truncate font-sans text-[11px] tracking-normal normal-case">
+          {t("components.emptyRoot")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Story problems and warnings of the roots (they carry `root`); the rest stays usable. */
+function ProblemsBanner() {
+  const t = useT();
+  const registry = useRegistry();
+  const { problems, warnings } = storyDiagnostics(registry);
+  if (!problems.length && !warnings.length) return null;
+  const summary = [
+    problems.length ? t("components.problems", { count: problems.length }) : null,
+    warnings.length ? t("components.warnings", { count: warnings.length }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <details
+      className={cn(
+        "shrink-0 border-b px-4 py-2 text-[13px]",
+        problems.length
+          ? "border-destructive/30 bg-destructive/10 text-destructive"
+          : "border-[color-mix(in_oklch,var(--tone-warning)_30%,transparent)] text-[var(--tone-warning)]"
+      )}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 font-medium">
+        <TriangleAlert className="size-4 shrink-0" />
+        {summary}
+      </summary>
+      <ul className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto text-foreground">
+        {[...problems, ...warnings].map(item => (
+          <li key={`${item.code}:${item.root}:${item.file}:${item.message}`} className="flex min-w-0 gap-2 font-mono text-[11px]">
+            <span className="shrink-0 text-muted-foreground">{item.code}</span>
+            <span className="min-w-0 break-words">
+              {[item.root, item.file].filter(Boolean).join("/")}
+              {"line" in item && item.line ? `:${item.line}` : ""} — {item.message}
+            </span>
+          </li>
         ))}
-      </div>
+      </ul>
+    </details>
+  );
+}
+
+/** The right side with nothing open: pick a component (or the project has none yet). */
+export function ComponentsPrompt() {
+  const t = useT();
+  const registry = useRegistry();
+  const empty = (registry.stories?.length ?? 0) === 0;
+  return (
+    <div className="shell-dots grid flex-1 place-items-center p-6">
+      <p className="text-[13px] text-muted-foreground">
+        {empty ? t("components.empty") : t("components.pick")}
+      </p>
     </div>
   );
 }
 
 /**
- * One story in a story frame that runs `play`. Replay loads a fresh document (new nonce), so
- * results of the replaced document are stale. The status shows only what the host reported:
- * nothing for a story without `play` unless it failed.
+ * S3: a component file with its description (plain text), path and one thumbnail per story.
+ * Thumbnails go through `Preview` and its scheduler, so only visible ones load, within the
+ * scheduler limit; they never run `play`, and a failing one settles its slot at once and shows
+ * its failure alone.
  */
-function StoryView({
+export function ComponentPage({
   file,
-  story,
-  width,
   theme,
 }: {
   file: RegistryStoryFile;
-  story: RegistryStory;
-  width: Width;
   theme: "light" | "dark";
 }) {
   const t = useT();
-  const [run, setRun] = useState(0);
-  const [result, setResult] = useState<StoryStatusMessage | null>(null);
-  const replay = () => {
-    setResult(null);
-    setRun(current => current + 1);
+  const registry = useRegistry();
+  const slots = useSlots();
+  const target: ReviewTarget = {
+    kind: "story",
+    key: storyKey(file.slug),
+    slug: file.slug,
+    story: null,
   };
-  const label = !result
-    ? null
-    : result.status === "failed"
-      ? [t("story.failed", { stage: result.stage }), result.error].filter(Boolean).join(": ")
-      : t(result.status === "passed" ? "story.passed" : "story.running");
+  const root = registry.storyRoots?.find(item => item.id === file.root);
+  const meta = [
+    (registry.storyRoots?.length ?? 0) > 1 ? root?.title : null,
+    file.file,
+    t("count.stories", { count: file.stories.length }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <>
-      <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
-        <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-          {file.title} · {story.name}
-        </h1>
-        {result && label && (result.hasPlay === true || result.status === "failed") && (
-          <span
-            role="status"
-            className={cn(
-              "max-w-[50%] truncate text-[12px]",
-              result.status === "failed" && "text-destructive",
-              result.status === "passed" && "text-[var(--tone-end)]",
-              result.status === "running" && "text-muted-foreground"
-            )}
-            title={result.error ?? undefined}
-          >
-            {label}
-          </span>
-        )}
-        <Button variant="outline" size="sm" onClick={replay}>
-          <RotateCcw data-icon="inline-start" />
-          {t("story.replay")}
-        </Button>
-      </div>
-      <ScreenFrame
-        key={run}
-        target={{
-          kind: "story",
-          root: file.root,
-          slug: file.slug,
-          story: story.id,
-          theme,
-          play: true,
-        }}
-        width={width}
-        title={`${file.title} · ${story.name}`}
-        slugs={noSlugs}
-        className="flex-1 p-4"
-        onMessage={message => {
-          if (message.type !== "story:status" || message.story !== story.id) return;
-          // One terminal result per document: a later report never replaces it.
-          setResult(current => (current && current.status !== "running" ? current : message));
-        }}
+      <ShellSubHeader
+        title={file.title}
+        status={slots.reviewStatus?.(target)}
+        theme={theme}
+        menu={slots.reviewMenu?.(target)}
       />
+      <div className="shell-dots min-h-0 flex-1 overflow-y-auto px-5 py-6 xl:px-8">
+        {file.description && (
+          <p className="max-w-[720px] text-[13px] whitespace-pre-line text-muted-foreground">
+            {file.description}
+          </p>
+        )}
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+          {t("components.file")} · {meta}
+        </p>
+        <ul className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {file.stories.map((story, index) => (
+            <li
+              key={story.id}
+              className="group relative overflow-hidden rounded-2xl border border-border bg-[var(--shell-panel)] hover:border-primary/50"
+            >
+              <div className="border-b border-border">
+                <Preview
+                  target={{
+                    kind: "story",
+                    root: file.root,
+                    slug: file.slug,
+                    story: story.id,
+                    theme,
+                  }}
+                  title={t("preview.of", { title: story.name })}
+                  order={index}
+                />
+              </div>
+              <h2 className="truncate p-3 text-[13px] font-semibold">
+                <Link
+                  to={componentView(file.slug, story.id)}
+                  className="outline-none after:absolute after:inset-0 after:content-['']"
+                >
+                  {story.name}
+                </Link>
+              </h2>
+            </li>
+          ))}
+        </ul>
+      </div>
     </>
   );
 }

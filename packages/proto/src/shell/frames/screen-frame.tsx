@@ -41,8 +41,11 @@ export function ScreenFrame({
   onMessage?: (message: RenderMessage) => void;
   overlay?: (frame: RenderFrameHandle, geometry: FrameGeometry) => ReactNode;
   caption?: (geometry: FrameGeometry) => ReactNode;
-  /** Sibling controls may display the measured viewport without copying it into parent state. */
-  toolbar?: (geometry: FrameGeometry) => ReactNode;
+  /**
+   * Sibling controls may display the measured viewport without copying it into parent state;
+   * the frame handle carries a story's `result` and `reload` (Replay).
+   */
+  toolbar?: (geometry: FrameGeometry, frame: RenderFrameHandle) => ReactNode;
 }) {
   const [ref, box] = useBox();
   const frameWidth = width === "fit" ? Math.max(box.width, 1) : width;
@@ -58,7 +61,7 @@ export function ScreenFrame({
   const ready = box.width > 0 && box.height > 0;
   return (
     <>
-      {toolbar?.(geometry)}
+      {toolbar?.(geometry, frame)}
       <div className={cn("flex min-h-0 min-w-0 flex-col", className)}>
         <div ref={ref} className="relative grid min-h-0 min-w-0 flex-1 place-items-center">
           {ready && (

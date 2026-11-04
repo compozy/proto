@@ -1,12 +1,20 @@
 /**
- * ⌘K search (US-015, UT-025): prototypes, states, flows and their steps, comments and actions,
- * ranked exact slug > title > state label > comment text. Pure: no DOM.
+ * ⌘K search (US-015, UT-025, UT-009): prototypes, states, flows and their steps, components and
+ * their stories, comments and actions, ranked exact slug > title > state label > comment text.
+ * Pure: no DOM.
  */
 import type { Registry } from "../../model/registry";
 import { nodeTitle } from "./registry-model";
-import { screenView, type View } from "./view";
+import { componentView, screenView, type View } from "./view";
 
-export type SearchGroup = "screens" | "states" | "flows" | "comments" | "actions";
+export type SearchGroup =
+  | "screens"
+  | "states"
+  | "flows"
+  | "components"
+  | "stories"
+  | "comments"
+  | "actions";
 
 export type SearchItem = {
   id: string;
@@ -60,7 +68,10 @@ export function searchItems(items: readonly SearchItem[], query: string) {
     .map(entry => entry.item);
 }
 
-/** Search items of a registry: every prototype, each of its states, flows and their steps. */
+/**
+ * Search items of a registry: every prototype, each of its states, flows and their steps, and
+ * every component with its stories (a story matches by its name, its id and its component).
+ */
 export function registryItems(registry: Registry): SearchItem[] {
   const items: SearchItem[] = [];
   for (const prototype of registry.prototypes) {
@@ -104,6 +115,31 @@ export function registryItems(registry: Registry): SearchItem[] {
         detail: node.step ? `#${node.step}` : undefined,
         stateLabel: nodeTitle(node),
         target: { view: { area: "flow", flow: flow.id, node: node.id } },
+      });
+    }
+  }
+  const roots = new Map((registry.storyRoots ?? []).map(root => [root.id, root.title]));
+  for (const file of registry.stories ?? []) {
+    const root = roots.size > 1 ? roots.get(file.root) : undefined;
+    items.push({
+      id: `c:${file.slug}`,
+      group: "components",
+      label: file.title,
+      detail: file.slug,
+      hint: root,
+      slug: file.slug,
+      title: file.title,
+      target: { view: componentView(file.slug) },
+    });
+    for (const story of file.stories) {
+      items.push({
+        id: `st:${story.id}`,
+        group: "stories",
+        label: `${file.title} · ${story.name}`,
+        hint: root,
+        stateLabel: story.name,
+        text: `${story.id}\n${file.title}`,
+        target: { view: componentView(file.slug, story.id) },
       });
     }
   }

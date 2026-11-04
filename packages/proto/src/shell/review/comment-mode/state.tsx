@@ -54,10 +54,10 @@ export function useCommentTool() {
   };
 }
 
-/** Read and replace comment focus in the screen/flow URL so links and history share one state. */
+/** Read and replace comment focus in the screen, flow or story URL: links and history share it. */
 export function useCommentFocusState() {
   const { view } = useLocation();
-  const reviewable = view.area === "screen" || view.area === "flow";
+  const reviewable = view.area === "screen" || view.area === "flow" || view.area === "component";
   return {
     focused: reviewable ? (view.comment ?? null) : null,
     focusComment: (id: string | null) => {

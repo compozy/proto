@@ -30,6 +30,7 @@ import {
 } from "../../../src/shell/lib/render-channel.ts";
 import { ShellDataProvider, type ShellEnv } from "../../../src/shell/lib/shell-data.tsx";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
+import { PlayStatus } from "../../../src/shell/pages/story-page.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
 
 const renderOrigin = window.location.origin.replace("127.0.0.1", "localhost");
@@ -566,6 +567,95 @@ describe("story frames", () => {
     expect(probe.dataset.status).toBe("loading");
     act(() => deliver(ready("ui-button", "ui-button--primary"), from));
     expect(probe.dataset.status).toBe("ready");
+  });
+
+  test("IT-024 a 390 viewport preset gives the story frame a 390-wide document", async () => {
+    // Invariant: US-005.AC-3. Owner: `ScreenFrame` with a story target (the story page's frame).
+    const container = mount(
+      <ScreenFrame
+        target={target("web")}
+        width={390}
+        title="UI/Button · Primary"
+        slugs={slugs}
+        className="flex-1"
+      />,
+      storyEnv
+    );
+    const iframe = await vi.waitFor(() => frameOf(container));
+    expect(iframe.style.width).toBe("390px");
+    expect(new URL(iframe.src).searchParams.get("w")).toBe("390");
+  });
+
+  /** A story frame with the story page's play status chip. */
+  function StatusProbe({ target: probe }: { target: StoryFrameTarget }) {
+    const iframe = useRef<HTMLIFrameElement>(null);
+    const frame = useRenderFrame(iframe, probe, { slugs });
+    return (
+      <div data-root={probe.root}>
+        <PlayStatus frame={frame} />
+        <iframe key={frame.nonce} ref={iframe} src={frame.src ?? undefined} title={probe.root} />
+      </div>
+    );
+  }
+  const status = (frame: string, patch: Record<string, unknown>) => ({
+    ...failed(frame),
+    status: "passed",
+    hasPlay: false,
+    error: null,
+    ...patch,
+  });
+  const chipOf = (probe: HTMLElement) =>
+    probe.querySelector<HTMLElement>('[role="status"][aria-label="Play status"]');
+  const replayOf = (probe: HTMLElement) =>
+    [...probe.querySelectorAll("button")].find(button => button.textContent === "Replay");
+
+  test("a story without play shows no status; a render failure names its stage, without Replay", async () => {
+    // Invariant: truthful UI, the chip follows the host result, never the registry `play` flag.
+    // Owner: `PlayStatus` on the story page.
+    const container = mount(
+      <>
+        <StatusProbe target={target("web")} />
+        <StatusProbe target={target("ui")} />
+      </>,
+      storyEnv
+    );
+    const web = await vi.waitFor(() => probeOf(container, "web"));
+    const ui = await vi.waitFor(() => probeOf(container, "ui"));
+    act(() =>
+      deliver(status(nonceOf(web.iframe), {}), {
+        source: web.iframe.contentWindow,
+        origin: webOrigin,
+      })
+    );
+    expect(chipOf(web.probe)).toBeNull();
+    act(() =>
+      deliver(status(nonceOf(ui.iframe), { status: "failed", error: "boom" }), {
+        source: ui.iframe.contentWindow,
+        origin: uiOrigin,
+      })
+    );
+    expect(chipOf(ui.probe)?.textContent).toContain("Failed at render");
+    expect(chipOf(ui.probe)?.textContent).toContain("boom");
+    expect(replayOf(ui.probe)).toBeUndefined();
+  });
+
+  test("a story with play shows Running then Passed, and Replay loads a fresh document", async () => {
+    // Invariant: US-006.AC-2 and AC-4. Owner: `PlayStatus` on the story page.
+    const container = mount(<StatusProbe target={target("web")} />, storyEnv);
+    const first = await vi.waitFor(() => probeOf(container, "web"));
+    const nonce = nonceOf(first.iframe);
+    const from = { source: first.iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(status(nonce, { stage: "play", status: "running", hasPlay: true }), from));
+    expect(chipOf(first.probe)?.textContent).toContain("Running");
+    act(() => deliver(status(nonce, { stage: "play", hasPlay: true }), from));
+    expect(chipOf(first.probe)?.textContent).toContain("Passed");
+    act(() => replayOf(first.probe)?.click());
+    const next = await vi.waitFor(() => {
+      const found = probeOf(container, "web");
+      if (nonceOf(found.iframe) === nonce) throw new Error("No replayed document yet");
+      return found;
+    });
+    expect(chipOf(next.probe)).toBeNull();
   });
 
   test("IT-021 a root without a story server shows its failure and loads nothing", async () => {

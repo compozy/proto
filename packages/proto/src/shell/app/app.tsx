@@ -5,17 +5,19 @@
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 
-import { reviewKeys, type Registry } from "../../model/registry";
+import { reviewKeys, storyKey, type Registry } from "../../model/registry";
 import { loadFlowPage, loadSettings } from "../lib/preload";
 import { LocaleProvider, useT } from "../lib/i18n";
 import { createShellQueryClient } from "../lib/query";
 import { go, navigate, useLocation } from "../lib/navigation";
 import { specTitle } from "../lib/registry-model";
+import { resolveStoryView } from "../lib/story-tree";
 import { useBootstrap, ShellDataProvider, useShellData } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { nextTheme, useDocumentTheme, useResolvedTheme } from "../lib/theme";
 import { componentView, type View } from "../lib/view";
-import { ComponentsPage } from "../pages/components";
+import { ComponentPage, ComponentsArea, ComponentsPrompt } from "../pages/components";
+import { StoryPage } from "../pages/story-page";
 import { Drafts, FlowsIndex, Overview, ScreensIndex } from "../pages/overview";
 import { SpecPage } from "../pages/spec-page";
 import { ScreenPage } from "../screen/screen-page";
@@ -368,22 +370,54 @@ function pageFor(
     case "components":
       return area(
         t("rail.components"),
-        <ComponentsPage file={null} story={null} width="fit" theme={theme} />
+        <ComponentsArea slug={null} story={null}>
+          <ComponentsPrompt />
+        </ComponentsArea>
       );
     case "component": {
-      const file = registry.stories?.find(item => item.slug === view.slug);
-      if (!file) return area(view.slug, <NotFound kind="component" id={view.slug} />);
-      const story = file.stories.find(item => item.id === view.story) ?? null;
-      if (view.story && !story) return area(file.title, <NotFound kind="story" id={view.story} />);
       const components = { label: t("rail.components"), to: { area: "components" } as View };
+      const resolved = resolveStoryView(registry, view.slug, view.story);
+      if (resolved.kind === "missing-component")
+        return {
+          crumbs: [components, { label: view.slug }],
+          target: null,
+          share: false,
+          body: (
+            <ComponentsArea slug={null} story={null}>
+              <NotFound kind="component" id={view.slug} />
+            </ComponentsArea>
+          ),
+        };
+      const { file } = resolved;
       const fileCrumb = { label: file.title, to: componentView(file.slug) };
+      const key = storyKey(file.slug);
+      if (resolved.kind === "missing-story")
+        return {
+          crumbs: [components, fileCrumb, { label: resolved.story }],
+          target: { kind: "story", key, slug: file.slug, story: null },
+          share: false,
+          body: (
+            <ComponentsArea slug={file.slug} story={null}>
+              <NotFound kind="story" id={resolved.story} />
+            </ComponentsArea>
+          ),
+        };
+      const { story } = resolved;
       return {
         crumbs: story
           ? [components, fileCrumb, { label: story.name }]
           : [components, { label: file.title }],
-        target: null,
+        target: { kind: "story", key, slug: file.slug, story: story?.id ?? null },
         share: true,
-        body: <ComponentsPage file={file} story={story} width={view.width} theme={theme} />,
+        body: (
+          <ComponentsArea slug={file.slug} story={story?.id ?? null}>
+            {story ? (
+              <StoryPage key={file.slug} view={view} theme={theme} file={file} story={story} />
+            ) : (
+              <ComponentPage key={file.slug} file={file} theme={theme} />
+            )}
+          </ComponentsArea>
+        ),
       };
     }
     case "flows":
@@ -410,15 +444,16 @@ function NotFound({
   id: string;
 }) {
   const t = useT();
+  const components = kind === "component" || kind === "story";
   return (
     <div className="shell-dots grid min-h-0 flex-1 place-items-center p-6">
       <div className="w-full max-w-[440px] rounded-2xl border border-border bg-[var(--shell-panel)] p-6 text-center">
         <h1 className="text-[15px] font-semibold">{t(`notFound.${kind}`, { id })}</h1>
         <Link
-          to={{ area: "overview" }}
+          to={components ? { area: "components" } : { area: "overview" }}
           className="mt-4 inline-flex h-8 items-center rounded-full border border-border px-3 text-[13px] hover:bg-muted"
         >
-          {t("notFound.back")}
+          {t(components ? "notFound.backComponents" : "notFound.back")}
         </Link>
       </div>
     </div>

@@ -1,14 +1,24 @@
 /**
- * URL and view model (`_tests.md` UT-022–UT-024, `_dx.md` § URLs): the shell view lives in its
- * URL, widths are clamped to 320–3840 with the URL rewritten, and conflicting selections resolve
- * to one view (`flow` > `p` > `c` > `spec` > area parameters).
+ * URL and view model (`_tests.md` UT-022–UT-024, UT-008, UT-010, `_dx.md` § URLs): the shell view
+ * lives in its URL, widths are clamped to 320–3840 with the URL rewritten, conflicting selections
+ * resolve to one view (`flow` > `p` > `c` > `spec` > area parameters), and a component link
+ * resolves through the component tree model.
  */
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import type { RegistryStoryFile } from "../../../src/model/registry.ts";
 import { useLocation } from "../../../src/shell/lib/navigation.ts";
+import {
+  buildStoryTree,
+  resolveStoryView,
+  revealIds,
+  visibleRows,
+  type StoryTreeNode,
+} from "../../../src/shell/lib/story-tree.ts";
 import { parseView } from "../../../src/shell/lib/view.ts";
+import { storyRegistry } from "../../harness/fixtures.ts";
 
 describe("parseView", () => {
   test("UT-022 a screen URL opens the screen view with its state, width and theme", () => {
@@ -48,10 +58,14 @@ describe("parseView", () => {
       slug: "ui-button",
       story: "ui-button--primary",
       width: 390,
+      compare: false,
       comment: null,
     });
     expect(parsed.theme).toBe("dark");
     expect(parsed.canonical).toBe("?c=ui-button&story=ui-button--primary&w=390&theme=dark");
+    expect(parseView("?c=ui-button&story=ui-button--primary&compare=themes").view).toMatchObject({
+      compare: true,
+    });
     expect(parseView("?c=ui-button").view).toMatchObject({ area: "component", story: null });
     expect(parseView("?components")).toMatchObject({
       view: { area: "components" },
@@ -68,6 +82,92 @@ describe("parseView", () => {
     expect(parseView("?spec=auth&c=ui-button").canonical).toBe("?c=ui-button");
     expect(parseView("?components&c=ui-button").canonical).toBe("?c=ui-button");
     expect(parseView("?screens&components").canonical).toBe("?screens");
+  });
+});
+
+describe("component tree", () => {
+  const file = (slug: string, title: string, root = "ui"): RegistryStoryFile => ({
+    slug,
+    root,
+    file: `src/${slug}.stories.tsx`,
+    title,
+    path: title.split("/"),
+    description: null,
+    stories: [
+      { id: `${slug}--default`, exportName: "Default", name: "Default", play: false, tags: [] },
+    ],
+  });
+  /** `[kind, label, children]` per node; stories as their label. */
+  const shape = (nodes: readonly StoryTreeNode[]): unknown[] =>
+    nodes.map(node =>
+      node.kind === "story" ? node.label : [node.kind, node.label, shape(node.children)]
+    );
+
+  test("UT-008 titles nest by segment, with roots on top only when there are two or more", () => {
+    // Invariant: the tree mirrors `/` segments (US-002.AC-1). Owner: `buildStoryTree`.
+    const files = [file("d", "D"), file("a-c", "A/C"), file("a-b", "A/B")];
+    expect(
+      shape(buildStoryTree({ storyRoots: [{ id: "ui", title: "UI" }], stories: files }))
+    ).toEqual([
+      [
+        "group",
+        "A",
+        [
+          ["component", "B", ["Default"]],
+          ["component", "C", ["Default"]],
+        ],
+      ],
+      ["component", "D", ["Default"]],
+    ]);
+    const roots = [
+      { id: "ui", title: "UI" },
+      { id: "web", title: "Web" },
+      { id: "empty", title: "Empty" },
+    ];
+    expect(
+      shape(
+        buildStoryTree({ storyRoots: roots, stories: [file("a-b", "A/B"), file("d", "D", "web")] })
+      )
+    ).toEqual([
+      ["root", "UI", [["group", "A", [["component", "B", ["Default"]]]]]],
+      ["root", "Web", [["component", "D", ["Default"]]]],
+      ["root", "Empty", []],
+    ]);
+  });
+
+  test("a deep link expands the tree down to its story", () => {
+    // Invariant: US-002.AC-3. Owner: the tree model (`revealIds`, `visibleRows`).
+    const tree = buildStoryTree(storyRegistry);
+    const rows = visibleRows(tree, new Set(revealIds(tree, "ui-button")));
+    expect(rows.map(row => [row.level, row.node.label])).toEqual([
+      [1, "Web"],
+      [1, "UI kit"],
+      [2, "UI"],
+      [3, "Button"],
+      [4, "Primary"],
+      [4, "Render Fail"],
+      [4, "Import Fail"],
+      [3, "Card"],
+    ]);
+  });
+
+  test("UT-010 an unknown story id stays in the URL and resolves to not found", () => {
+    // Invariant: US-002.EC-2, never another story. Owner: `parseView` and `resolveStoryView`.
+    const parsed = parseView("?c=ui-button&story=nope");
+    expect(parsed.view).toMatchObject({ area: "component", slug: "ui-button", story: "nope" });
+    expect(parsed.canonical).toBe("?c=ui-button&story=nope");
+    expect(resolveStoryView(storyRegistry, "ui-button", "nope")).toMatchObject({
+      kind: "missing-story",
+      story: "nope",
+    });
+    expect(resolveStoryView(storyRegistry, "gone", null)).toEqual({
+      kind: "missing-component",
+      slug: "gone",
+    });
+    expect(resolveStoryView(storyRegistry, "ui-button", "ui-button--primary")).toMatchObject({
+      kind: "component",
+      story: { id: "ui-button--primary" },
+    });
   });
 });
 

@@ -1,5 +1,6 @@
 import type { ComponentProps, MouseEvent } from "react";
 
+import { flowKey, storyKey } from "../../model/registry";
 import { go, hrefOf } from "../lib/navigation";
 import { preloadView } from "../lib/preload";
 import { usePrefetchReview } from "../review/data";
@@ -19,7 +20,8 @@ export function Link({
   const preload = () => {
     preloadView(to);
     if (to.area === "screen") prefetchReview(to.slug);
-    else if (to.area === "flow") prefetchReview(`flow-${to.flow}`);
+    else if (to.area === "flow") prefetchReview(flowKey(to.flow));
+    else if (to.area === "component") prefetchReview(storyKey(to.slug));
   };
   const href = hrefOf({ view: to, theme: parseView(window.location.search).theme });
   const click = (event: MouseEvent<HTMLAnchorElement>) => {
