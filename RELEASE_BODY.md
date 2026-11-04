@@ -1,6 +1,10 @@
-## v0.1.4
+## v0.1.5
 
 ### Features
 
-- drop state chips from screen cards (#17)
-- raise the icon outline weight to bnui v0.1.2
+- add proto share for Cloudflare-backed remote review (#19)
+- host storybook stories in the proto gallery (#20)
+
+### Fixes
+
+- keep stories run batches alive across browser loss and cold starts (#22)
