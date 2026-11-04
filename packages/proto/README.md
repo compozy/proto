@@ -457,6 +457,11 @@ Run JSON contains `summary: { total, passed, failed }` and `stories` rows with `
 `stage` (`import`, `load`, `render`, `play`), `status`, `hasPlay`, `durationMs` and `error`.
 Index problems are reported alongside results; selected stories still run. Exit is 0 when all
 pass, 1 on failure, index problems or an empty selection, and 3 for missing Playwright/Chromium.
+The first selected story in each root runs alone before the concurrent pool to warm cold
+host, preview and dependency transforms. It keeps the same lifecycle timeout and appears once
+in the results. Browser loss fails affected stories at their last stage; one shared relaunch
+attempt per lost browser lets remaining stories continue. A failed relaunch is reported on
+remaining rows without repeatedly launching Chromium.
 Only selected roots start. Existing servers are reused only after a `projectId` match;
 interrupt closes owned servers/browser and emits no partial report.
 

@@ -92,6 +92,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
   };
   const ids = ["virtual:proto/render-config", "virtual:proto/prototypes", "virtual:proto/canvas"];
   let prototypeSnapshot: string | undefined;
+  let stopWatching = () => {};
   let canvasExists = existsSync(resolve(project.root, project.config.canvas));
   return [
     sourceTags(project.root, project.root),
@@ -150,6 +151,10 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
             : "export const Canvas = ({children}) => children; export const Frame = null;";
         }
       },
+      closeBundle() {
+        // Startup can fail before httpServer ever listens or emits close.
+        stopWatching();
+      },
       configureServer(server) {
         const stop = project.watch(registry => {
           const next = JSON.stringify(registry.prototypes);
@@ -166,6 +171,7 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
             if (module) void server.reloadModule(module);
           }
         });
+        stopWatching = stop;
         server.httpServer?.once("close", stop);
         server.middlewares.use(async (req, res, next) => {
           if (!req.url?.startsWith("/__proto/render/")) return next();

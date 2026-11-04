@@ -86,119 +86,153 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     } catch {
       throw new ProtoError("playwright_missing");
     }
-    const activeBrowser = browser;
+    const chromium = (await import("playwright")).chromium;
+    // One shared launch attempt per lost browser, including a failed relaunch. Workers
+    // must not race to create replacements or retry a broken installation for every row.
+    let replacement: Promise<import("playwright").Browser> | undefined;
+    let replacedBrowser: import("playwright").Browser | undefined;
+    const getBrowser = async () => {
+      if (browser!.isConnected()) return browser!;
+      if (replacedBrowser !== browser) {
+        replacedBrowser = browser;
+        replacement = chromium.launch({ handleSIGINT: false }).then(value => {
+          browser = value;
+          return value;
+        });
+      }
+      return replacement!;
+    };
     const renderUrls = new Map(bootstrap?.storyRoots?.map(root => [root.id, root.renderUrl]));
+    const runStory = async (item: (typeof selected)[number]) => {
+      if (options.signal?.aborted) return;
+      const renderUrl = renderUrls.get(item.file.root);
+      if (!renderUrl)
+        throw new ProtoError(
+          "project_mismatch",
+          `Running gallery does not host root ${item.file.root}`
+        );
+      let page: import("playwright").Page | undefined;
+      const abort = () => {
+        void page?.close().catch(() => {});
+      };
+      let started = Date.now();
+      let last: StoryResult = {
+        story: item.story.id,
+        stage: "import",
+        status: "running",
+        hasPlay: null,
+        error: null,
+        durationMs: 0,
+      };
+      let timedOut = false;
+      const pageBudget = timeout + 5000;
+      let pageDeadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        page = await (await getBrowser()).newPage();
+        options.signal?.addEventListener("abort", abort, { once: true });
+        if (options.signal?.aborted) {
+          abort();
+          options.signal.throwIfAborted();
+        }
+        await page.exposeFunction("__protoStoryReport", (value: unknown) => {
+          try {
+            const parsed = storyResultSchema.safeParse(
+              typeof value === "string" ? JSON.parse(value) : value
+            );
+            if (!parsed.success || parsed.data.story !== item.story.id) return false;
+            if (last.status === "running") last = parsed.data;
+            return last.status !== "running";
+          } catch {
+            return false;
+          }
+        });
+        await page.addInitScript(() => {
+          new MutationObserver(() => {
+            const html = document.documentElement;
+            const value = html?.dataset.protoStory;
+            if (!html || typeof value !== "string") return;
+            void (window as unknown as { __protoStoryReport(value: unknown): Promise<boolean> })
+              .__protoStoryReport(value)
+              .then(terminal => {
+                // A synchronous polling flag, acknowledged only after Node validates the report.
+                if (terminal) html.dataset.protoStoryTerminal = "true";
+              });
+          }).observe(document, {
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["data-proto-story"],
+          });
+        });
+        started = Date.now();
+        pageDeadline = setTimeout(() => {
+          timedOut = true;
+          void page?.close().catch(() => {});
+        }, pageBudget);
+        await page.goto(
+          storyHref(renderUrl, {
+            kind: "story",
+            root: item.file.root,
+            slug: item.file.slug,
+            story: item.story.id,
+            theme: options.theme ?? "dark",
+            play: true,
+            timeout,
+          }),
+          { waitUntil: "commit", timeout: pageBudget }
+        );
+        const remaining = Math.max(1, pageBudget - (Date.now() - started));
+        await page.waitForFunction(
+          () => document.documentElement.dataset.protoStoryTerminal === "true",
+          undefined,
+          { timeout: remaining }
+        );
+        if (last.status === "running")
+          throw new Error("Story terminal acknowledgement arrived without a validated report");
+      } catch (error) {
+        try {
+          const value = await page?.evaluate(() => document.documentElement.dataset.protoStory);
+          if (typeof value === "string" && last.status === "running") {
+            const parsed = storyResultSchema.safeParse(JSON.parse(value));
+            if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
+          }
+        } catch {
+          /* A dead document has no readable result. */
+        }
+        if (last.status === "running")
+          last = {
+            ...last,
+            status: "failed",
+            error:
+              timedOut || (error instanceof Error && error.name === "TimeoutError")
+                ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
+                : String(error).slice(0, 4000),
+            durationMs: Date.now() - started,
+          };
+      } finally {
+        clearTimeout(pageDeadline);
+        options.signal?.removeEventListener("abort", abort);
+        await page?.close().catch(() => {});
+      }
+      const { story, ...result } = last;
+      rows.push({ ...result, id: story, root: item.file.root });
+    };
+    // Cold roots each compile their host, preview and optimized dependencies once
+    // before the concurrent wave. The first story is a real result with the usual
+    // lifecycle budget, not a hidden retry or a longer timeout.
+    const firstByRoot = new Map<string, (typeof selected)[number]>();
+    for (const item of selected) {
+      if (!firstByRoot.has(item.file.root)) firstByRoot.set(item.file.root, item);
+    }
+    await [...firstByRoot.values()].reduce(
+      (ready, item) => ready.then(() => runStory(item)),
+      Promise.resolve()
+    );
+    const pending = selected.filter(item => firstByRoot.get(item.file.root) !== item);
     let next = 0;
     await Promise.all(
-      Array.from({ length: Math.min(concurrency, selected.length) }, async () => {
-        while (next < selected.length && !options.signal?.aborted) {
-          const item = selected[next++]!;
-          const renderUrl = renderUrls.get(item.file.root);
-          if (!renderUrl)
-            throw new ProtoError(
-              "project_mismatch",
-              `Running gallery does not host root ${item.file.root}`
-            );
-          const page = await activeBrowser.newPage();
-          const abort = () => {
-            void page.close().catch(() => {});
-          };
-          options.signal?.addEventListener("abort", abort, { once: true });
-          if (options.signal?.aborted) abort();
-          let started = Date.now();
-          let last: StoryResult = {
-            story: item.story.id,
-            stage: "import",
-            status: "running",
-            hasPlay: null,
-            error: null,
-            durationMs: 0,
-          };
-          let timedOut = false;
-          const pageBudget = timeout + 5000;
-          let pageDeadline: ReturnType<typeof setTimeout> | undefined;
-          try {
-            await page.exposeFunction("__protoStoryReport", (value: unknown) => {
-              try {
-                const parsed = storyResultSchema.safeParse(
-                  typeof value === "string" ? JSON.parse(value) : value
-                );
-                if (!parsed.success || parsed.data.story !== item.story.id) return false;
-                if (last.status === "running") last = parsed.data;
-                return last.status !== "running";
-              } catch {
-                return false;
-              }
-            });
-            await page.addInitScript(() => {
-              new MutationObserver(() => {
-                const html = document.documentElement;
-                const value = html?.dataset.protoStory;
-                if (!html || typeof value !== "string") return;
-                void (window as unknown as { __protoStoryReport(value: unknown): Promise<boolean> })
-                  .__protoStoryReport(value)
-                  .then(terminal => {
-                    // A synchronous polling flag, acknowledged only after Node validates the report.
-                    if (terminal) html.dataset.protoStoryTerminal = "true";
-                  });
-              }).observe(document, {
-                subtree: true,
-                attributes: true,
-                attributeFilter: ["data-proto-story"],
-              });
-            });
-            started = Date.now();
-            pageDeadline = setTimeout(() => {
-              timedOut = true;
-              void page.close().catch(() => {});
-            }, pageBudget);
-            await page.goto(
-              storyHref(renderUrl, {
-                kind: "story",
-                root: item.file.root,
-                slug: item.file.slug,
-                story: item.story.id,
-                theme: options.theme ?? "dark",
-                play: true,
-                timeout,
-              }),
-              { waitUntil: "commit", timeout: pageBudget }
-            );
-            const remaining = Math.max(1, pageBudget - (Date.now() - started));
-            await page.waitForFunction(
-              () => document.documentElement.dataset.protoStoryTerminal === "true",
-              undefined,
-              { timeout: remaining }
-            );
-            if (last.status === "running")
-              throw new Error("Story terminal acknowledgement arrived without a validated report");
-          } catch (error) {
-            try {
-              const value = await page.evaluate(() => document.documentElement.dataset.protoStory);
-              if (typeof value === "string" && last.status === "running") {
-                const parsed = storyResultSchema.safeParse(JSON.parse(value));
-                if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
-              }
-            } catch {
-              /* A dead document has no readable result. */
-            }
-            if (last.status === "running")
-              last = {
-                ...last,
-                status: "failed",
-                error:
-                  timedOut || (error instanceof Error && error.name === "TimeoutError")
-                    ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
-                    : String(error).slice(0, 4000),
-                durationMs: Date.now() - started,
-              };
-          } finally {
-            clearTimeout(pageDeadline);
-            options.signal?.removeEventListener("abort", abort);
-            await page.close().catch(() => {});
-          }
-          const { story, ...result } = last;
-          rows.push({ ...result, id: story, root: item.file.root });
+      Array.from({ length: Math.min(concurrency, pending.length) }, async () => {
+        while (next < pending.length && !options.signal?.aborted) {
+          await runStory(pending[next++]!);
         }
       })
     );
@@ -208,7 +242,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
     return { results: rows, problems: registry.problems, warnings: registry.warnings };
   } finally {
     try {
-      await browser?.close();
+      await browser?.close().catch(() => {});
     } finally {
       await owned?.close();
     }
