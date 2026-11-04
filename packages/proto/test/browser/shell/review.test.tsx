@@ -38,9 +38,12 @@ import { SessionNotice } from "../../../src/shell/app/session-notice.tsx";
 import { useDraft } from "../../../src/shell/review/drafts.ts";
 import { ShellRail } from "../../../src/shell/app/chrome.tsx";
 import { commentView, describeKey } from "../../../src/shell/review/format.ts";
+import { NeedsReview } from "../../../src/shell/review/review-ui.tsx";
 import { componentView, screenView } from "../../../src/shell/lib/view.ts";
 import type { ReviewComment } from "../../../src/model/review.ts";
 import { bootstrapFor, registry, storyRegistry } from "../../harness/fixtures.ts";
+import { env as reviewEnv } from "./comment-fixtures.ts";
+import { installBackend } from "./review-harness.ts";
 
 type Call = { method: string; url: string; headers: Headers; body: string | null };
 
@@ -969,5 +972,48 @@ describe("review keys in the inbox (story--<slug>)", () => {
       kind: "screen",
       title: "story-foo",
     });
+  });
+
+  test("the overview's Needs review reads a story key as component title and story name", async () => {
+    // Invariant: S6, `story--` keys read the same on the overview as in the inbox (through
+    // `describeKey`), never as the raw key. Owner: `NeedsReview` on the overview.
+    const backend = installBackend();
+    backend.seed({
+      ...comment("story--ui-button", "ui-button--primary"),
+      id: "story--ui-button-1",
+      thread: [
+        {
+          id: crypto.randomUUID(),
+          at: "2026-11-03T10:00:00.000Z",
+          editedAt: null,
+          body: "Focus ring is too faint",
+          author: "reviewer",
+          attachments: [],
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <LocaleProvider locale="en">
+          <ShellDataProvider env={reviewEnv}>
+            <ReviewProvider keys={["story--ui-button"]}>
+              <NeedsReview />
+            </ReviewProvider>
+          </ShellDataProvider>
+        </LocaleProvider>
+      )
+    );
+    try {
+      await vi.waitFor(() => expect(container.textContent).toContain("Focus ring is too faint"));
+      await vi.waitFor(() => expect(container.textContent).toContain("UI/Button · Primary"));
+      expect(container.textContent).not.toContain("story--ui-button");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      backend.restore();
+    }
   });
 });

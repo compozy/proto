@@ -215,4 +215,44 @@ describe("component page", () => {
     await vi.waitFor(() => expect(plain.querySelector("iframe")).not.toBeNull());
     expect(notice(plain)).toBeNull();
   });
+
+  test("a story page has no Flow or Screens switch: compare is a light and dark toggle", async () => {
+    // Invariant: S4 lists theme, compare and viewport controls only; the header names the story
+    // under the breadcrumb's component. Owner: `StoryPage` (sub-header and canvas toolbar).
+    const file = storyRegistry.stories?.find(item => item.slug === "ui-button");
+    if (!file) throw new Error("No ui-button fixture");
+    const story = file.stories[0];
+    const previous = window.location.href;
+    cleanups.push(() => window.history.replaceState(null, "", previous));
+    const page = (compare: boolean) => {
+      const view = componentView(file.slug, story.id, { compare }) as Extract<
+        View,
+        { area: "component" }
+      >;
+      return mount(
+        <LocaleProvider locale="en">
+          <ShellDataProvider env={env}>
+            <Ready>
+              <StoryPage view={view} theme="light" file={file} story={story} />
+            </Ready>
+          </ShellDataProvider>
+        </LocaleProvider>
+      );
+    };
+    const toggle = (container: HTMLElement) =>
+      [...container.querySelectorAll("button")].find(button => button.textContent === "Compare");
+
+    const single = page(false);
+    await vi.waitFor(() => expect(toggle(single)).toBeDefined());
+    expect(single.querySelector('[role="tablist"][aria-label="View"]')).toBeNull();
+    expect(single.querySelector("h1")?.textContent).toBe("Primary");
+    expect(toggle(single)?.getAttribute("aria-pressed")).toBe("false");
+    act(() => toggle(single)?.click());
+    expect(new URLSearchParams(window.location.search).get("compare")).toBe("themes");
+
+    const compared = page(true);
+    await vi.waitFor(() => expect(compared.querySelectorAll("iframe")).toHaveLength(2));
+    expect(compared.querySelector('[role="tablist"][aria-label="View"]')).toBeNull();
+    expect(toggle(compared)?.getAttribute("aria-pressed")).toBe("true");
+  });
 });

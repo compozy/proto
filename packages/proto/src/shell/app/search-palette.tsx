@@ -8,9 +8,9 @@ import { useRegistry } from "../lib/shell-data";
 import { useCommentSearchItems } from "../review/review-ui";
 import { Kbd } from "../ui/kbd";
 import {
-  Blocks,
   BookOpen,
   Columns2,
+  Component,
   Keyboard,
   MessageSquare,
   Monitor,
@@ -35,7 +35,7 @@ const icons: Record<SearchGroup, typeof Monitor> = {
   screens: Monitor,
   states: Monitor,
   flows: Workflow,
-  components: Blocks,
+  components: Component,
   stories: BookOpen,
   comments: MessageSquare,
   actions: Keyboard,

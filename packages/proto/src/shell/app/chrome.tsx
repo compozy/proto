@@ -14,9 +14,9 @@ import { areaOf, type View } from "../lib/view";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Button } from "../ui/button";
 import {
-  Blocks,
   Check,
   Clock,
+  Component,
   Eye,
   Layers,
   LayoutGrid,
@@ -48,7 +48,7 @@ function railItems(t: Translate, stories: boolean): RailItem[] {
         {
           area: "components",
           label: t("rail.components"),
-          icon: Blocks,
+          icon: Component,
           to: { area: "components" },
         },
       ]
@@ -164,7 +164,9 @@ export function ShellTopBar({
   onSearch: () => void;
 }) {
   const t = useT();
-  const { bootstrap } = useShellData();
+  const { bootstrap, registry } = useShellData();
+  // The placeholder names what search finds: components and stories only when the app has them.
+  const stories = registry.status === "ready" && (registry.registry.storyRoots?.length ?? 0) > 0;
   const slots = useSlots();
   const all: Crumb[] = [{ label: bootstrap.title, to: { area: "overview" } }, ...crumbs];
   return (
@@ -219,7 +221,7 @@ export function ShellTopBar({
       >
         <Search className="size-3.5 shrink-0" />
         <span className="hidden flex-1 truncate text-left lg:inline">
-          {t("topbar.searchPlaceholder")}
+          {t(stories ? "topbar.searchPlaceholderStories" : "topbar.searchPlaceholder")}
         </span>
         <KbdGroup className="hidden lg:inline-flex">
           <Kbd>⌘</Kbd>

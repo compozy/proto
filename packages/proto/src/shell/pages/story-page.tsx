@@ -15,7 +15,6 @@ import {
   ShellSubHeader,
   useFocusedTab,
   useInspector,
-  type ViewTab,
 } from "../app/chrome";
 import { Link } from "../app/link";
 import { useSlots, type FrameReviewTarget, type InspectorTab } from "../app/slots";
@@ -30,7 +29,7 @@ import { componentView, type View } from "../lib/view";
 import { CopyablePath, ThemeLabel } from "../screen/inspector-parts";
 import { ViewportControl } from "../screen/viewport-control";
 import { Button } from "../ui/button";
-import { CircleCheck, Info, RotateCcw, TriangleAlert } from "../ui/icons";
+import { CircleCheck, Columns2, Info, RotateCcw, TriangleAlert } from "../ui/icons";
 import { cn } from "../ui/utils";
 
 type ComponentView = Extract<View, { area: "component" }>;
@@ -67,12 +66,13 @@ export function StoryPage({
     const next = file.stories[position + delta];
     if (next) update({ story: next.id, comment: null });
   };
-  const openView = (next: ViewTab) => update({ compare: next === "compare" });
+  // Stories have no Flow or Screens mode: compare is a light/dark toggle on the canvas (S4).
+  const setCompare = (compare: boolean) => update({ compare });
   useShortcuts({
     j: () => step(-1),
     k: () => step(1),
-    "2": () => openView("screen"),
-    "3": () => openView("compare"),
+    "2": () => setCompare(false),
+    "3": () => setCompare(true),
   });
   const frameTarget = {
     kind: "story",
@@ -82,6 +82,7 @@ export function StoryPage({
     theme,
     play: true,
   } as const;
+  /** Frames and their failure cards name the component too; the header names the story only. */
   const title = `${file.title} · ${story.name}`;
   const tabs: InspectorTab[] = [
     {
@@ -97,12 +98,9 @@ export function StoryPage({
   return (
     <>
       <ShellSubHeader
-        title={title}
+        title={story.name}
         status={slots.reviewStatus?.(target)}
         meta={file.file}
-        view={view.compare ? "compare" : "screen"}
-        views={["screen", "compare"]}
-        onView={openView}
         theme={theme}
         panel={inspector.panel}
         menu={slots.reviewMenu?.(target)}
@@ -114,33 +112,38 @@ export function StoryPage({
         >
           {hasModuleMocks(registry, file) && <MockNotice />}
           {view.compare ? (
-            <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 px-6 py-5 xl:gap-8">
-              {(["light", "dark"] as const).map(side => {
-                const width = view.width === "fit" ? 1440 : view.width;
-                return (
-                  <div key={side} className="flex min-h-0 min-w-0 flex-col gap-2.5">
-                    <ScreenFrame
-                      target={{ ...frameTarget, theme: side }}
-                      width={width}
-                      title={`${title} · ${side}`}
-                      slugs={noSlugs}
-                      className="flex-1"
-                      toolbar={(_, frame) => (
-                        <ThemeLabel
-                          theme={side}
-                          aside={
-                            <>
-                              <PlayStatus frame={frame} />
-                              {width}
-                            </>
-                          }
-                        />
-                      )}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <div className="flex shrink-0 items-center justify-end gap-2 px-4 pt-4">
+                <CompareToggle pressed onPressed={setCompare} />
+              </div>
+              <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 px-6 py-5 xl:gap-8">
+                {(["light", "dark"] as const).map(side => {
+                  const width = view.width === "fit" ? 1440 : view.width;
+                  return (
+                    <div key={side} className="flex min-h-0 min-w-0 flex-col gap-2.5">
+                      <ScreenFrame
+                        target={{ ...frameTarget, theme: side }}
+                        width={width}
+                        title={`${title} · ${side}`}
+                        slugs={noSlugs}
+                        className="flex-1"
+                        toolbar={(_, frame) => (
+                          <ThemeLabel
+                            theme={side}
+                            aside={
+                              <>
+                                <PlayStatus frame={frame} />
+                                {width}
+                              </>
+                            }
+                          />
+                        )}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <ScreenFrame
               target={frameTarget}
@@ -153,6 +156,7 @@ export function StoryPage({
                 <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-4">
                   <PlayStatus frame={frame} />
                   <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <CompareToggle pressed={false} onPressed={setCompare} />
                     <ViewportControl
                       width={view.width}
                       fitWidth={geometry.width}
@@ -244,6 +248,31 @@ export function PlayStatus({ frame }: { frame: RenderFrameHandle }) {
   );
 }
 
+/** Light and dark side by side (`compare=themes`), the story page's only view switch. */
+function CompareToggle({
+  pressed,
+  onPressed,
+}: {
+  pressed: boolean;
+  onPressed: (pressed: boolean) => void;
+}) {
+  const t = useT();
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-pressed={pressed}
+      aria-keyshortcuts={pressed ? "2" : "3"}
+      title={t("search.compare")}
+      onClick={() => onPressed(!pressed)}
+      className={cn(pressed && "bg-[var(--shell-primary-soft)] text-[var(--shell-primary-text)]")}
+    >
+      <Columns2 data-icon="inline-start" />
+      {t("views.compare")}
+    </Button>
+  );
+}
+
 /** `sb.mock` / `mocked` in this story file: proto renders the real modules (US-007.EC-1). */
 function MockNotice() {
   const t = useT();
@@ -276,9 +305,11 @@ function StoriesPanel({ file, story }: { file: RegistryStoryFile; story: Registr
             )}
           >
             <span className="truncate font-medium">{item.name}</span>
-            <span className="ml-auto shrink-0 truncate font-mono text-[10px] text-muted-foreground">
-              {item.exportName}
-            </span>
+            {item.exportName !== item.name && (
+              <span className="ml-auto shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+                {item.exportName}
+              </span>
+            )}
           </Link>
         </li>
       ))}

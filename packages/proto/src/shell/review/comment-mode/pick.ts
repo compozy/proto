@@ -69,6 +69,18 @@ export function pinPosition(rect: Rect, box: Box) {
   };
 }
 
+/**
+ * The same clamp for a preview that only knows the normalized rect (the inbox): the pin's
+ * bottom-left corner sits at the anchor's top-left, kept fully inside the preview, so an anchor
+ * at the frame's top edge (a story's root element) still shows its pin.
+ */
+export function previewPinPosition(rect: Rect) {
+  return {
+    left: `clamp(4px, ${rect.x * 100}%, calc(100% - ${pinSize + 4}px))`,
+    top: `clamp(${pinSize + 4}px, ${rect.y * 100}%, calc(100% - 4px))`,
+  };
+}
+
 const composerWidth = 300;
 const composerHeight = 280;
 

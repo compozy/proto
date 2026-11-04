@@ -297,8 +297,11 @@ export function NeedsReview() {
   const locale = useLocale();
   const review = useReviewData();
   const comments = useAllComments().data;
+  const { registry } = useShellData();
   if (!review || !comments) return null;
   const open = comments.filter(item => item.status === "open").sort(byActivity);
+  // Keys read as the inbox reads them (S6): a `story--` key shows the component title and story.
+  const known = registry.status === "ready" ? registry.registry : null;
   return (
     <aside
       aria-label={t("overview.needsReview")}
@@ -315,6 +318,7 @@ export function NeedsReview() {
         {open.slice(0, 50).map(comment => {
           const first = comment.thread[0];
           const replies = comment.thread.length - 1;
+          const subject = describeKey(comment.slug, comment.context.state, known);
           return (
             <li key={comment.id}>
               <Link
@@ -326,7 +330,7 @@ export function NeedsReview() {
                     {commentNumber(comment)}
                   </span>
                   <span className="truncate font-mono">
-                    {comment.slug} · {comment.context.state || "—"}
+                    {subject.title} · {subject.detail || "—"}
                   </span>
                   <span className="ml-auto shrink-0">
                     {relativeTime(comment.updatedAt, locale)}

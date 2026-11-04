@@ -24,7 +24,7 @@ import {
   type StoryTreeNode,
 } from "../lib/story-tree";
 import { componentView } from "../lib/view";
-import { BookOpen, Blocks, ChevronRight, TriangleAlert } from "../ui/icons";
+import { BookOpen, ChevronRight, Component, TriangleAlert } from "../ui/icons";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "../ui/utils";
 import { VirtualTree, type VirtualTreeItem } from "../ui/virtual-tree";
@@ -136,7 +136,7 @@ function TreeRow({
 }) {
   const t = useT();
   const { node } = item;
-  const Icon = node.kind === "component" ? Blocks : node.kind === "story" ? BookOpen : null;
+  const Icon = node.kind === "component" ? Component : node.kind === "story" ? BookOpen : null;
   return (
     <div
       className={cn(
@@ -158,6 +158,11 @@ function TreeRow({
       />
       {Icon && <Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />}
       <span className="min-w-0 truncate">{node.label}</span>
+      {node.detail && (
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+          {node.detail}
+        </span>
+      )}
       {node.kind === "root" && node.children.length === 0 && (
         <span className="ml-auto truncate font-sans text-[11px] tracking-normal normal-case">
           {t("components.emptyRoot")}
@@ -284,6 +289,10 @@ export function ComponentPage({
                     theme,
                   }}
                   title={t("preview.of", { title: story.name })}
+                  // A component reads at half the screen viewport (same 16:10 card): at 1280 a
+                  // button shrinks to a few pixels in a one-third-width card.
+                  width={640}
+                  height={400}
                   order={index}
                 />
               </div>

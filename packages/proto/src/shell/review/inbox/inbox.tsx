@@ -16,10 +16,11 @@ import { specTitle } from "../../lib/registry-model";
 import { useRegistry } from "../../lib/shell-data";
 import { type InboxFilter } from "../../lib/view";
 import { Avatar, AvatarFallback } from "../../ui/avatar";
-import { Blocks, Bot, ExternalLink, Monitor, Workflow } from "../../ui/icons";
+import { Bot, Component, ExternalLink, Monitor, Workflow } from "../../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../../ui/native-select";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { cn } from "../../ui/utils";
+import { previewPinPosition } from "../comment-mode/pick";
 import { useAllComments } from "../data";
 import {
   authorName,
@@ -173,7 +174,7 @@ export function Inbox({ filter, theme }: { filter: InboxFilter; theme: "light" |
                   {first.kind === "flow" ? (
                     <Workflow className="size-3" />
                   ) : first.kind === "story" ? (
-                    <Blocks className="size-3" />
+                    <Component className="size-3" />
                   ) : (
                     <Monitor className="size-3" />
                   )}
@@ -297,7 +298,7 @@ function Detail({ item, theme }: { item: Item; theme: "light" | "dark" }) {
                   <span
                     aria-hidden="true"
                     className="absolute grid size-6 -translate-y-full place-items-center rounded-full rounded-bl-none bg-primary font-mono text-[11px] font-semibold text-primary-foreground shadow-[0_0_0_3px_var(--background),0_0_0_6px_var(--shell-primary-glow)]"
-                    style={{ left: `${rect.x * 100}%`, top: `${rect.y * 100}%` }}
+                    style={previewPinPosition(rect)}
                   >
                     {commentNumber(item.comment)}
                   </span>

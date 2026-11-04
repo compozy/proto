@@ -20,6 +20,11 @@ export type StoryTreeNode = {
   /** The component file of a `component` node and of a `story` node. */
   file: RegistryStoryFile | null;
   story: RegistryStory | null;
+  /**
+   * Set only when a sibling has the same label: the file of a component or the export of a story,
+   * so every row of one level has its own accessible name.
+   */
+  detail: string | null;
   children: StoryTreeNode[];
 };
 
@@ -46,8 +51,27 @@ function sortNodes(nodes: StoryTreeNode[]) {
     .filter(node => node.kind !== "story")
     .sort((a, b) => a.label.localeCompare(b.label));
   nodes.splice(0, nodes.length, ...stories, ...rest);
+  const labels = new Map<string, number>();
+  for (const node of nodes) labels.set(node.label, (labels.get(node.label) ?? 0) + 1);
+  for (const node of nodes) {
+    if ((labels.get(node.label) ?? 0) > 1)
+      node.detail = node.story?.exportName ?? node.file?.file ?? null;
+  }
   for (const node of rest) sortNodes(node.children);
   return nodes;
+}
+
+/**
+ * A title's segments under its root: with roots shown, a first segment that repeats the root's
+ * title (`App` under the `App` root) folds into the root node instead of nesting a twin folder.
+ */
+function pathUnder(file: RegistryStoryFile, rootTitle: string | null) {
+  const path = file.path.length ? file.path : [file.title];
+  const folds =
+    rootTitle !== null &&
+    path.length > 1 &&
+    path[0].localeCompare(rootTitle, undefined, { sensitivity: "accent" }) === 0;
+  return folds ? path.slice(1) : path;
 }
 
 /**
@@ -60,11 +84,15 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
   const files = registry.stories ?? [];
   const byRoot = new Map<string, StoryTreeNode[]>();
   const nodes = new Map<string, StoryTreeNode>();
-  for (const root of roots) byRoot.set(root.id, []);
+  const titles = new Map<string, string>();
+  for (const root of roots) {
+    byRoot.set(root.id, []);
+    titles.set(root.id, root.title);
+  }
   for (const file of files) {
     let siblings = byRoot.get(file.root);
     if (!siblings) continue;
-    const path = file.path.length ? file.path : [file.title];
+    const path = pathUnder(file, roots.length > 1 ? (titles.get(file.root) ?? null) : null);
     for (const [index, segment] of path.entries()) {
       const last = index === path.length - 1;
       let id = pathNodeId(file.root, path.slice(0, index + 1));
@@ -80,6 +108,7 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
           root: file.root,
           file: null,
           story: null,
+          detail: null,
           children: [],
         };
         nodes.set(id, node);
@@ -97,6 +126,7 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
             root: file.root,
             file,
             story,
+            detail: null,
             children: [],
           }))
         );
@@ -112,6 +142,7 @@ export function buildStoryTree(registry: Pick<Registry, "storyRoots" | "stories"
     root: root.id,
     file: null,
     story: null,
+    detail: null,
     children: sortNodes(byRoot.get(root.id) ?? []),
   }));
 }
