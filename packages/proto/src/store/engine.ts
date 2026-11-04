@@ -3,7 +3,7 @@ import { ProtoError } from "../model/errors.ts";
 import {
   authorSchema,
   commitSchema,
-  keySchema,
+  keyOf,
   messageChangeSchema,
   newCommentSchema,
   newMessageSchema,
@@ -34,18 +34,13 @@ export abstract class ReviewEngine {
   protected now() {
     return new Date().toISOString();
   }
-  keyOf(id: string) {
-    const match = /^(.+)-([1-9]\d*)$/.exec(id);
-    if (!match) throw new ProtoError("comment_not_found");
-    return keySchema.parse(match[1]);
-  }
   private comment(file: ReviewFileV3, id: string) {
     const comment = file.comments.find(item => item.id === id);
     if (!comment) throw new ProtoError("comment_not_found");
     return comment;
   }
   async get(id: string) {
-    return this.comment(await this.readFile(this.keyOf(id)), id);
+    return this.comment(await this.readFile(keyOf(id)), id);
   }
   private async message(
     key: string,
@@ -106,7 +101,7 @@ export abstract class ReviewEngine {
     });
   }
   async reply(id: string, input: NewMessage, author: Author) {
-    return this.mutate(this.keyOf(id), async file => {
+    return this.mutate(keyOf(id), async file => {
       const comment = this.comment(file, id);
       comment.thread.push(await this.message(file.key, file, input, author));
       comment.updatedAt = this.now();
@@ -116,7 +111,7 @@ export abstract class ReviewEngine {
   async setStatus(id: string, status: "open" | "resolved", author: Author, note?: NewMessage) {
     z.enum(["open", "resolved"]).parse(status);
     authorSchema.parse(author);
-    return this.mutate(this.keyOf(id), async file => {
+    return this.mutate(keyOf(id), async file => {
       const comment = this.comment(file, id);
       if (comment.status === status) return comment;
       if (note) comment.thread.push(await this.message(file.key, file, note, author));
@@ -129,7 +124,7 @@ export abstract class ReviewEngine {
   async editMessage(id: string, messageId: string, change: MessageChange, author: Author) {
     change = messageChangeSchema.parse(change);
     authorSchema.parse(author);
-    return this.mutate(this.keyOf(id), async file => {
+    return this.mutate(keyOf(id), async file => {
       const comment = this.comment(file, id),
         message = comment.thread.find(item => item.id === messageId);
       if (!message) throw new ProtoError("comment_not_found", "Message not found.");
@@ -157,7 +152,7 @@ export abstract class ReviewEngine {
   }
   async remove(id: string, author: Author) {
     authorSchema.parse(author);
-    await this.mutate(this.keyOf(id), async file => {
+    await this.mutate(keyOf(id), async file => {
       this.comment(file, id);
       file.comments = file.comments.filter(item => item.id !== id);
     });

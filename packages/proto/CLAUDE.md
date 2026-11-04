@@ -33,6 +33,16 @@ The CLI is `bun run proto <command> --app app`.
 - Keep `src/node` out of browser modules. The shell and render host communicate across origins.
   Migrated review history lives in `apps/app/proto/review`; the legacy source remains preserved.
 
+## Temporary sharing
+
+`proto share connect` provisions a per-user Cloudflare setup. `proto share <slug>`, `--flow <id>`
+or `--all` serves only a built snapshot to repeatable `--approver` / `--commenter` invitations.
+`status`, `refresh`, `stop` and `disconnect` support `--json`; start prints once when ready and runs
+until stopped. Press `r` to refresh. Approvers require a clean committed tree; review file edits are
+excluded. `src/share/session.ts` owns the private singleton record, authenticated loopback control,
+FileStore event filtering and tunnel supervision. Share is CLI-only; agents never approve.
+See `docs/proto/share.md` for setup, permissions, safety boundaries and live conformance.
+
 ## Capability delivery
 
 `src/capabilities/catalog.ts` owns CLI names, MCP names, authority and exclusions. Both transports

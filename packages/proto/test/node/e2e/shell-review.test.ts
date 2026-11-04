@@ -2,21 +2,34 @@
  * Review journeys of the shell (`_tests.md` E2E-008, E2E-009, the shell half of IT-029 and
  * IT-002): the shell built from source, `apps/app` on the real `proto dev` with its review store
  * in a temporary directory, agents writing through the real CLI in a separate process, and the
- * real remote review server for the expired-session round trip. Playwright Chromium drives the
- * browser; assertions own the journeys, not serialization (the CLI and store suites own that).
+ * real remote review server for the expired-session round trip, and a real `proto share`
+ * session behind the local TLS harness for the share journeys (proto-share E2E-001, E2E-004).
+ * Playwright Chromium drives the browser; assertions own the journeys, not serialization (the
+ * CLI and store suites own that).
  */
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { NewComment } from "../../../src/model/review.ts";
 import { loadProject } from "../../../src/node/project.ts";
 import { createReviewServer, fileStorage } from "../../../src/server/index.ts";
+import { CloudflareClient } from "../../../src/share/cloudflare.ts";
+import { connect } from "../../../src/share/connection.ts";
+import { startShare, type ShareSession } from "../../../src/share/session.ts";
+import { appFixture } from "../app-fixture.ts";
+import { browserServer } from "../server/harness.ts";
+import { fakeCloudflare, loopbackRequest } from "../share/cloudflare-fixture.ts";
+import { cloudflaredStub } from "../share/cloudflared-stub.ts";
 import {
   buildShell,
   onFreePorts,
+  renderFrame,
   reviewFixture,
   runCli,
   startProtoDev,
@@ -339,4 +352,376 @@ describe("remote review server", () => {
       await new Promise<void>(done => server.close(() => done()));
     }
   }, 90_000);
+});
+
+/**
+ * A real `proto share` session (`startShare`: scoped snapshot build, review server, Access
+ * authorizer, origin adapter, control) for one approver. Substituted only at the network and
+ * process boundaries, as in `test/node/share/session.test.ts`: the fake Cloudflare API, the stub
+ * `cloudflared`, Access signing keys from a test RSA key, and the tunnel itself, which is the
+ * TLS harness of `browserServer` forwarding `proto-test.example.com` and
+ * `proto-test-render.example.com` to the session's origin port. Like Access, it adds a signed
+ * `Cf-Access-Jwt-Assertion` to requests for the shell host only.
+ */
+describe("proto share journeys", () => {
+  const shellHost = "proto-test.example.com";
+  const renderHost = "proto-test-render.example.com";
+  const approver = "ana@example.com";
+  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let workspace: string;
+  let root: string;
+  let scratch: string;
+  let session: ShareSession;
+  let transport: Awaited<ReturnType<typeof browserServer>>;
+  let shareBrowser: Browser;
+  let closeApi: () => Promise<void>;
+  let originPort: () => number;
+  /** While set, new event streams wait for it, so a dropped stream stays down. */
+  let streamsHeld: Promise<void> | null = null;
+  let releaseStreams = () => {};
+
+  function jwt(email: string) {
+    const now = Date.now() / 1000;
+    const data = [
+      { alg: "RS256", kid: "test" },
+      {
+        iss: "https://acme.cloudflareaccess.com",
+        aud: ["audience"],
+        email,
+        nbf: now - 60,
+        exp: now + 3600,
+      },
+    ]
+      .map(value => Buffer.from(JSON.stringify(value)).toString("base64url"))
+      .join(".");
+    return `${data}.${sign("RSA-SHA256", Buffer.from(data), keys.privateKey).toString("base64url")}`;
+  }
+
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+
+  /** Commit a new version of the shared screen; approvers need a committed tree. */
+  function commitVersion(label: string) {
+    writeFileSync(
+      join(root, "src/view.tsx"),
+      `export function View() { return <main data-testid="shared-view"><h1>${label}</h1></main>; }\n`
+    );
+    git("add", "--all");
+    git("commit", "--quiet", "-m", label);
+  }
+
+  /** Hop-by-hop headers stay on their own connection. */
+  const hop = new Set([
+    "connection",
+    "keep-alive",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+    // `fetch` decodes bodies; the browser must receive them as they are relayed.
+    "accept-encoding",
+  ]);
+  async function tunnel(request: Request) {
+    const url = new URL(request.url);
+    if (streamsHeld && url.pathname.endsWith("/api/events")) await streamsHeld;
+    const headers = new Headers();
+    for (const [name, value] of request.headers) if (!hop.has(name)) headers.set(name, value);
+    headers.set("host", url.host);
+    if (url.host === shellHost) headers.set("Cf-Access-Jwt-Assertion", jwt(approver));
+    return loopbackRequest(originPort(), url, {
+      method: request.method,
+      headers,
+      redirect: "manual",
+      ...(["GET", "HEAD"].includes(request.method) ? {} : { body: await request.arrayBuffer() }),
+    });
+  }
+
+  beforeAll(async () => {
+    workspace = appFixture("share-e2e-");
+    root = join(workspace, "apps/app");
+    scratch = mkdtempSync(join(tmpdir(), "proto-share-e2e-"));
+    writeApp(root, {
+      "package.json": JSON.stringify({ private: true, type: "module" }),
+      "proto.config.ts": "export default { title: 'Share journey' };\n",
+      "vite.config.ts":
+        "import react from '@vitejs/plugin-react';\nexport default { plugins: [react()] };\n",
+      "proto.canvas.tsx": "export function Canvas({ children }) { return children; }\n",
+      "src/example.proto.tsx": `import { definePrototype } from "@compozy/proto";
+import { View } from "./view";
+export const meta = definePrototype({ title: "Example", states: [{ id: "default", label: "Default" }] });
+export default View;
+`,
+      "src/private.proto.tsx": `import { definePrototype } from "@compozy/proto";
+export const meta = definePrototype({ title: "Private", states: [{ id: "default", label: "Default" }] });
+export default function Private() { return <main>Not shared</main>; }
+`,
+    });
+    writeFileSync(join(workspace, ".gitignore"), "/node_modules\n");
+    git("init", "--quiet", workspace);
+    git("config", "user.name", "Share journey");
+    git("config", "user.email", "test@example.com");
+    git("config", "commit.gpgsign", "false");
+    git("config", "core.hooksPath", join(scratch, "no-hooks"));
+    commitVersion("Version one");
+
+    const api = await fakeCloudflare();
+    closeApi = () => api.close();
+    const client = new CloudflareClient("api-secret", api.url);
+    const connectionPath = join(scratch, "config/cloudflare.json");
+    await connect({ apiToken: "api-secret", name: "proto-test", path: connectionPath, client });
+    originPort = () => {
+      const config = api.state.ingress as { config: { ingress: { service: string }[] } };
+      return Number(new URL(config.config.ingress[0]!.service).port);
+    };
+    const jwk = { ...keys.publicKey.export({ format: "jwk" }), kid: "test", alg: "RS256" };
+    session = await startShare(
+      await loadProject(root),
+      { target: { kind: "prototype", slug: "example" }, approvers: [approver], commenters: [] },
+      {
+        path: join(scratch, "config/share-session.json"),
+        connectionPath,
+        client,
+        binary: await cloudflaredStub(join(scratch, "cloudflared")),
+        shellDir,
+        // Access keys and the edge: the shell host is behind Access (302), the render host
+        // reaches this session's origin.
+        fetch: async (resource, init) => {
+          const url = new URL(String(resource));
+          if (url.pathname === "/cdn-cgi/access/certs") return Response.json({ keys: [jwk] });
+          if (url.host === shellHost)
+            return new Response(null, {
+              status: 302,
+              headers: { Location: "https://acme.cloudflareaccess.com/cdn-cgi/access/login" },
+            });
+          return loopbackRequest(originPort(), url, init);
+        },
+      }
+    );
+    transport = await browserServer(
+      {
+        root: scratch,
+        handler: tunnel,
+        options: { publicOrigin: "", renderOrigin: "" },
+        rebuild() {},
+      },
+      undefined,
+      { public: shellHost, render: renderHost }
+    );
+    shareBrowser = await transport.launch("chromium");
+  }, 240_000);
+
+  afterAll(async () => {
+    releaseStreams();
+    await shareBrowser?.close();
+    await session?.stop();
+    await transport?.close();
+    await closeApi?.();
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  /** A fresh reviewer page on the share link; `prepare` runs before it navigates. */
+  async function openShare(prepare?: (page: Page) => Promise<unknown>) {
+    const context = await shareBrowser.newContext({
+      ignoreHTTPSErrors: true,
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    await prepare?.(page);
+    await page.goto(session.summary.link, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    return page;
+  }
+
+  const shown = (page: Page, text: string) =>
+    renderFrame(page, `https://${renderHost}`, "[data-testid=shared-view]").then(frame =>
+      frame.getByText(text).waitFor({ timeout: 30_000 })
+    );
+
+  async function reviewStatus() {
+    const result = await runCli(["review", "status", "example", "--app", root, "--json"]);
+    expect(result.code, result.stderr).toBe(0);
+    const body = JSON.parse(result.stdout) as {
+      review?: { events: { type: string; authorId?: string; commit?: string | null }[] };
+      events?: { type: string; authorId?: string; commit?: string | null }[];
+    };
+    return body.review?.events ?? body.events ?? [];
+  }
+
+  /** Start a comment on the shared screen and type `body` without sending it. */
+  async function draft(page: Page, body: string) {
+    const frame = await renderFrame(page, `https://${renderHost}`, "[data-testid=shared-view]");
+    await page.getByTestId("comment-tool").click();
+    await frame.getByTestId("proto-picker").waitFor();
+    const bounds = (await frame.locator("[data-testid=shared-view] h1").boundingBox())!;
+    await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    const composer = page.getByTestId("comment-composer");
+    await composer.waitFor();
+    await composer.getByRole("textbox", { name: "Write a comment…" }).fill(body);
+    return composer;
+  }
+
+  it("E2E-001: open, comment, reply, no credentials, stale approval refused, reload, approve", async () => {
+    // Invariant: a reviewer reaches only the shared screen, converses with the agent, and can
+    // approve only the version on screen, recorded with their email and its commit.
+    // Owner: the share journey across shell, review server and session.
+    const page = await openShare();
+    try {
+      await shown(page, "Version one");
+      expect(await page.getByRole("link", { name: "Private" }).count()).toBe(0);
+
+      const composer = await draft(page, "The heading needs more contrast");
+      await composer.locator('button[type="submit"]').click();
+      const project = await loadProject(root);
+      const stored = async () => (await project.store().list({ key: "example" }))[0]?.id ?? "";
+      await expect.poll(stored).not.toBe("");
+      const id = await stored();
+      const replied = await runCli([
+        "comments",
+        "reply",
+        id,
+        "--note",
+        "Raised the contrast.",
+        "--app",
+        root,
+        "--json",
+      ]);
+      expect(replied.code, replied.stderr).toBe(0);
+      await page.getByRole("tab", { name: /Comments/ }).click();
+      await page.getByText("Raised the contrast.").waitFor({ timeout: 20_000 });
+
+      // US-008.EC-4: a share has no credentials, so Settings has no such section.
+      await page.goto(`https://${shellHost}/?settings=credentials`, {
+        waitUntil: "domcontentloaded",
+      });
+      await page.locator('a[href*="settings=project"]').first().waitFor();
+      expect(await page.locator('a[href*="settings=credentials"]').count()).toBe(0);
+      await page.goto(session.summary.link, { waitUntil: "domcontentloaded" });
+      await shown(page, "Version one");
+
+      // US-005: a refresh reaches the open page as S1; the screen keeps the loaded version.
+      commitVersion("Version two");
+      await session.refresh();
+      const notice = page.getByTestId("session-notice");
+      await notice.getByText("A new version is available.").waitFor({ timeout: 20_000 });
+      await shown(page, "Version one");
+
+      // US-009.AC-2: approving the old version is refused; the dialog does not stay open.
+      const banner = page.getByRole("banner");
+      await banner.getByRole("button", { name: "Approve" }).click();
+      await page.getByRole("button", { name: "Approve anyway" }).click();
+      await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
+      expect(await notice.getAttribute("data-status")).toBe("stale");
+      expect((await reviewStatus()).some(event => event.type === "approved")).toBe(false);
+
+      // Reload keeps the view (the URL) and shows the new version, which approves.
+      await notice.getByRole("button", { name: "Reload" }).click();
+      await shown(page, "Version two");
+      expect(new URL(page.url()).searchParams.get("p")).toBe("example");
+      await banner.getByRole("button", { name: "Approve" }).click();
+      await page.getByRole("button", { name: "Approve anyway" }).click();
+      await banner.getByText("Approved", { exact: true }).waitFor();
+      expect((await reviewStatus()).at(-1)).toMatchObject({
+        type: "approved",
+        authorId: approver,
+        commit: git("rev-parse", "HEAD"),
+      });
+    } finally {
+      await page.context().close();
+    }
+  }, 180_000);
+
+  it("E2E-004: session and version notices after failures, a dropped stream and a lost chunk", async () => {
+    // Invariant: only a failed bootstrap retry ends the session (S4); a missed snapshot event
+    // or a chunk of a replaced version still reaches S1. Owner: shell session watch, end to end.
+    const notice = (page: Page) => page.getByTestId("session-notice");
+    const bootstraps = (page: Page) => {
+      const seen = { count: 0 };
+      page.on("requestfinished", request => {
+        if (request.url().endsWith("/__proto/bootstrap.json")) seen.count += 1;
+      });
+      return seen;
+    };
+
+    // Review API fetches only: the event stream and render tickets keep their own recovery.
+    const api = (url: URL) =>
+      url.host === shellHost &&
+      url.pathname.startsWith("/api/") &&
+      !url.pathname.endsWith("/events") &&
+      !url.pathname.endsWith("/render-ticket");
+
+    // A passing API failure: the bootstrap retry answers, so no notice.
+    let failed = 0;
+    let seen = { count: 0 };
+    const passing = await openShare(async page => {
+      seen = bootstraps(page);
+    });
+    try {
+      await shown(passing, "Version two");
+      const composer = await draft(passing, "Unsent thought");
+      // Fail an explicit write after mounting; cancelled startup queries are not network failures.
+      await passing.route(
+        url => url.host === shellHost && url.pathname === "/api/comments" && !url.search,
+        route => {
+          failed += 1;
+          return route.abort();
+        },
+        { times: 1 }
+      );
+      await composer.locator('button[type="submit"]').click();
+      await expect.poll(() => failed).toBe(1);
+      expect(failed).toBe(1);
+      await expect.poll(() => seen.count).toBeGreaterThanOrEqual(2);
+      await passing.waitForTimeout(500);
+      expect(await notice(passing).count()).toBe(0);
+
+      // The API and the bootstrap retry both fail: S4, warning about the unsent draft.
+      await passing.route(api, route => route.abort());
+      await passing.route(`https://${shellHost}/__proto/bootstrap.json`, route => route.abort());
+      await composer.locator('button[type="submit"]').click();
+      await notice(passing).getByText("This session ended.").waitFor({ timeout: 20_000 });
+      await notice(passing).getByText("Your unsent comment will be lost.").waitFor();
+    } finally {
+      await passing.context().close();
+    }
+
+    // The stream drops across a refresh and reconnects: the missed event becomes S1.
+    const dropped = await openShare();
+    try {
+      await shown(dropped, "Version two");
+      streamsHeld = new Promise<void>(resolve => {
+        releaseStreams = resolve;
+      });
+      transport.dropStreams();
+      commitVersion("Version three");
+      await session.refresh();
+      await dropped.waitForTimeout(500);
+      expect(await notice(dropped).count()).toBe(0);
+      streamsHeld = null;
+      releaseStreams();
+      await notice(dropped).getByText("A new version is available.").waitFor({ timeout: 20_000 });
+    } finally {
+      await dropped.context().close();
+    }
+
+    // A lazy chunk of the loaded version is gone after one refresh: the frame failure is S1.
+    streamsHeld = new Promise<void>(resolve => {
+      releaseStreams = resolve;
+    });
+    const held: Route[] = [];
+    const lost = await openShare(page =>
+      page.route(/\/assets\/example\.proto-[^/]+\.js(\?|$)/, route => {
+        held.push(route);
+      })
+    );
+    try {
+      await expect.poll(() => held.length, { timeout: 30_000 }).toBeGreaterThan(0);
+      commitVersion("Version four");
+      await session.refresh();
+      for (const route of held.splice(0)) await route.continue();
+      await notice(lost).getByText("A new version is available.").waitFor({ timeout: 20_000 });
+    } finally {
+      streamsHeld = null;
+      releaseStreams();
+      await lost.context().close();
+    }
+  }, 240_000);
 });

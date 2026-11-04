@@ -189,6 +189,47 @@ export function formatHuman(
 
   if ("commands" in data)
     return out(["Commands:", ...(data.commands as string[]).map(c => `  proto ${c}`)].join("\n"));
+  if (argv[0] === "share") {
+    if ("domain" in data)
+      return out(
+        `✓ Domain ${String(data.domain)}\n✓ Tunnel, hostnames and Access application ${data.created ? "created" : "connected"}\n\nYour link: ${String(data.link)}`
+      );
+    if ("removed" in data) {
+      const removed = data.removed as string[];
+      if (!removed.length) return out("Nothing to remove.");
+      const resources = [
+        ...(removed.includes("tunnel") ? ["tunnel"] : []),
+        ...(removed.includes("dns")
+          ? [plural(removed.filter(item => item === "dns").length, "hostname")]
+          : []),
+        ...(removed.includes("access_app") ? ["Access application"] : []),
+        ...(removed.includes("local") ? ["local credentials"] : []),
+      ];
+      const last = resources.pop();
+      const kept = (data.kept as string[]).includes("otp_provider")
+        ? "\n! Kept the email-code login: other applications on this Cloudflare organization may use it."
+        : "";
+      return out(
+        `✓ Removed ${resources.length ? resources.join(", ") + " and " : ""}${last}${kept}`
+      );
+    }
+    if ("stopped" in data) return out("✓ Sharing stopped");
+    if ("running" in data) {
+      if (!data.running) return out("Nothing is being shared.");
+      const target = data.target as { kind: string; slug?: string; id?: string };
+      return out(
+        `Sharing ${target.slug ?? target.id ?? "the gallery"} at ${String(data.link)}\nVersion ${short(String(data.snapshot))} · tunnel ${String(data.tunnel)} · ${plural((data.invitees as unknown[]).length, "invitee")}`
+      );
+    }
+    if (!("link" in data))
+      return out(
+        `✓ Snapshot ${short(String(data.snapshot))} (commit ${short(data.commit as string | null)})`
+      );
+    const emails = (data.invitees as { email: string }[]).map(person => person.email).join(", ");
+    return out(
+      `✓ Snapshot ${short(String(data.snapshot))} (commit ${short(data.commit as string | null)})\n✓ Tunnel connected\n\nShare this link with ${emails}:\n\n  ${String(data.link)}\n\nr  publish a new version · Ctrl+C  stop sharing`
+    );
+  }
   switch (command) {
     case "list": {
       const prototypes = data.prototypes as {

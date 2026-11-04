@@ -89,7 +89,8 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
   };
   const events = new ReviewEvents();
   const stopEvents = events.subscribe(event => {
-    if (event.type !== "registry") publish(event.type, { key: event.key });
+    if (event.type === "comments" || event.type === "review")
+      publish(event.type, { key: event.key });
   });
   const store = options.review ? null : project.store();
   if (store)

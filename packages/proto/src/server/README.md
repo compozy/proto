@@ -54,3 +54,24 @@ an incomplete vendored suffix subset. Same-site rendering requires explicit ackn
 Logs contain only route pathname, status, principal kind and elapsed milliseconds. Application
 loggers can consume these through `options.log`. They never receive bodies, cookies, bearer
 values, ticket queries, or credential hashes.
+
+Optional server seams (all preserve existing behavior when omitted):
+
+- `events: ReviewEvents` uses caller-owned fanout. The caller publishes external store changes and
+  owns their subscriptions and teardown. `ReviewNotification` also accepts
+  `{ type: "snapshot", id: string }`, encoded as `event: snapshot` with `data: { id }`.
+  Streams send a `: ping` comment every 25 seconds, stop on abort/cancel, and close slow consumers.
+- `restrictReviewToRegistry: true` confines every review route to served prototype slugs and
+  `flow-<id>` keys. Lists are intersected; outside keys return `comment_not_found`, including
+  render-ticket requests. Router mutations publish only for admitted keys. Callers publishing
+  external store events must apply the same registry key filter before publishing.
+- `disableCredentials: true` makes credential routes return 404 and adds `credentials: false`
+  to the served bootstrap, hiding credential controls. No credential record is created.
+- `requireSnapshot: true` supplies the router's `version` from one read of the live bootstrap.
+  Approval bodies accept optional `snapshot`; when the live id is non-null, a missing or different
+  id returns 409 `snapshot_stale` without a mutation. The same read supplies the stored commit.
+  Reopening needs no id; an absent or null live snapshot preserves ordinary deployed approvals.
+
+`createReviewRouter` also accepts `reviewKeys: () => Promise<ReadonlySet<string>>` and
+`version: () => Promise<{ snapshot: string | null; commit: string | null }>` directly. The
+bootstrap's `snapshot?: string | null` and `credentials?: boolean` fields are additive.

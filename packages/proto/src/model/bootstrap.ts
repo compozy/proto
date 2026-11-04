@@ -18,11 +18,15 @@ export const principalSchema = z.object({
 export type BootstrapPrincipal = z.infer<typeof principalSchema>;
 
 export const bootstrapSchema = z.object({
+  /** false hides bearer credentials (shares); default true. */
+  credentials: z.boolean().optional(),
   mode: z.enum(["dev", "read-only", "remote"]),
   title: z.string(),
   locale: z.enum(["en", "pt-BR"]),
   /** Full 40-hex SHA of the served checkout or build, null outside git. */
   commit: z.string().nullable(),
+  /** Id of the served share version; absent on ordinary galleries. */
+  snapshot: z.string().nullable().optional(),
   /** Base of the review API (`/__proto/api/` in dev, `<basePath>api/` remotely); null read-only. */
   apiBase: z.string().nullable(),
   /** SSE endpoint (`registry`, `comments`, `review` events); null in read-only builds. */

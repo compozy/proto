@@ -39,7 +39,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version-file: .bun-version }
       - run: bun install --frozen-lockfile
-      # Chromium for the Storybook browser tests in each app's `test`.
-      - run: bunx playwright install --with-deps chromium
+      # Chromium for the Storybook browser tests in each app's `test`; WebKit for proto-share E2E-003.
+      - run: bunx playwright install --with-deps chromium webkit
         working-directory: apps/app
       - run: bun run verify

@@ -1,9 +1,16 @@
 /** Review v3 wire and persistence contracts. Pure; shared by all store implementations. */
 import { z } from "zod";
+import { ProtoError } from "./errors.ts";
 import { elementTargetSchema } from "./protocol.ts";
 import { slugPattern } from "./registry.ts";
 export { type ElementTarget, type Rect } from "./protocol.ts";
 export const keySchema = z.string().regex(slugPattern).max(200);
+/** Parse a comment id without reading its review file. */
+export function keyOf(id: string): string {
+  const match = /^(.+)-([1-9]\d*)$/.exec(id);
+  if (!match) throw new ProtoError("comment_not_found");
+  return keySchema.parse(match[1]);
+}
 export const commitSchema = z
   .string()
   .regex(/^[a-f0-9]{40}$/)

@@ -81,7 +81,7 @@ export function ReviewProvider({
   keys: readonly string[];
   children: ReactNode;
 }) {
-  const { bootstrap, events } = useShellData();
+  const { bootstrap, events, session } = useShellData();
   const [expired, setExpired] = useState<{ signInUrl: string | null } | null>(null);
   const client = useQueryClient();
   const [api] = useState<ReviewApi | null>(() => {
@@ -89,6 +89,8 @@ export function ReviewProvider({
       return createReviewApi({
         apiBase: bootstrap.apiBase,
         onAuthRequired: signInUrl => setExpired({ signInUrl: signInUrl ?? bootstrap.signInUrl }),
+        // A share whose API stops answering may have ended (S4); outside a share this is inert.
+        onNetworkError: () => session.failure(),
       });
     }
     if (bootstrap.reviewSnapshotBase)

@@ -57,9 +57,17 @@ const railActive =
 /** Icon rail: areas of the gallery, the app mark on top and the signed-in reviewer at the bottom. */
 export function ShellRail({ view }: { view: View }) {
   const t = useT();
-  const { bootstrap } = useShellData();
+  const { bootstrap, registry } = useShellData();
   const active = areaOf(view);
   const principal = bootstrap.principal;
+  // A share serves only what was shared (S3): areas it leaves empty are absent, not empty pages.
+  const scoped =
+    bootstrap.snapshot != null && registry.status === "ready" ? registry.registry : null;
+  const shown = (area: string) =>
+    !scoped ||
+    (area === "flows"
+      ? scoped.flows.length > 0
+      : area !== "drafts" || scoped.prototypes.some(item => item.kind === "draft"));
   return (
     <nav
       aria-label={t("rail.label")}
@@ -81,16 +89,18 @@ export function ShellRail({ view }: { view: View }) {
             activeClassName={railActive}
           />
         ),
-        <Link
-          key={item.area}
-          to={item.to}
-          aria-label={item.label}
-          title={item.label}
-          aria-current={item.area === active ? "page" : undefined}
-          className={cn(railButton, item.area === active && railActive)}
-        >
-          <item.icon className="size-4" />
-        </Link>,
+        shown(item.area) && (
+          <Link
+            key={item.area}
+            to={item.to}
+            aria-label={item.label}
+            title={item.label}
+            aria-current={item.area === active ? "page" : undefined}
+            className={cn(railButton, item.area === active && railActive)}
+          >
+            <item.icon className="size-4" />
+          </Link>
+        ),
       ])}
       <div className="my-2 h-px w-6 bg-border" />
       <Link

@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import type { ProtoProject } from "./project.ts";
@@ -10,13 +10,22 @@ import { renderPlugins } from "../vite/index.ts";
 import { remoteUrl } from "../store/http-store.ts";
 import { commitAt } from "./dev.ts";
 
-export type BuildOptions = { shellDir?: string; remote?: string };
+export type BuildOptions = {
+  shellDir?: string;
+  remote?: string;
+  /** Absolute output directory; default `<root>/dist-proto`. */
+  output?: string;
+  /** Written to the bootstrap as the version id. */
+  snapshot?: string;
+};
 /** Build offline data and the consumer render graph before exposing any output. */
 export async function buildProject(project: ProtoProject, options: BuildOptions = {}) {
   const remote = options.remote;
   const shellOrigin = remote ? remoteUrl(remote).origin : "";
-  const output = resolve(project.root, "dist-proto");
-  await rm(output, { recursive: true, force: true });
+  if (options.output !== undefined && !isAbsolute(options.output))
+    throw new Error("Build output must be an absolute directory");
+  const output = options.output ?? resolve(project.root, "dist-proto");
+  if (options.output === undefined) await rm(output, { recursive: true, force: true });
   const staging = await mkdtemp(join(project.root, ".proto-build-"));
   try {
     const registry = await project.registry();
@@ -65,6 +74,7 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
       title: project.config.title,
       locale: project.config.locale,
       commit: commitAt(project.root),
+      ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
       apiBase: null,
       eventsUrl: null,
       renderUrl: "__proto/render/index.html",
@@ -110,6 +120,7 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
         );
       }
     }
+    await mkdir(dirname(output), { recursive: true });
     await rename(staging, output);
     return { output, warnings: registry.warnings };
   } finally {

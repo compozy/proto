@@ -235,4 +235,93 @@ describe("Review fetch router", () => {
     expect((await router(request(`comments/${id}`, "DELETE"))).status).toBe(204);
     expect((await router(request(`comments/${id}`))).status).toBe(404);
   });
+  // Invariant: every review endpoint hides keys outside the allowlist, independent of authorization.
+  // Owner: review router; canonical suite: router.test.ts (proto-share IT-008).
+  it("proto-share IT-008: a plain authorizer cannot bypass any key guard", async () => {
+    const author = { kind: "reviewer" as const };
+    const hidden = await h.store.add("flow-sign-in", input, author);
+    const message = hidden.thread[0];
+    expect(message).toBeDefined();
+    if (!message) throw new Error("The hidden comment must have an initial message");
+    await h.store.add("login-form", input, author);
+    const attachment = await h.store.upload(
+      "flow-sign-in",
+      { name: "shot.png", bytes: png },
+      author
+    );
+    router = createReviewRouter({
+      store: h.store,
+      registry: () => registry,
+      authorize: async () => ({ author }),
+      reviewKeys: async () => new Set(["login-form"]),
+      events,
+    });
+    const notifications: unknown[] = [];
+    const stop = events.subscribe(event => notifications.push(event));
+    const cases: [string, string, unknown?][] = [
+      ["comments?key=flow-sign-in", "GET"],
+      ["comments", "POST", { ...input, key: "flow-sign-in" }],
+      [`comments/${hidden.id}`, "GET"],
+      [`comments/${hidden.id}`, "DELETE"],
+      [`comments/${hidden.id}/replies`, "POST", { body: "reply" }],
+      [`comments/${hidden.id}/status`, "PATCH", { status: "resolved" }],
+      [`comments/${hidden.id}/messages/${message.id}`, "PATCH", { body: "edit" }],
+      ["reviews/flow-sign-in", "GET"],
+      ["reviews/flow-sign-in/transitions", "POST", { to: "approved", confirmOpen: true }],
+      [`attachments/flow-sign-in/${attachment.id}`, "GET"],
+      [`attachments/flow-sign-in/${attachment.id}`, "DELETE"],
+      ["attachments?key=flow-sign-in", "POST"],
+    ];
+    for (const [path, method, body] of cases) {
+      const response = await router(request(path, method, body));
+      expect(response.status, `${method} ${path}`).toBe(404);
+      expect(await response.json()).toMatchObject({ error: { code: "comment_not_found" } });
+    }
+    const listed = await (await router(request("comments"))).json();
+    expect(listed.comments.map((comment: { slug: string }) => comment.slug)).toEqual([
+      "login-form",
+    ]);
+    expect(await h.store.get(hidden.id)).toEqual(hidden);
+    expect((await h.store.review("flow-sign-in")).events).toEqual([]);
+    expect((await h.store.readAttachment("flow-sign-in", attachment.id)).bytes).toEqual(png);
+    expect((await router(request("reviews/login-form"))).status).toBe(200);
+    expect(notifications).toEqual([]);
+    stop();
+  });
+  // Invariant: one live version supplies both comparison and stored commit.
+  // Owner: review router; canonical suite: router.test.ts (proto-share UT-017).
+  it("proto-share UT-017: version is read once and null snapshots and reopening need no id", async () => {
+    let reads = 0;
+    let snapshot: string | null = "A";
+    router = createReviewRouter({
+      store: h.store,
+      registry: () => registry,
+      authorize: async () => ({ author: { kind: "reviewer" } }),
+      version: async () => {
+        reads++;
+        return {
+          snapshot: snapshot === null ? null : `${snapshot}${reads}`,
+          commit: (reads === 1 ? "a" : "b").repeat(40),
+        };
+      },
+      commit: () => {
+        throw new Error("version must own the commit");
+      },
+    });
+    const approved = await router(
+      request("reviews/login-form/transitions", "POST", { to: "approved", snapshot: "A1" })
+    );
+    expect(approved.status).toBe(200);
+    expect(reads).toBe(1);
+    expect((await h.store.review("login-form")).events[0]?.commit).toBe("a".repeat(40));
+    expect(
+      (await router(request("reviews/login-form/transitions", "POST", { to: "in_review" }))).status
+    ).toBe(200);
+    snapshot = null;
+    expect(
+      (await router(request("reviews/login-form/transitions", "POST", { to: "approved" }))).status
+    ).toBe(200);
+    expect((await h.store.review("login-form")).events.at(-1)?.commit).toBe("b".repeat(40));
+    expect(reads).toBe(3);
+  });
 });

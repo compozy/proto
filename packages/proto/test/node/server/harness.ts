@@ -274,10 +274,26 @@ export async function httpContract(storage?: ReviewStorage, useHttpStore = false
   };
 }
 
-/** Serve the fetch handler over real TLS for browser cookie-isolation tests. */
+export type Engine = "chromium" | "webkit";
+/** What `browserServer` serves: a `serverHarness`, or any handler with its origins (a share). */
+type Served = {
+  root: string;
+  handler: (request: Request) => Promise<Response>;
+  options: { publicOrigin: string; renderOrigin: string };
+  rebuild(): void;
+};
+
+/**
+ * Serve the fetch handler over real TLS for browser cookie-isolation tests. Without `hosts` the
+ * origins are `gallery.localhost` / `render.localhost` on the server's port. With `hosts` they
+ * are `https://<host>` on port 443, which only a mapped browser reaches: `launch(engine)` maps
+ * them for Chromium with resolver rules, and for WebKit through Playwright's `proxy` and a
+ * local forward proxy, because resolver flags are Chromium arguments (proto-share E2E-003).
+ */
 export async function browserServer(
-  h: Awaited<ReturnType<typeof serverHarness>>,
-  dispatch?: (request: Request) => Promise<Response>
+  h: Served,
+  dispatch?: (request: Request) => Promise<Response>,
+  hosts?: { public: string; render: string }
 ) {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
@@ -301,6 +317,7 @@ export async function browserServer(
     "/CN=gallery.localhost",
   ]);
   const seen: { host: string; cookie: string }[] = [];
+  const streams = new Set<import("node:http").ServerResponse>();
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
     async (req, res) => {
@@ -320,7 +337,9 @@ export async function browserServer(
         if (response.headers.get("content-type")?.includes("text/event-stream")) {
           res.flushHeaders();
           const reader = response.body!.getReader();
+          streams.add(res);
           res.once("close", () => {
+            streams.delete(res);
             void reader.cancel();
           });
           for (;;) {
@@ -341,14 +360,89 @@ export async function browserServer(
   );
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
-  h.options.publicOrigin = `https://gallery.localhost:${port}`;
-  h.options.renderOrigin = `https://render.localhost:${port}`;
+  h.options.publicOrigin = hosts ? `https://${hosts.public}` : `https://gallery.localhost:${port}`;
+  h.options.renderOrigin = hosts ? `https://${hosts.render}` : `https://render.localhost:${port}`;
   h.rebuild();
+  const proxies: { close(): Promise<void> }[] = [];
   return {
     seen,
+    port,
+    /** Destroy the open event streams, as a dropped connection would. */
+    dropStreams() {
+      for (const stream of streams) stream.destroy();
+    },
+    /**
+     * A headless browser of `engine` that reaches this server's origins. `blockThirdPartyCookies`
+     * runs Chromium with third-party cookies blocked (the test switch of Chrome's phase-out).
+     */
+    async launch(engine: Engine = "chromium", options: { blockThirdPartyCookies?: boolean } = {}) {
+      const { chromium, webkit } = await import("playwright");
+      const names = hosts ? [hosts.public, hosts.render] : [];
+      if (engine === "chromium") {
+        return chromium.launch({
+          headless: true,
+          args: [
+            "--no-proxy-server",
+            ...(names.length
+              ? [
+                  `--host-resolver-rules=${names.map(name => `MAP ${name} 127.0.0.1:${port}`).join(",")}`,
+                ]
+              : []),
+            ...(options.blockThirdPartyCookies ? ["--test-third-party-cookie-phaseout"] : []),
+          ],
+        });
+      }
+      if (!names.length) throw new Error("WebKit reaches only mapped hosts; pass hosts.");
+      const proxy = await forwardProxy(names, port);
+      proxies.push(proxy);
+      return webkit.launch({ headless: true, proxy: { server: proxy.url } });
+    },
     async close() {
+      for (const proxy of proxies.splice(0)) await proxy.close();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close(e => (e ? reject(e) : resolve())));
+    },
+  };
+}
+
+/**
+ * A local forward proxy that tunnels `CONNECT <host>:443` for `hosts` to the TLS server on
+ * `port`, so a browser without resolver flags (WebKit) reaches them with real hostnames and
+ * end-to-end TLS. Anything else is refused.
+ */
+async function forwardProxy(hosts: readonly string[], port: number) {
+  const { connect } = await import("node:net");
+  const sockets = new Set<import("node:stream").Duplex>();
+  const proxy = createServer((_request, response) => {
+    response.writeHead(403).end();
+  });
+  proxy.on("connect", (request, client, head) => {
+    const [host, target = "443"] = (request.url ?? "").split(":");
+    if (!hosts.includes(host ?? "") || target !== "443") {
+      client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
+    const upstream = connect(port, "127.0.0.1", () => {
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head.length) upstream.write(head);
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    }
+    upstream.on("error", () => client.destroy());
+    client.on("error", () => upstream.destroy());
+  });
+  await new Promise<void>(resolve => proxy.listen(0, "127.0.0.1", resolve));
+  const address = proxy.address() as { port: number };
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      proxy.closeAllConnections();
+      await new Promise<void>(resolve => proxy.close(() => resolve()));
     },
   };
 }

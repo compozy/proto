@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { version } from "../../package.json";
 import { defineCommand, parseArgs, type ArgsDef } from "citty";
-import { existsSync, readdirSync } from "node:fs";
+import { projectRoot } from "./project-root.ts";
+export { projectRoot } from "./project-root.ts";
 import { resolve, join, dirname, basename } from "node:path";
 import {
   catalog,
@@ -40,34 +41,35 @@ export function commandDefinition(capability: Capability) {
     args,
   };
 }
-export function projectRoot(cwd: string, app?: string) {
-  if (app) {
-    const direct = resolve(cwd, app);
-    if (existsSync(direct)) return direct;
-    const nested = resolve(cwd, "apps", app);
-    if (existsSync(nested)) return nested;
-    throw new ProtoError("invalid_config", `App ${app} does not exist`);
-  }
-  for (let current = resolve(cwd); ; current = dirname(current)) {
-    if (existsSync(join(current, "proto.config.ts"))) return current;
-    if (dirname(current) === current) break;
-  }
-  const apps = join(cwd, "apps");
-  const matches = existsSync(apps)
-    ? readdirSync(apps).filter(name => existsSync(join(apps, name, "proto.config.ts")))
-    : [];
-  if (matches.length === 1) return join(apps, matches[0]!);
-  if (matches.length > 1) throw new ProtoError("app_required");
-  return resolve(cwd);
-}
-export type CliResult = { exitCode: number; data: unknown };
+export type CliResult = { exitCode: number; data: unknown; completion?: Promise<CliResult> };
 export async function runCli(
   argv: string[],
-  options: { cwd?: string; project?: ProtoProject; readToken?: () => Promise<string> } = {}
+  options: {
+    cwd?: string;
+    project?: ProtoProject;
+    readToken?: () => Promise<string>;
+    share?: import("../share/session.ts").ShareRuntime;
+  } = {}
 ): Promise<CliResult> {
   try {
     if (argv.length === 1 && ["--version", "-v"].includes(argv[0]!))
       return { exitCode: 0, data: { version } };
+    if (argv[0] === "share") {
+      const { shareCommand } = await import("../share/cli.ts");
+      const data = await shareCommand(argv.slice(1), options);
+      if (data && typeof data === "object" && "closed" in data) {
+        return {
+          exitCode: 0,
+          data: data.summary,
+          completion: data.closed.then(error =>
+            error
+              ? { exitCode: error.exit ?? 1, data: errorBody(error) }
+              : { exitCode: 0, data: undefined }
+          ),
+        };
+      }
+      return { exitCode: 0, data };
+    }
     if (argv[0] === "auth") {
       const command = `auth ${argv[1] ?? ""}`;
       if (!catalog.some(c => c.cli === command)) throw new UsageError("Unknown auth command");
@@ -230,4 +232,16 @@ if (import.meta.main) {
   if (process.argv.includes("--verbose"))
     console.error(`proto completed in ${Date.now() - started}ms (exit ${result.exitCode})`);
   process.exitCode = result.exitCode;
+  if (result.completion) {
+    const ended = await result.completion;
+    process.exitCode = ended.exitCode;
+    if (ended.data !== undefined) {
+      if (process.argv.includes("--json")) console.error(JSON.stringify(ended.data));
+      else {
+        const { formatHuman } = await import("./human.ts");
+        const output = formatHuman(process.argv.slice(2), ended);
+        if (output.stderr) console.error(output.stderr);
+      }
+    }
+  }
 }

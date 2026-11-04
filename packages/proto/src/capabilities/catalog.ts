@@ -33,6 +33,16 @@ const row = (
   authority,
 });
 export const catalog: readonly Capability[] = [
+  ...[
+    "share",
+    "share connect",
+    "share disconnect",
+    "share status",
+    "share refresh",
+    "share stop",
+  ].map(cli =>
+    row(cli, cli === "share" ? ["slug"] : [], false, "Sharing is CLI-only", "process lifecycle")
+  ),
   row("list"),
   row("check"),
   row("url", ["slug"]),
