@@ -758,6 +758,47 @@ describe("the shell in a share (proto-share S1, S3, S4, S5)", () => {
     expect(FakeSource.all).toHaveLength(2);
   });
 
+  test("S4: a rejected stream whose bootstrap answers without a principal ends the session, no reconnect loop", async () => {
+    // Invariant: when Access forwards but the origin authorizes no one, `bootstrap.json` answers
+    // `principal: null` and the stream is refused; that read counts as failed, so the session
+    // shows S4 instead of reopening the stream at once. Owner: shell data + session watch.
+    class ClosingSource extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 2;
+      static all: ClosingSource[] = [];
+      readyState = ClosingSource.CONNECTING;
+      constructor(readonly url: string | URL) {
+        super();
+        ClosingSource.all.push(this);
+      }
+      close() {
+        this.readyState = ClosingSource.CLOSED;
+      }
+      /** The stream answered `auth_required`, so the browser gives up retrying. */
+      reject() {
+        this.readyState = ClosingSource.CLOSED;
+        this.dispatchEvent(new Event("error"));
+      }
+    }
+    vi.stubGlobal("EventSource", ClosingSource);
+    const env = shareEnv({ eventsUrl: "/__proto/events" });
+    const network = shareNetwork((_call, path) =>
+      path.endsWith("/__proto/bootstrap.json")
+        ? json({ ...env.bootstrap, principal: null })
+        : json({ comments: [] })
+    );
+    const container = mount(env, <SessionNotice />);
+    await vi.waitFor(() => expect(ClosingSource.all).toHaveLength(1));
+    act(() => ClosingSource.all[0]!.reject());
+    await vi.waitFor(() => expect(notice(container)?.dataset.status).toBe("ended"));
+    await act(async () => {});
+    expect(ClosingSource.all).toHaveLength(1);
+    expect(network.calls.filter(call => call.url.endsWith("/__proto/bootstrap.json"))).toHaveLength(
+      1
+    );
+  });
+
   test("S1, S4: a draft that storage refused still confirms Reload and is warned about", async () => {
     // Invariant (ASTRA-006): draft presence follows the mounted composer's in-memory text, not
     // only localStorage, so a refused write keeps the S1 confirmation and the S4 warning.

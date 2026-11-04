@@ -214,12 +214,16 @@ export function ShellDataProvider({
 /** Keep the registry query fresh from SSE while retaining the last successful snapshot on failure. */
 function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNode }) {
   const client = useQueryClient();
+  // A share's bootstrap without a principal means Access forwarded a request the origin did not
+  // authorize: the session is gone even though the read answered, so it counts as a failed read
+  // (otherwise a rejected stream would reconnect at once, forever).
   const [session] = useState(
     () =>
-      new SessionWatch(
-        env.bootstrap.snapshot,
-        async () => (await loadBootstrap()).bootstrap.snapshot ?? null
-      )
+      new SessionWatch(env.bootstrap.snapshot, async () => {
+        const { bootstrap } = await loadBootstrap();
+        if (!bootstrap.principal) throw new Error("bootstrap.json answered without a principal");
+        return bootstrap.snapshot ?? null;
+      })
   );
   // A stream the browser stopped retrying, or one that keeps failing to reconnect, is a session
   // check; a live session reopens a closed stream (one still retrying is left to the browser).
