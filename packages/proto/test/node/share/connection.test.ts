@@ -84,56 +84,46 @@ it("IT-003: invalid token, absent organization and absent domain fail before pro
   await expect(connect(f.options)).rejects.toMatchObject({ code: "cloudflare_no_domain" });
   expect(f.state.tunnels).toHaveLength(0);
 });
-it("IT-003: startup rejects missing resources, altered app settings and foreign policies", async () => {
-  const f = await fixture();
-  await connect(f.options);
-  const c = await f.saved();
-  const changes: (() => () => void)[] = [
-    () => {
-      const saved = f.state.tunnels.splice(0);
-      return () => {
-        f.state.tunnels.push(...saved);
-      };
-    },
-    () => {
-      const saved = f.state.records.splice(0);
-      return () => {
-        f.state.records.push(...saved);
-      };
-    },
-    () => {
-      const saved = f.state.apps.splice(0);
-      return () => {
-        f.state.apps.push(...saved);
-      };
-    },
-    ...[
-      "allowed_idps",
-      "session_duration",
-      "same_site_cookie_attribute",
-      "http_only_cookie_attribute",
-    ].map(field => () => {
-      const saved = f.state.apps[0]![field];
-      f.state.apps[0]![field] = "changed";
-      return () => {
-        f.state.apps[0]![field] = saved;
-      };
-    }),
-    () => {
-      f.state.policies.push({ id: "foreign", name: "Other policy" });
-      return () => {
-        f.state.policies = [];
-      };
-    },
-  ];
-  for (const change of changes) {
-    const restore = change();
+// Invariant: stale resources suggest reconnecting; only foreign policies suggest policy removal.
+// Owner/canonical suite: provisioning at the HTTP boundary, node/share/connection.
+it.each([
+  ["tunnel", "tunnel missing", "Run proto share connect."],
+  ["hostname", "hostname team-review.example.com", "Run proto share connect."],
+  ["application", "application missing", "Run proto share connect."],
+  ["allowed_idps", "application allowed_idps", "Run proto share connect."],
+  ["session_duration", "application session_duration", "Run proto share connect."],
+  [
+    "same_site_cookie_attribute",
+    "application same_site_cookie_attribute",
+    "Run proto share connect.",
+  ],
+  [
+    "http_only_cookie_attribute",
+    "application http_only_cookie_attribute",
+    "Run proto share connect.",
+  ],
+  ["policy", "policy Other policy", "Run proto share connect, or remove that policy."],
+])(
+  "IT-003: startup reports the cause and corrective action for %s",
+  async (resource, cause, action) => {
+    const f = await fixture();
+    await connect(f.options);
+    const c = await f.saved();
+    if (resource === "tunnel") f.state.tunnels = [];
+    else if (resource === "hostname") f.state.records = [];
+    else if (resource === "application") f.state.apps = [];
+    else if (resource === "policy") f.state.policies.push({ id: "foreign", name: "Other policy" });
+    else {
+      const app = f.state.apps[0];
+      if (!app) throw new Error("Expected a provisioned Access application");
+      app[resource] = "changed";
+    }
     await expect(checkConnection(c, f.client)).rejects.toMatchObject({
       code: "share_connection_stale",
+      message: `The Cloudflare setup changed: ${cause}. ${action}`,
     });
-    restore();
   }
-});
+);
 it.each(["team-review.example.com", "team-review-render.example.com"])(
   "IT-004: foreign hostname %s prevents DNS creation",
   async name => {
@@ -282,6 +272,8 @@ it("OPUS-N02: foreign policies are reported after own invitations have been dele
   f.state.policies.push({ id: "own-other", name: "proto-share invitees" });
   await expect(closeInvitations(c, f.client)).rejects.toMatchObject({
     code: "share_connection_stale",
+    message:
+      "The Cloudflare setup changed: policy Dashboard policy. Run proto share connect, or remove that policy.",
   });
   expect(f.state.policies).toEqual([{ id: "foreign", name: "Dashboard policy" }]);
 });

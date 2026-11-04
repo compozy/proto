@@ -279,10 +279,10 @@ export async function disconnect(
   return { removed, kept: ["otp_provider"] };
 }
 const appPath = (c: Connection) => `/accounts/${c.accountId}/access/apps/${c.accessAppId}`;
-function stale(what: string): never {
+function stale(what: string, action = "Run proto share connect."): never {
   throw new ProtoError(
     "share_connection_stale",
-    `The Cloudflare setup changed: ${what}. Run proto share connect, or remove that policy.`
+    `The Cloudflare setup changed: ${what}. ${action}`
   );
 }
 export async function checkConnection(c: Connection, client = new CloudflareClient(c.apiToken)) {
@@ -311,7 +311,8 @@ export async function checkConnection(c: Connection, client = new CloudflareClie
       stale(`application ${field}`);
   const policies = await client.policies(c.accountId, c.accessAppId);
   for (const policy of policies)
-    if (policy.name !== "proto-share invitees") stale(`policy ${policy.name}`);
+    if (policy.name !== "proto-share invitees")
+      stale(`policy ${policy.name}`, "Run proto share connect, or remove that policy.");
 }
 export async function closeInvitations(c: Connection, client = new CloudflareClient(c.apiToken)) {
   const policies = await client.policies(c.accountId, c.accessAppId);
@@ -323,7 +324,7 @@ export async function closeInvitations(c: Connection, client = new CloudflareCli
       )
   );
   const foreign = policies.find(policy => policy.name !== "proto-share invitees");
-  if (foreign) stale(`policy ${foreign.name}`);
+  if (foreign) stale(`policy ${foreign.name}`, "Run proto share connect, or remove that policy.");
 }
 export async function openInvitations(
   c: Connection,

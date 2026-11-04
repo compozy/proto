@@ -53,7 +53,26 @@ it("UT-012: a supported PATH binary wins; an older binary selects the pinned dow
   ).rejects.toMatchObject({ code: "cloudflared_unavailable" });
   expect(requested).toContain("/2026.10.5/cloudflared-linux-amd64");
 });
-it("UT-013: checksum mismatch leaves no downloaded executable or temporary file", async () => {
+// Invariant: acquisition failures preserve their cause and exit code, and clean temporary files.
+// Owner/canonical suite: binary acquisition, node/share/cloudflared.
+it("UT-013: failed download reports its HTTP status and leaves no temporary file", async () => {
+  const cache = await directory();
+  await expect(
+    locateCloudflared({
+      path: "",
+      cache,
+      platform: "linux",
+      arch: "x64",
+      fetch: async () => new Response(null, { status: 503 }),
+    })
+  ).rejects.toMatchObject({
+    code: "cloudflared_unavailable",
+    exit: 3,
+    message: "Download failed: HTTP 503. Install cloudflared and retry.",
+  });
+  expect(await readdir(cache)).toEqual([]);
+});
+it("UT-013: checksum mismatch reports its cause and leaves no downloaded executable or temporary file", async () => {
   const cache = await directory();
   await expect(
     locateCloudflared({
@@ -63,7 +82,11 @@ it("UT-013: checksum mismatch leaves no downloaded executable or temporary file"
       arch: "arm64",
       fetch: async () => new Response("wrong archive"),
     })
-  ).rejects.toMatchObject({ code: "cloudflared_unavailable" });
+  ).rejects.toMatchObject({
+    code: "cloudflared_unavailable",
+    exit: 3,
+    message: "Checksum mismatch. Install cloudflared and retry.",
+  });
   expect(await readdir(cache)).toEqual([]);
 });
 it("sentinel lifetime: closing the parent pipe terminates its connector", async () => {

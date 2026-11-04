@@ -77,12 +77,13 @@ export async function locateCloudflared(
   const asset = cloudflaredAssets[`${platform}-${arch}`];
   if (!asset) throw new ProtoError("cloudflared_unavailable");
   const cache = options.cache ?? join(homedir(), ".cache/compozy-proto");
-  await mkdir(cache, { recursive: true, mode: 0o700 });
   const destination = join(cache, `${cloudflaredVersion}-${platform}-${arch}-${executable}`);
   // Reverify cached downloads too; no unchecked executable is reused.
   const archive = join(cache, `${cloudflaredVersion}-${asset.name}`);
-  const temporary = await mkdtemp(join(cache, ".download-"));
+  let temporary: string | undefined;
   try {
+    await mkdir(cache, { recursive: true, mode: 0o700 });
+    temporary = await mkdtemp(join(cache, ".download-"));
     let bytes: Buffer;
     try {
       bytes = await readFile(archive);
@@ -91,7 +92,7 @@ export async function locateCloudflared(
         `https://github.com/cloudflare/cloudflared/releases/download/${cloudflaredVersion}/${asset.name}`,
         { signal: AbortSignal.timeout(60000) }
       );
-      if (!response.ok) throw new Error("Download failed");
+      if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
       bytes = Buffer.from(await response.arrayBuffer());
     }
     if (createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
@@ -111,10 +112,11 @@ export async function locateCloudflared(
     if (!asset.name.endsWith(".tgz")) await writeFile(archive, bytes, { mode: 0o600 });
     else await rename(downloaded, archive);
     return destination;
-  } catch {
-    throw new ProtoError("cloudflared_unavailable");
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new ProtoError("cloudflared_unavailable", `${cause}. Install cloudflared and retry.`);
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }
 
