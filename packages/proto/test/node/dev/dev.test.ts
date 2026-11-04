@@ -1226,6 +1226,28 @@ it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages",
         exitCode: 1,
         data: { error: { code: "story_not_found" } },
       });
+      // Import failures stay per-story failures even when the preparation page fails.
+      writeFileSync(
+        join(fixture.app, "preview.tsx"),
+        'throw new Error("fixture preview failure");'
+      );
+      expect(
+        await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], {
+          project,
+        })
+      ).toMatchObject({
+        exitCode: 1,
+        data: {
+          summary: { total: 1, passed: 0, failed: 1 },
+          stories: [
+            expect.objectContaining({
+              stage: "import",
+              status: "failed",
+              error: expect.stringContaining("fixture preview failure"),
+            }),
+          ],
+        },
+      });
     });
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -1254,13 +1276,13 @@ it.each(["document", "creation", "relaunch", "pool"] as const)(
             return newPage(options);
           });
         } else {
-          let contexts = 0;
+          let selectedPages = 0;
           browser.on("context", context => {
-            contexts++;
-            if (contexts !== (mode === "pool" ? 2 : 1)) return;
             context.once("page", page => {
               page.once("domcontentloaded", () => {
-                void browser.close();
+                if (!new URL(page.url()).pathname.startsWith("/__proto/story/")) return;
+                selectedPages++;
+                if (selectedPages === (mode === "pool" ? 2 : 1)) void browser.close();
               });
             });
           });
@@ -1375,6 +1397,8 @@ it.each(["first", "later"] as const)(
       unrelatedPassed = resolve;
     });
     let transforms = 0;
+    let sharedPreparations = 0;
+    let heavyAfterShared: number | undefined;
     const siblingResponses: import("node:http").ServerResponse[] = [];
     const gate = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
@@ -1385,6 +1409,7 @@ it.each(["first", "later"] as const)(
         return;
       }
       transforms++;
+      heavyAfterShared = sharedPreparations;
       releaseHeavy = () => response.end("ready");
       enteredHeavy();
     });
@@ -1435,10 +1460,17 @@ it.each(["first", "later"] as const)(
   `
     );
     const terminal: StoryResult[] = [];
-    const starts: { id: string; terminal: string[] }[] = [];
+    const starts: { id: string; terminal: string[]; sharedPreparations: number }[] = [];
     const originalLaunch = chromium.launch.bind(chromium);
     const launch = vi.spyOn(chromium, "launch").mockImplementation(async options => {
       const browser = await originalLaunch(options);
+      browser.on("context", context =>
+        context.on("page", page => {
+          page.on("close", () => {
+            if (new URL(page.url()).pathname === "/__proto/story-warmup") sharedPreparations++;
+          });
+        })
+      );
       const newPage = browser.newPage.bind(browser);
       vi.spyOn(browser, "newPage").mockImplementation(async options => {
         const page = await newPage(options);
@@ -1447,6 +1479,7 @@ it.each(["first", "later"] as const)(
             starts.push({
               id: new URL(request.url()).pathname.split("/").at(-1)!,
               terminal: terminal.map(result => result.story),
+              sharedPreparations,
             });
           }
         });
@@ -1497,6 +1530,9 @@ it.each(["first", "later"] as const)(
         for (const sibling of starts.filter(start => /a-heavy--(second|third)/.test(start.id)))
           expect(sibling.terminal).toContain("a-heavy--first");
         expect(transforms).toBe(1);
+        expect(sharedPreparations).toBe(1);
+        expect(heavyAfterShared).toBe(1);
+        expect(starts.every(start => start.sharedPreparations === 1)).toBe(true);
         expect(siblingResponses).toHaveLength(2);
       });
     } finally {

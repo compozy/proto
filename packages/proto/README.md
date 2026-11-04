@@ -457,7 +457,9 @@ Run JSON contains `summary: { total, passed, failed }` and `stories` rows with `
 `stage` (`import`, `load`, `render`, `play`), `status`, `hasPlay`, `durationMs` and `error`.
 Index problems are reported alongside results; selected stories still run. Exit is 0 when all
 pass, 1 on failure, index problems or an empty selection, and 3 for missing Playwright/Chromium.
-The first selected story in each file warms that module inside the concurrent pool before
+Each selected root first prepares its shared runtime and preview in an isolated document,
+without importing a story file. This preparation uses the pool and cannot replace a story result.
+The first selected story in each file then warms that module inside the concurrent pool before
 its siblings are admitted. Waiting siblings occupy no slots, so unrelated files can run while
 a heavy module loads. Each story keeps its lifecycle timeout and appears once in the results;
 a failed first story keeps its failure row and still releases its siblings.
