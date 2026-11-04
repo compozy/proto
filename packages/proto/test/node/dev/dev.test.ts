@@ -1220,6 +1220,131 @@ it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages",
   }
 }, 180000);
 
+// Invariant: a lost browser or failed page creation yields one row per selection;
+// later stories recover, and a failed relaunch is attempted only once per loss.
+// Owner: IT-015 runner integration, using real Chromium at the Playwright I/O boundary.
+it.each(["document", "creation", "relaunch", "pool"] as const)(
+  "stories IT-015: continues after browser loss at %s",
+  async mode => {
+    const fixture = storiesFixture();
+    const { runStories } = await import("../../../src/node/story-runner.ts");
+    const originalLaunch = chromium.launch.bind(chromium);
+    let launches = 0;
+    const launch = vi.spyOn(chromium, "launch").mockImplementation(async options => {
+      launches++;
+      if (mode === "relaunch" && launches > 1) throw new Error("relaunch unavailable");
+      const browser = await originalLaunch(options);
+      if (launches === 1) {
+        if (mode === "creation") {
+          const newPage = browser.newPage.bind(browser);
+          vi.spyOn(browser, "newPage").mockImplementationOnce(async options => {
+            await browser.close();
+            return newPage(options);
+          });
+        } else {
+          let contexts = 0;
+          browser.on("context", context => {
+            contexts++;
+            if (contexts !== (mode === "pool" ? 2 : 1)) return;
+            context.once("page", page => {
+              page.once("domcontentloaded", () => {
+                void browser.close();
+              });
+            });
+          });
+        }
+      }
+      return browser;
+    });
+    try {
+      await onFreePorts(async port => {
+        const report = await runStories(await loadProject(fixture.app), {
+          root: "app",
+          filter: "ui-button--{primary,plain,network}",
+          concurrency: mode === "pool" ? 1 : 3,
+          port,
+        });
+        expect(report.results.map(row => row.id)).toEqual([
+          "ui-button--primary",
+          "ui-button--plain",
+          "ui-button--network",
+        ]);
+        expect(report.results[mode === "pool" ? 1 : 0]).toMatchObject({
+          status: "failed",
+          stage: "import",
+          error: expect.stringContaining("closed"),
+        });
+        expect(report.results.map(row => row.status)).toEqual(
+          mode === "relaunch"
+            ? ["failed", "failed", "failed"]
+            : mode === "pool"
+              ? ["passed", "failed", "passed"]
+              : ["failed", "passed", "passed"]
+        );
+        if (mode === "relaunch") {
+          for (const row of report.results.slice(1))
+            expect(row).toMatchObject({
+              stage: "import",
+              error: expect.stringContaining("relaunch unavailable"),
+            });
+        }
+        expect(launches).toBe(2);
+        for (const candidate of [port, port + 1, port + 2])
+          await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
+      });
+    } finally {
+      launch.mockRestore();
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  },
+  120000
+);
+
+// Invariant: cold roots finish their first lifecycle before other selected documents fan out.
+// Owner: IT-008/IT-015 runner integration; observe real browser reports, with no timing threshold.
+it("stories IT-008: warms a cold root before the concurrent wave", async () => {
+  const fixture = storiesFixture();
+  const { runStories } = await import("../../../src/node/story-runner.ts");
+  const originalLaunch = chromium.launch.bind(chromium);
+  const terminal: string[] = [];
+  const openedAfter: string[][] = [];
+  const launch = vi.spyOn(chromium, "launch").mockImplementation(async options => {
+    const browser = await originalLaunch(options);
+    const newPage = browser.newPage.bind(browser);
+    vi.spyOn(browser, "newPage").mockImplementation(async options => {
+      openedAfter.push([...terminal]);
+      const page = await newPage(options);
+      const expose = page.exposeFunction.bind(page);
+      vi.spyOn(page, "exposeFunction").mockImplementation(async (name, callback) => {
+        return expose(name, (value: string) => {
+          const result = JSON.parse(value) as StoryResult;
+          if (result.status !== "running") terminal.push(result.story);
+          return callback(value);
+        });
+      });
+      return page;
+    });
+    return browser;
+  });
+  try {
+    await onFreePorts(async port => {
+      const report = await runStories(await loadProject(fixture.app), {
+        root: "app",
+        filter: "ui-button--{primary,plain,network}",
+        concurrency: 3,
+        port,
+      });
+      expect(report.results.map(row => row.status)).toEqual(["passed", "passed", "passed"]);
+      expect(openedAfter).toHaveLength(3);
+      expect(openedAfter[0]).toEqual([]);
+      for (const reports of openedAfter.slice(1)) expect(reports).toContain("ui-button--primary");
+    });
+  } finally {
+    launch.mockRestore();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);
+
 // Invariant: reuse requires project identity; interrupt closes only resources owned by this run.
 // Owner: runner/dev lifecycle integration, including real TCP listeners and process signals.
 it("stories IT-016: refuses another project, reuses its own server and cleans up on SIGINT", async () => {
@@ -1275,6 +1400,51 @@ it("stories IT-016: refuses another project, reuses its own server and cleans up
     rmSync(other.root, { recursive: true, force: true });
   }
 }, 180000);
+
+// Invariant: failed startup releases watchers so port_in_use exits naturally.
+// Owner: IT-016 CLI process lifecycle; real occupied TCP port and Bun child process.
+it.each([0, 2])(
+  "stories IT-016: exits after an occupied port at offset %s",
+  async offset => {
+    const fixture = storiesFixture();
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const sockets = new Set<import("node:net").Socket>();
+    const occupied = createServer(socket => {
+      sockets.add(socket);
+      // The timed-out client may reset this intentionally nonresponsive connection.
+      socket.on("error", error => expect(error).toMatchObject({ code: "ECONNRESET" }));
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>(resolve => occupied.listen(0, "127.0.0.1", resolve));
+    const port = (occupied.address() as import("node:net").AddressInfo).port - offset;
+    try {
+      const outcome = await promisify(execFile)(
+        "bun",
+        [
+          join(import.meta.dirname, "../../../src/cli/main.ts"),
+          "stories",
+          "run",
+          "--root",
+          "app",
+          "--filter",
+          "ui-button--plain",
+          "--port",
+          String(port),
+          "--json",
+        ],
+        { cwd: fixture.app, timeout: 15000 }
+      ).catch(error => error);
+      expect(outcome).toMatchObject({ code: 1, killed: false });
+      expect(JSON.parse(outcome.stdout)).toMatchObject({ error: { code: "port_in_use" } });
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => occupied.close(() => resolve()));
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  },
+  30000
+);
 
 // Invariant: unavailable Chromium maps to the registered dependency exit and closes owned servers.
 // Owner: runner's browser-launch I/O boundary; dev listeners remain real.

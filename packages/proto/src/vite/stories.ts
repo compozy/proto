@@ -21,6 +21,7 @@ export function storyPlugins(
     "virtual:proto/story-runtime",
     "virtual:proto/story-preview",
   ];
+  let stopWatching = () => {};
   return [
     {
       name: "proto:stories",
@@ -49,6 +50,10 @@ export function storyPlugins(
         // Dynamic import keeps preview errors inside the host's import-stage reporter.
         if (id === `\0${ids[3]}`)
           return `export const previewPath = ${JSON.stringify(resolve(dir, root.preview))}; export const loadPreview = () => import(${JSON.stringify(resolve(dir, root.preview))});`;
+      },
+      closeBundle() {
+        // Startup can fail before httpServer ever listens or emits close.
+        stopWatching();
       },
       configureServer(server) {
         const patterns = typeof root.stories === "string" ? [root.stories] : root.stories;
@@ -108,11 +113,12 @@ export function storyPlugins(
           if (module) server.moduleGraph.invalidateModule(module);
           server.ws.send({ type: "full-reload" });
         });
-        server.httpServer?.once("close", () => {
+        stopWatching = () => {
           stop();
           for (const event of ["add", "change", "unlink"] as const)
             server.watcher.off(event, changed);
-        });
+        };
+        server.httpServer?.once("close", stopWatching);
         server.middlewares.use(async (req, res, next) => {
           if (req.method !== "GET" && req.method !== "HEAD") return next();
           let pathname: string;
