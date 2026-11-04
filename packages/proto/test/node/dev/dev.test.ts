@@ -763,10 +763,16 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     );
     await shellPage.waitForFunction(() => document.querySelectorAll("iframe").length === 3);
     for (const frame of shellPage.frames().filter(frame => frame !== shellPage.mainFrame())) {
+      // A failed lifecycle is terminal too: show its stage/error instead of hiding it
+      // behind the browser wait's timeout. IT-009 still requires every frame to pass.
       await frame.waitForFunction(() => {
         const value = document.documentElement.dataset.protoStory;
-        return value && JSON.parse(value).status === "passed";
+        return value && JSON.parse(value).status !== "running";
       });
+      const result = storyResultSchema.parse(
+        await frame.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
+      );
+      expect(result.status, JSON.stringify({ url: frame.url(), ...result })).toBe("passed");
       expect(await frame.locator("button").textContent()).toBe("Mock response");
       expect(await frame.locator("html").getAttribute("data-project-loader")).toBe("1");
     }
