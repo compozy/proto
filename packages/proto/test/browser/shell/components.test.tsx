@@ -17,8 +17,9 @@ import {
   useShellData,
   type ShellEnv,
 } from "../../../src/shell/lib/shell-data.tsx";
+import { go, useLocation } from "../../../src/shell/lib/navigation.ts";
 import { componentView, type View } from "../../../src/shell/lib/view.ts";
-import { ComponentPage } from "../../../src/shell/pages/components.tsx";
+import { ComponentPage, ComponentsArea } from "../../../src/shell/pages/components.tsx";
 import { StoryPage } from "../../../src/shell/pages/story-page.tsx";
 import { VirtualTree, type VirtualTreeItem } from "../../../src/shell/ui/virtual-tree.tsx";
 import { bootstrapFor, storyRegistry } from "../../harness/fixtures.ts";
@@ -137,6 +138,79 @@ describe("component page", () => {
     const { registry } = useShellData();
     return registry.status === "ready" ? children : null;
   }
+
+  test("clicking the selected expanded component collapses it", async () => {
+    // Invariant: clicking the selected expanded component collapses it.
+    // Owner: ComponentsArea; canonical suite: this Components browser suite.
+    const previous = window.location.href;
+    cleanups.push(() => window.history.replaceState(null, "", previous));
+    go(componentView("ui-button"));
+    function Area() {
+      const { view } = useLocation();
+      return (
+        <ComponentsArea
+          slug={view.area === "component" ? view.slug : null}
+          story={view.area === "component" ? view.story : null}
+        >
+          <p>Open page</p>
+        </ComponentsArea>
+      );
+    }
+    const container = mount(
+      <LocaleProvider locale="en">
+        <ShellDataProvider env={env}>
+          <Ready>
+            <Area />
+          </Ready>
+        </ShellDataProvider>
+      </LocaleProvider>
+    );
+    const row = (label: string) => {
+      const item = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find(
+        item => item.textContent === label
+      );
+      if (!item) throw new Error(`No ${label} row`);
+      return item;
+    };
+    await vi.waitFor(() => expect(row("Button").getAttribute("aria-expanded")).toBe("true"));
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("false");
+    expect(row("Button").getAttribute("aria-selected")).toBe("true");
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+
+    // Keyboard disclosure still works without changing the open page.
+    const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+    const press = (key: string) =>
+      act(() => {
+        tree.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+    press("ArrowLeft");
+    expect(row("Button").getAttribute("aria-expanded")).toBe("false");
+    press("ArrowRight");
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+    press("Enter");
+    expect(row("Button").getAttribute("aria-expanded")).toBe("false");
+
+    // Navigating away and back reveals a collapsed target, including deep-linked stories.
+    act(() => go(componentView("ui-card")));
+    expect(row("Card").getAttribute("aria-expanded")).toBe("true");
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+    expect(row("Button").getAttribute("aria-selected")).toBe("true");
+    act(() => go(componentView("ui-button", "ui-button--primary")));
+    expect(row("Primary").getAttribute("aria-selected")).toBe("true");
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+    expect(row("Button").getAttribute("aria-selected")).toBe("true");
+
+    // Opening a story of the collapsed selected component (from its page) reveals that story.
+    act(() => row("Button").click());
+    expect(row("Button").getAttribute("aria-expanded")).toBe("false");
+    act(() => go(componentView("ui-button", "ui-button--primary")));
+    expect(row("Button").getAttribute("aria-expanded")).toBe("true");
+    expect(row("Primary").getAttribute("aria-selected")).toBe("true");
+  });
 
   test("IT-004 thumbnails never run play, and stories failing at render or import fail alone at once", async () => {
     // Invariant: US-003.AC-3, AC-4 and EC-2. Owner: the component page's `Preview` thumbnails.

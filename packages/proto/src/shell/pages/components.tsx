@@ -50,10 +50,12 @@ export function ComponentsArea({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set([...initialExpanded(tree), ...(slug ? revealIds(tree, slug) : [])])
   );
-  // A deep link or another component: expand to it (adjusted during render, no Effect).
-  const [revealed, setRevealed] = useState(slug);
-  if (slug !== revealed) {
-    setRevealed(slug);
+  // A deep link, another component or one of its stories: expand to it (adjusted during
+  // render, no Effect). Collapsing the selected component keeps its destination, so it stays
+  // collapsed until the user opens somewhere else.
+  const [revealed, setRevealed] = useState({ slug, story });
+  if (slug !== revealed.slug || story !== revealed.story) {
+    setRevealed({ slug, story });
     if (slug) setExpanded(current => new Set([...current, ...revealIds(tree, slug)]));
   }
   const toggle = (id: string) =>
@@ -82,7 +84,8 @@ export function ComponentsArea({
     if (node.kind === "story" && node.file && node.story)
       go(componentView(node.file.slug, node.story.id));
     else if (node.kind === "component" && node.file) {
-      if (!expanded.has(node.id)) toggle(node.id);
+      // Only the selected component toggles; a story ancestor still opens its page.
+      if (node.id === selected || !expanded.has(node.id)) toggle(node.id);
       go(componentView(node.file.slug));
     } else if (item.expanded !== null) toggle(node.id);
   };
