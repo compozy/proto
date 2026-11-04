@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { errorBody, ProtoError } from "../model/errors.ts";
 import type { Registry } from "../model/registry.ts";
-import type { ProtoProject } from "../node/project.ts";
+import { loadProject, type ProtoProject } from "../node/project.ts";
 import { ReviewEvents } from "../review/events.ts";
 import { createReviewServer } from "../server/server.ts";
 import { fileStorage } from "../server/file.ts";
@@ -94,7 +94,12 @@ async function control<T>(method: string, route: string, runtime: ShareRuntime):
   return result as T;
 }
 export async function shareStatus(runtime: ShareRuntime = {}): Promise<{ running: false } | (ShareSummary & { running: true; tunnel: string; startedAt: string })> {
-  if (!await active(runtime.path ?? sessionPath())) return { running: false as const };
+  const value = await active(runtime.path ?? sessionPath());
+  if (!value) return { running: false as const };
+  if (!value.controlPort) return {
+    running: true, link: value.url, target: value.target, invitees: value.invitees,
+    snapshot: value.snapshot, commit: value.commit, tunnel: "starting", startedAt: value.startedAt,
+  };
   return control<ShareSummary & { running: true; tunnel: string; startedAt: string }>("GET", "status", runtime);
 }
 export async function refreshShare(runtime: ShareRuntime = {}) {
@@ -206,13 +211,16 @@ export async function startShare(project: ProtoProject, options: ShareOptions, r
   const refresh = () => {
     if (stopping) return Promise.reject(new ProtoError("share_not_running"));
     refreshing ??= (async () => {
-      const next = await buildAndSwap(project, options.target, {
+      const latest = await loadProject(project.root);
+      const next = await buildAndSwap(latest, options.target, {
         remote: `https://${connection!.shellHost}`, approvers: options.approvers.length > 0, shellDir: runtime.shellDir,
       });
       Object.assign(record, { snapshot: next.snapshot, commit: next.commit });
       Object.assign(summary, { snapshot: next.snapshot, commit: next.commit });
-      await save(path, record);
+      // The atomic swap committed this refresh; metadata I/O cannot roll it back.
       events.publish({ type: "snapshot", id: next.snapshot });
+      try { await save(path, record); }
+      catch { notice("The new snapshot is live, but the private session record could not be updated."); }
       return { snapshot: next.snapshot, commit: next.commit };
     })().finally(() => { refreshing = undefined; });
     return refreshing;
@@ -296,7 +304,7 @@ export async function startShare(project: ProtoProject, options: ShareOptions, r
       if (request.headers.authorization !== `Bearer ${record.controlToken}`) { send(401, {}); return; }
       void (async () => {
         if (request.method === "GET" && request.url === "/status") {
-          const tunnel = await client!.tunnel(connection!.accountId, connection!.tunnelId);
+          const tunnel = await client!.tunnel(connection!.accountId, connection!.tunnelId).catch(() => undefined);
           send(200, { running: true, ...summary, tunnel: tunnel?.connections?.length ? "healthy" : "unhealthy", startedAt: record.startedAt });
         } else if (request.method === "POST" && request.url === "/refresh") send(200, await refresh());
         else if (request.method === "POST" && request.url === "/stop") {

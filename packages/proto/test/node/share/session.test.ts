@@ -3,11 +3,11 @@
 // only Cloudflare/Access network I/O and the connector executable are substituted.
 import { execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { createServer, request as httpRequest } from "node:http";
-import { mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { createServer, Server, request as httpRequest } from "node:http";
+import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { runCli } from "../../../src/cli/main.ts";
 import { loadProject } from "../../../src/node/project.ts";
 import { CloudflareClient } from "../../../src/share/cloudflare.ts";
@@ -21,7 +21,7 @@ import { fakeCloudflare } from "./cloudflare-fixture.ts";
 import { cloudflaredStub } from "./cloudflared-stub.ts";
 
 const disposals: (() => Promise<unknown>)[] = [];
-afterEach(async () => { for (const dispose of disposals.splice(0).reverse()) await dispose(); });
+afterEach(async () => { vi.restoreAllMocks(); for (const dispose of disposals.splice(0).reverse()) await dispose(); });
 const pair = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const shellHost = "team-review.example.com", renderHost = "team-review-render.example.com";
 function jwt(email: string) {
@@ -82,7 +82,7 @@ async function fixture() {
   await connect({ apiToken: "api-secret", name: "team-review", path: connectionPath, client });
   const binary = await cloudflaredStub(join(directory, "cloudflared"));
   const activity: ShareActivity[] = [], logs: unknown[] = [], notices: string[] = [], probes: string[] = [];
-  let badProbe = false;
+  let badProbe = false, missingSession = false;
   const port = () => {
     const config = api.state.ingress as { config: { ingress: { service: string }[] } };
     return Number(new URL(config.config.ingress[0]!.service).port);
@@ -95,7 +95,9 @@ async function fixture() {
     }
     if (request.headers.host === shellHost) { response.writeHead(302, { Location: "https://acme.cloudflareaccess.com/cdn-cgi/access/login" }); response.end(); return; }
     const upstream = httpRequest({ hostname: "127.0.0.1", port: port(), path: request.url, headers: { host: renderHost } }, result => {
-      response.writeHead(badProbe ? 502 : result.statusCode!, badProbe ? {} : result.headers); result.pipe(response);
+      const headers = { ...result.headers };
+      if (missingSession) delete headers["x-proto-session"];
+      response.writeHead(badProbe ? 502 : result.statusCode!, badProbe ? {} : headers); result.pipe(response);
     });
     upstream.on("error", () => { response.writeHead(502); response.end(); }); upstream.end();
   });
@@ -114,6 +116,7 @@ async function fixture() {
   disposals.push(async () => { await session?.stop(); });
   return { root, directory, project, git, api, runtime, edgePort, path, activity, logs, notices, probes, port,
     badProbe: () => { badProbe = true; },
+    missingSession: () => { missingSession = true; },
     start: async (approvers = true, target: ShareTarget = { kind: "prototype", slug: "example" }) => {
       session = await startShare(project, { target, approvers: approvers ? ["ana@example.com"] : [], commenters: ["bob@example.com"] }, runtime);
       return session;
@@ -122,6 +125,72 @@ async function fixture() {
     request: (path: string, options: Parameters<typeof origin>[2] = {}) => origin(port(), path, { email: "ana@example.com", ...options }),
   };
 }
+
+async function snapshotEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const part = await reader.read();
+    if (part.done) throw new Error("Stream ended before the snapshot event");
+    buffer += decoder.decode(part.value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      if (frame.split("\n").includes("event: snapshot"))
+        return JSON.parse(frame.split("\n").find(line => line.startsWith("data: "))!.slice(6));
+    }
+  }
+}
+
+// Invariant: refresh certifies current configuration, and a committed swap stays successful
+// even if private metadata cannot be persisted. Owner/canonical suite: node/share/session.
+it("ASTRA-002/003: refresh reloads config and publishes even when the record write fails", async () => {
+  const f = await fixture(); const session = await f.start();
+  await writeFile(join(f.root, "proto.config.ts"), "export default {title:'Refreshed configuration'};");
+  f.git("add", "proto.config.ts"); f.git("commit", "--quiet", "-m", "change config");
+  const stream = await f.request("/api/events"); const reader = stream.body!.getReader();
+  await reader.read();
+  const old = session.summary.snapshot;
+  await chmod(join(f.path, ".."), 0o500);
+  try {
+    const next = await refreshShare(f.runtime);
+    expect(next.snapshot).not.toBe(old);
+    expect(await snapshotEvent(reader)).toEqual({ id: next.snapshot });
+    expect(await shareStatus(f.runtime)).toMatchObject({ snapshot: next.snapshot, commit: next.commit });
+    const bootstrap = await (await f.request("/__proto/bootstrap.json")).json();
+    expect(bootstrap).toMatchObject({ snapshot: next.snapshot });
+    const registry = await (await f.request("/api/registry")).json();
+    expect(registry.title).toBe("Refreshed configuration");
+    expect((await f.record()).snapshot).toBe(old);
+    expect(f.notices).toContain("The new snapshot is live, but the private session record could not be updated.");
+  } finally {
+    await chmod(join(f.path, ".."), 0o700);
+    await reader.cancel();
+  }
+}, 120_000);
+
+// Invariant: status describes a live owner during startup and survives provider outages.
+// Owner/canonical suite: node/share/session.
+it("OPUS-N05: status reports startup and an unhealthy tunnel when the API fails", async () => {
+  const f = await fixture();
+  let release!: () => void, reached!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { reached = resolve; });
+  const fetchEdge = f.runtime.fetch!;
+  f.runtime.fetch = async (resource, init) => {
+    if (String(resource).includes("/cdn-cgi/access/certs")) { reached(); await blocked; }
+    return fetchEdge(resource, init);
+  };
+  const starting = f.start();
+  try {
+    await entered;
+    expect(await shareStatus(f.runtime)).toMatchObject({ running: true, tunnel: "starting" });
+  } finally { release(); }
+  await starting;
+  f.api.state.failures.push({ path: "/cfd_tunnel/", status: 500 });
+  expect(await shareStatus(f.runtime)).toMatchObject({ running: true, tunnel: "unhealthy" });
+}, 120_000);
 
 it("UT-011: missing, dead and reused session pids cannot be controlled", async () => {
   const directory = await mkdtemp(join(tmpdir(), "proto-status-")); disposals.push(() => rm(directory, { recursive: true, force: true }));
@@ -138,6 +207,7 @@ it("UT-011: missing, dead and reused session pids cannot be controlled", async (
 });
 
 it("IT-007/015/017/018: private singleton, policy before ingress, origin readiness and authenticated loopback control", async () => {
+  const listen = vi.spyOn(Server.prototype, "listen");
   const f = await fixture();
   f.api.state.policies.push({ id: "old", name: "proto-share invitees" });
   const session = await f.start(); const record = await f.record();
@@ -150,6 +220,9 @@ it("IT-007/015/017/018: private singleton, policy before ingress, origin readine
   const config = f.api.state.ingress as { config: { ingress: { service: string }[] } };
   expect(config.config.ingress.slice(0, 2).map(item => item.service)).toEqual([`http://127.0.0.1:${f.port()}`, `http://127.0.0.1:${f.port()}`]);
   expect(record.controlPort).not.toBe(f.port());
+  const addresses = listen.mock.contexts.map(server => (server as Server).address()).filter(address => address && typeof address !== "string");
+  for (const port of [f.port(), record.controlPort])
+    expect(addresses).toContainEqual(expect.objectContaining({ address: "127.0.0.1", port }));
   expect((await fetch(`http://127.0.0.1:${record.controlPort}/status`)).status).toBe(401);
   expect((await f.request("/", { host: "evil.example.com" })).status).toBe(403);
   await expect(f.start()).rejects.toMatchObject({ code: "share_session_running" });
@@ -165,7 +238,13 @@ it("IT-008/009/014/020/024/028: isolated live events, verified activity and stal
   const f = await fixture(); const session = await f.start();
   const registry = await (await f.request("/api/registry")).json();
   expect(registry.prototypes.map((item: { slug: string }) => item.slug)).toEqual(["example"]);
-  expect((await f.request("/sign-in", { email: "stranger@example.com" })).status).toBe(403);
+  const denied = await f.request("/", { email: "stranger@example.com" });
+  expect(denied.status).toBe(302);
+  const signIn = new URL(denied.headers.get("location")!, `https://${shellHost}`);
+  const page = await f.request(signIn.pathname + signIn.search, { email: "stranger@example.com" });
+  expect(page.status).toBe(403);
+  expect(await page.text()).toContain("This email was not invited");
+  await denied.body?.cancel();
   const author = { kind: "reviewer" as const, id: "ana@example.com", name: "ana@example.com" };
   const store = f.project.store();
   await store.add("private", input, author);
@@ -188,7 +267,7 @@ it("IT-008/009/014/020/024/028: isolated live events, verified activity and stal
   const updates = await f.request("/api/events"); const updateReader = updates.body!.getReader();
   await updateReader.read();
   const next = await session.refresh();
-  expect(new TextDecoder().decode((await updateReader.read()).value)).toContain(next.snapshot);
+  expect(await snapshotEvent(updateReader)).toEqual({ id: next.snapshot });
   await updateReader.cancel();
   const bootstrap = await (await f.request("/__proto/bootstrap.json")).json();
   expect(bootstrap.snapshot).toBe(next.snapshot); expect(next.snapshot).not.toBe(old);
@@ -233,6 +312,11 @@ it("IT-013/016: timeout prints no session, unexpected connector death closes pol
   const f = await fixture(); f.badProbe();
   await expect(f.start()).rejects.toMatchObject({ code: "share_tunnel_timeout", exit: 4 });
   expect(await shareStatus(f.runtime)).toEqual({ running: false }); expect(f.api.state.policies).toEqual([]);
+  const missing = await fixture(); missing.missingSession();
+  missing.api.state.tunnels[0]!.connections = [{}];
+  await expect(missing.start()).rejects.toMatchObject({ code: "share_tunnel_timeout", exit: 4 });
+  expect(await shareStatus(missing.runtime)).toEqual({ running: false });
+  expect(missing.api.state.policies).toEqual([]);
   const g = await fixture(); const session = await g.start(); const record = await g.record();
   process.kill(record.cloudflaredPid, "SIGTERM");
   expect(await session.closed).toMatchObject({ code: "share_tunnel_lost", exit: 4 });

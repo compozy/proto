@@ -4,6 +4,7 @@ import { once } from "node:events";
 /** Network-boundary fake shared with session integration suites. No production modules are mocked. */
 export async function fakeCloudflare() {
   const state = {
+    tokenStatus: "active",
     accounts: [{ id: "account", name: "Acme" }],
     zones: [{ id: "zone", name: "example.com", account: { id: "account", name: "Acme" } }],
     organization: { auth_domain: "acme.cloudflareaccess.com" } as { auth_domain: string } | null,
@@ -23,15 +24,21 @@ export async function fakeCloudflare() {
     state.calls.push({ method, path, body });
     const send = (result: unknown, status = 200, message = "missing") => {
       response.writeHead(status, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ success: status < 400, result, errors: status < 400 ? [] : [{ message }] }));
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const perPage = Number(url.searchParams.get("per_page") ?? 50);
+      const result_info = Array.isArray(result) ? { total_pages: Math.max(1, Math.ceil(result.length / perPage)) } : undefined;
+      response.end(JSON.stringify({ success: status < 400,
+        result: Array.isArray(result) ? result.slice((page - 1) * perPage, page * perPage) : result,
+        result_info, errors: status < 400 ? [] : [{ message }] }));
     };
     const failure = state.failures[0];
     if (failure && path.includes(failure.path)) {
       state.failures.shift();
+      if (failure.status === 0) { response.destroy(); return; }
       if (failure.retryAfter) response.setHeader("Retry-After", failure.retryAfter);
       send(null, failure.status, failure.message); return;
     }
-    if (path === "/user/tokens/verify") { send({ status: "active" }); return; }
+    if (path === "/user/tokens/verify") { send({ status: state.tokenStatus }); return; }
     if (path === "/accounts") { send(state.accounts); return; }
     if (path === "/zones") { send(state.zones); return; }
     if (path.endsWith("/organizations")) { send(state.organization, state.organization ? 200 : 404); return; }

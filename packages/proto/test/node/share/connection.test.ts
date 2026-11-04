@@ -105,3 +105,35 @@ it("UT-014: 429 honors Retry-After, retries once and surfaces the second failure
   f.state.failures.push({ path: "/verify", status: 429, retryAfter: "0" }, { path: "/verify", status: 429 });
   await expect(f.client.verify()).rejects.toMatchObject({ code: "cloudflare_api_error" });
 });
+
+// Invariants: stop revokes owned policies even with a foreign policy; API retries cannot
+// duplicate creates, and list traversal ends at the provider's final page.
+// Owner/canonical suite: node/share/connection at the Cloudflare network boundary.
+it("OPUS-N02: foreign policies are reported after own invitations have been deleted", async () => {
+  const f = await fixture(); await connect(f.options); const c = await f.saved();
+  f.state.policies.push({ id: "foreign", name: "Dashboard policy" });
+  f.state.policies.push({ id: "own", name: "proto-share invitees" });
+  await expect(closeInvitations(c, f.client)).rejects.toMatchObject({ code: "share_connection_stale" });
+  expect(f.state.policies).toEqual([{ id: "foreign", name: "Dashboard policy" }]);
+});
+it("OPUS-N03: blank and inactive tokens fail before provisioning", async () => {
+  expect(() => new CloudflareClient(" ")).toThrowError(expect.objectContaining({ code: "cloudflare_token_invalid" }));
+  const f = await fixture(); f.state.tokenStatus = "disabled";
+  await expect(connect(f.options)).rejects.toMatchObject({ code: "cloudflare_token_invalid" });
+  expect(f.state.tunnels).toEqual([]);
+});
+it("OPUS-N07: a network failure retries reads once but never repeats a create", async () => {
+  const f = await fixture();
+  f.state.failures.push({ path: "/verify", status: 0 });
+  await f.client.verify();
+  expect(f.state.calls.filter(call => call.path.endsWith("/verify"))).toHaveLength(2);
+  f.state.failures.push({ path: "/cfd_tunnel", status: 0 });
+  await expect(f.client.createTunnel("account", "test")).rejects.toMatchObject({ code: "cloudflare_api_error" });
+  expect(f.state.calls.filter(call => call.method === "POST" && call.path.endsWith("/cfd_tunnel"))).toHaveLength(1);
+});
+it("OPUS-N07: list uses total_pages, including a full final page", async () => {
+  const f = await fixture();
+  f.state.accounts = Array.from({ length: 100 }, (_, id) => ({ id: String(id), name: `Account ${id}` }));
+  expect(await f.client.accounts()).toEqual(f.state.accounts);
+  expect(f.state.calls.filter(call => call.path === "/accounts")).toHaveLength(2);
+});

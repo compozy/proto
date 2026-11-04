@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { ProtoError } from "../model/errors.ts";
 import { loadProject, type ProtoProject } from "../node/project.ts";
-import { projectRoot } from "../cli/main.ts";
+import { projectRoot } from "../cli/project-root.ts";
 import { connect, disconnect, readConnection } from "./connection.ts";
 import { startShare, shareStatus, refreshShare, stopShare, runningShare, type ShareOptions, type ShareRuntime } from "./session.ts";
 

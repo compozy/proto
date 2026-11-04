@@ -55,12 +55,15 @@ bun run proto share disconnect --json
 
 All commands accept `--app` and `--json`. Start prints exactly one JSON object when ready with
 `link`, `target`, `invitees` (`email`, `role`), `snapshot`, and `commit`, then stays silent. Status returns
-`running`, the start fields, `tunnel` (`healthy` or `unhealthy`), and `startedAt`; with no session it
+`running`, the start fields, `tunnel` (`starting`, `healthy` or `unhealthy`), and `startedAt`. During
+startup, link/version fields may still be empty; API failures report an unhealthy tunnel. With no session it
 returns `{ "running": false }`. Refresh returns `{ "snapshot": "…", "commit": "…" }`; stop returns
 `{ "stopped": true }`. Refresh and stop work from another process through a bearer-protected loopback
 control port. They do not require the caller's current directory to be the shared app.
 
-Concurrent refresh requests share one build. A failed build keeps the previous snapshot live.
+Concurrent refresh requests share one build and reload the project configuration. A failed build keeps
+the previous snapshot live. Once the snapshot is swapped, refresh succeeds and notifies reviewers;
+a private session-record write failure produces a notice while status reports the live version.
 Reviewers receive a new-version event and reload before approving; an approval from an older snapshot
 is refused. The open gallery keeps showing the version it loaded and offers "A new version is
 available" with Reload, which keeps the current screen (it asks first when a comment is unsent). It
@@ -127,7 +130,10 @@ Use an isolated test account/zone. It provisions a unique label and removes its 
 application; the organization email-code provider remains. A prebuilt shell is required.
 `PROTO_TEST_CLOUDFLARE_JWT` optionally exercises SSE through the real proxy for over 150 seconds.
 For that phase, prepare a stable test application with `PROTO_TEST_CLOUDFLARE_NAME`, log in to it,
-and supply its unexpired assertion and matching invited email. The suite removes that test setup.
+and supply the unexpired value of its `CF_Authorization` cookie and matching invited email. The
+suite sends that cookie to the Access edge; `Cf-Access-Jwt-Assertion` is the edge-to-origin header,
+not a client login. The suite removes that test setup. When the variable is absent, the authenticated
+SSE phase is skipped; manual login and expiry observations are still required.
 
 Record these manual observations with a real email login: an uninvited address is refused; whether
 `CF_Authorization` is sent to the sibling render host; what a shell fetch receives after temporarily

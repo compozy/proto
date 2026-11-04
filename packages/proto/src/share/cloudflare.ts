@@ -10,6 +10,10 @@ export type AccessApp = {
   same_site_cookie_attribute: string; http_only_cookie_attribute: boolean;
 };
 export type Policy = { id: string; name: string; decision: string };
+type Envelope<T> = {
+  success?: boolean; result?: T; errors?: { message: string }[];
+  result_info?: { total_pages?: number };
+};
 export class CloudflareClient {
   constructor(private readonly token: string, private readonly baseUrl = "https://api.cloudflare.com/client/v4") {
     if (!token.trim()) throw new ProtoError("cloudflare_token_invalid");
@@ -19,13 +23,16 @@ export class CloudflareClient {
     const result: T[] = [];
     for (let page = 1; ; page++) {
       const separator = path.includes("?") ? "&" : "?";
-      const values = await this.request<T[]>("GET", `${path}${separator}per_page=50&page=${page}`);
-      result.push(...values);
-      if (values.length < 50) return result;
+      const envelope = await this.requestEnvelope<T[]>("GET", `${path}${separator}per_page=50&page=${page}`);
+      result.push(...(envelope.result ?? []));
+      if (page >= (envelope.result_info?.total_pages ?? 1)) return result;
     }
   }
 
   async request<T>(method: string, path: string, body?: unknown, missing = false): Promise<T> {
+    return (await this.requestEnvelope<T>(method, path, body, missing)).result as T;
+  }
+  private async requestEnvelope<T>(method: string, path: string, body?: unknown, missing = false): Promise<Envelope<T>> {
     for (let attempt = 0; attempt < 2; attempt++) {
       let response: Response;
       try {
@@ -35,7 +42,7 @@ export class CloudflareClient {
           signal: AbortSignal.timeout(10000), redirect: "error",
         });
       } catch {
-        if (!attempt) continue;
+        if (!attempt && method === "GET") continue;
         throw new ProtoError("cloudflare_api_error", "Cloudflare said: network request failed.");
       }
       if (response.status === 429 && !attempt) {
@@ -45,17 +52,15 @@ export class CloudflareClient {
         await new Promise(resolve => setTimeout(resolve, Math.max(0, Number.isFinite(ms) ? ms : 1000)));
         continue;
       }
-      if (response.status === 404 && missing) return undefined as T;
-      const envelope = await response.json().catch(() => ({})) as {
-        success?: boolean; result?: T; errors?: { message: string }[];
-      };
+      if (response.status === 404 && missing) { await response.body?.cancel(); return {}; }
+      const envelope = await response.json().catch(() => ({})) as Envelope<T>;
       const message = (envelope.errors?.map(error => error.message).join("; ") || response.statusText)
         .split(this.token).join("[redacted]");
       if (response.status === 401 || response.status === 403)
         throw new ProtoError("cloudflare_token_invalid", `The token is invalid or lacks permission: ${message}.`);
       if (!response.ok || envelope.success === false)
         throw new ProtoError("cloudflare_api_error", `Cloudflare said: ${message}.`);
-      return envelope.result as T;
+      return envelope;
     }
     throw new ProtoError("cloudflare_api_error");
   }

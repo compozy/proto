@@ -99,6 +99,16 @@ describe("CLI contracts", { timeout: 30000 }, () => {
     rmSync(root, { recursive: true, force: true });
   });
   const cli = (...args: string[]) => runCli([...args, "--json"], { cwd: root, project });
+  // Invariant: the real CLI entrypoint completes share dispatch without an evaluation cycle.
+  // Owner/canonical suite: CLI contracts; HOME isolates the per-user session record.
+  it("ASTRA-001: the source entrypoint returns share status JSON", () => {
+    const home = join(root, "isolated-home");
+    mkdirSync(home);
+    const output = execFileSync("bun", [resolve(import.meta.dirname, "../../../src/cli/main.ts"), "share", "status", "--json"], {
+      cwd: root, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", timeout: 10_000,
+    });
+    expect(JSON.parse(output)).toEqual({ running: false });
+  });
   // CLI/MCP owns one public result per capability, exercised through the SDK and real adapters.
   it("IT-015: every MCP capability returns the CLI JSON result", async () => {
     const { catalog } = await import("../../../src/capabilities/catalog.ts");

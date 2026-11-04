@@ -146,10 +146,13 @@ export async function checkConnection(c: Connection, client = new CloudflareClie
   for (const policy of policies) if (policy.name !== "proto-share invitees") stale(`policy ${policy.name}`);
 }
 export async function closeInvitations(c: Connection, client = new CloudflareClient(c.apiToken)) {
-  for (const policy of await client.policies(c.accountId, c.accessAppId)) {
-    if (policy.name !== "proto-share invitees") stale(`policy ${policy.name}`);
-    await client.request("DELETE", `${appPath(c)}/policies/${policy.id}`, undefined, true);
+  const policies = await client.policies(c.accountId, c.accessAppId);
+  for (const policy of policies) {
+    if (policy.name === "proto-share invitees")
+      await client.request("DELETE", `${appPath(c)}/policies/${policy.id}`, undefined, true);
   }
+  const foreign = policies.find(policy => policy.name !== "proto-share invitees");
+  if (foreign) stale(`policy ${foreign.name}`);
 }
 export async function openInvitations(c: Connection, emails: readonly string[], client = new CloudflareClient(c.apiToken)) {
   if (!emails.length) throw new ProtoError("share_no_invitees");

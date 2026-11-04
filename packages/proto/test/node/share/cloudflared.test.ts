@@ -2,13 +2,19 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { locateCloudflared, spawnCloudflared } from "../../../src/share/cloudflared.ts";
+import { cloudflaredAssets, locateCloudflared, spawnCloudflared } from "../../../src/share/cloudflared.ts";
 import { cloudflaredStub } from "./cloudflared-stub.ts";
 
 // Invariant owner: binary acquisition and process I/O. Canonical suite: node/share.
 const directories: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 async function directory() { const path = await mkdtemp(join(tmpdir(), "proto-cloudflared-")); directories.push(path); return path; }
+// Invariant: the pinned archive integrity contract uses archive digests, before extraction.
+// Owner: binary acquisition; release metadata checked with GitHub's release-assets API.
+it("OPUS-B01/UT-012: macOS pins identify the published 2026.10.5 archives", () => {
+  expect(cloudflaredAssets["darwin-x64"]).toEqual({ name: "cloudflared-darwin-amd64.tgz", sha256: "6699392fed92367808c248c2d90bed66e49bbf66e1b4ee3e4141230f3f7391b3" });
+  expect(cloudflaredAssets["darwin-arm64"]).toEqual({ name: "cloudflared-darwin-arm64.tgz", sha256: "184c7d4f5f977348243a6d7ca8f6cf6073b9b2746cfe8c1fe15aa59e9a522bf0" });
+});
 it("UT-012: a supported PATH binary wins; an older binary selects the pinned download", async () => {
   const path = await directory(); const cache = await directory();
   const binary = await cloudflaredStub(join(path, "cloudflared"));
@@ -30,9 +36,10 @@ it("sentinel lifetime: closing the parent pipe terminates its connector", async 
   const binary = await cloudflaredStub(join(path, "cloudflared"));
   const report = join(path, "report.json");
   vi.stubEnv("PROTO_STUB_REPORT", report);
+  vi.stubEnv("CLOUDFLARE_API_TOKEN", "account-secret");
   const connector = await spawnCloudflared(binary, "tunnel-secret");
   expect(connector.pid).toBeGreaterThan(0);
-  await expect.poll(async () => JSON.parse(await readFile(report, "utf8"))).toMatchObject({ pid: connector.pid, argv: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:0", "run"] });
+  await expect.poll(async () => JSON.parse(await readFile(report, "utf8"))).toMatchObject({ pid: connector.pid, hasApiToken: false, argv: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:0", "run"] });
   expect(await readFile(report, "utf8")).not.toContain("tunnel-secret");
   await connector.close();
   expect(() => process.kill(connector.pid, 0)).toThrow();

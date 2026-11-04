@@ -36,10 +36,10 @@ it.skipIf(!process.env.PROTO_TEST_CLOUDFLARE_TOKEN)("IT-LIVE-001: real Access fr
     expect(login.status).toBe(302);
     expect(new URL(login.headers.get("location")!).hostname).toContain("cloudflareaccess.com");
     await login.body?.cancel();
-    // Optional operator-supplied Access assertion exercises the real proxy's idle-stream lifetime.
+    // Optional operator-supplied reviewer session exercises the real proxy's idle-stream lifetime.
     const assertion = process.env.PROTO_TEST_CLOUDFLARE_JWT;
     if (assertion) {
-      const stream = await fetch(`${new URL(summary.link).origin}/api/events`, { headers: { "Cf-Access-Jwt-Assertion": assertion }, redirect: "manual" });
+      const stream = await fetch(`${new URL(summary.link).origin}/api/events`, { headers: { Cookie: `CF_Authorization=${assertion}` }, redirect: "manual" });
       expect(stream.status).toBe(200);
       const reader = stream.body!.getReader();
       const deadline = Date.now() + 151_000;

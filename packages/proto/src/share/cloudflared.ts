@@ -11,8 +11,8 @@ const exec = promisify(execFile);
 export const cloudflaredVersion = "2026.10.5";
 // Official release asset digests: https://github.com/cloudflare/cloudflared/releases/tag/2026.10.5
 export const cloudflaredAssets: Record<string, { name: string; sha256: string }> = {
-  "darwin-x64": { name: "cloudflared-darwin-amd64.tgz", sha256: "cb09afb9b4d0a4730de477ac710aebb6107568930a8345775629bf264f70c284" },
-  "darwin-arm64": { name: "cloudflared-darwin-arm64.tgz", sha256: "2b23964528ddcd641c1449275df8b5b51e3c7193b5257919846331bc5bc13b0f" },
+  "darwin-x64": { name: "cloudflared-darwin-amd64.tgz", sha256: "6699392fed92367808c248c2d90bed66e49bbf66e1b4ee3e4141230f3f7391b3" },
+  "darwin-arm64": { name: "cloudflared-darwin-arm64.tgz", sha256: "184c7d4f5f977348243a6d7ca8f6cf6073b9b2746cfe8c1fe15aa59e9a522bf0" },
   "linux-x64": { name: "cloudflared-linux-amd64", sha256: "e1bc0cf084fd9e590554fe769a86b1db46701c3f847a43d902f7b974a4e16298" },
   "linux-arm64": { name: "cloudflared-linux-arm64", sha256: "72e0d05a67e09da87cf495e409a28c3cc5994dd23fc66a982eebea6a55923b7d" },
   "linux-arm": { name: "cloudflared-linux-arm", sha256: "a018911e1bbfd739937f3011f589e9e73245baeee14742f8b3413472bb007adc" },
@@ -95,8 +95,10 @@ process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
 `;
 export async function spawnCloudflared(binary: string, token: string) {
+  const env = { ...process.env };
+  delete env.CLOUDFLARE_API_TOKEN;
   const sentinel = spawn(process.execPath, ["-e", sentinelSource], {
-    detached: true, stdio: ["pipe", "pipe", "ignore"], env: { ...process.env, TUNNEL_TOKEN: token, PROTO_CLOUDFLARED_BINARY: binary },
+    detached: true, stdio: ["pipe", "pipe", "ignore"], env: { ...env, TUNNEL_TOKEN: token, PROTO_CLOUDFLARED_BINARY: binary },
   });
   // The connector may exit before teardown closes its input pipe.
   sentinel.stdin.on("error", () => {});
