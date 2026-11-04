@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Unpublished release-gate comparator. Both inputs use the internal runner's JSON row shape.
+// Unpublished release-gate comparator: public stories run --json reports
+// augmented with revisions (compozy, proto, storybook) and theme.
 // node scripts/stories-parity.mjs baseline.json proto.json
 import { readFileSync } from "node:fs";
 const [baselinePath, protoPath] = process.argv.slice(2);
@@ -14,7 +15,7 @@ const read = path => {
     !input.theme
   )
     throw new Error(`${path}: revisions (compozy, proto, storybook) and theme are required`);
-  const rows = Array.isArray(input.results) ? input.results : [];
+  const rows = Array.isArray(input.stories) ? input.stories : [];
   const map = new Map();
   for (const row of rows) {
     if (

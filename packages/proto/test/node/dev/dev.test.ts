@@ -680,6 +680,7 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     await prototypePage.close();
     expect(primary.statuses.filter(result => result.status !== "running")).toHaveLength(1);
     expect(primary.result).toMatchObject({ status: "passed", stage: "play", hasPlay: true });
+    expect(Number.isInteger(primary.result.durationMs)).toBe(true);
     expect(await primary.page.locator("html").getAttribute("data-before-all")).toBe("1");
     expect(await primary.page.locator("html").getAttribute("data-project-loader")).toBe("1");
     expect(await primary.page.locator("html").getAttribute("data-preview-decorator")).toBe("1");
@@ -727,10 +728,11 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
       ["load-hang", "load"],
       ["late", "play"],
     ]) {
-      const { page, result } = await open(`ui-button--${name}`, true, 1000);
+      const { page, result } = await open(`ui-button--${name}`, true, 10000);
       expect(result).toMatchObject({ stage, status: "failed" });
       if (name === "late") {
-        await page.waitForTimeout(1000);
+        await page.evaluate(() => (window as unknown as { finishLateStory(): void }).finishLateStory());
+        await page.waitForTimeout(100);
         expect(
           await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!).status)
         ).toBe("failed");
@@ -932,6 +934,18 @@ it("refreshes story discovery and reruns edited frames, including syntax recover
     });
     writeFileSync(file, source("Recovered"));
     await page.waitForFunction(() => document.documentElement.dataset.livePlay === "Recovered");
+    const preview = join(fixture.app, "preview.tsx");
+    for (const source of ['sb.mock("fixture-module");', null, 'export {};']) {
+      const previousRevision = project.revision;
+      const updated = readEvent(reader, "event: registry");
+      if (source === null) rmSync(preview);
+      else writeFileSync(preview, source);
+      await updated;
+      expect(project.revision).toBeGreaterThan(previousRevision);
+      const registry = await project.registry();
+      expect(registry.problems.some(problem => problem.code === "story_preview_missing")).toBe(source === null);
+      expect(registry.warnings.some(warning => warning.code === "story_mock_unsupported")).toBe(source?.includes("sb.mock") ?? false);
+    }
     const removed = readEvent(reader, "event: registry");
     rmSync(file);
     await removed;
@@ -1045,7 +1059,7 @@ it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages",
         stories: expect.arrayContaining([
           expect.objectContaining({ id: "ui-button--plain", stage: "render", status: "passed", hasPlay: false, error: null, durationMs: expect.any(Number) }),
           expect.objectContaining({ id: "ui-button--fail", stage: "play", status: "failed" }),
-          expect.objectContaining({ id: "ui-button--load-hang", stage: "load", status: "failed" }),
+          expect.objectContaining({ id: "ui-button--load-hang", stage: "load", status: "failed", error: "Story timed out at load after 10000 ms" }),
         ]),
       } });
       expect(formatHuman(argv, result).stdout).toContain("3 stories: 1 passed, 2 failed");
@@ -1115,6 +1129,42 @@ it("stories IT-015: missing Playwright returns exit 3 and releases ports", async
     });
   } finally {
     launch.mockRestore();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);
+
+// Invariant: a shared HMR compiler error can enrich only this document's rejected import.
+// Owner: real story-host/dev integration, with a clean document paused in beforeAll.
+it("isolates concurrent import failures on the same root", async () => {
+  const fixture = storiesFixture();
+  if (!sharedBrowser) throw new Error("Chromium is required for story host integration");
+  const clean = await sharedBrowser.newPage();
+  const broken = await sharedBrowser.newPage();
+  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+  try {
+    writeFileSync(join(fixture.app, "preview.tsx"), `export const beforeAll = async () => {
+      if (location.search.includes("pause=1")) await new Promise(resolve => { window.resumeStory = resolve; });
+    };`);
+    writeFileSync(join(fixture.app, "src/clean.stories.tsx"), 'export default { title: "Clean" }; export const Default = { render: () => <button>Clean</button> };');
+    writeFileSync(join(fixture.app, "src/broken.stories.tsx"), 'import "./broken-dependency"; export default { title: "Broken" }; export const Default = {};');
+    writeFileSync(join(fixture.app, "src/broken-dependency.ts"), 'export const value = ;');
+    const project = await loadProject(fixture.app);
+    dev = await onFreePorts(port => startDev(project, { port, quiet: true, storyRoots: ["app"] }));
+    const base = dev.storyRoots[0]!.renderUrl;
+    await clean.goto(base + "clean--default?pause=1&timeout=30000");
+    await clean.waitForFunction(() => typeof (window as unknown as { resumeStory: unknown }).resumeStory === "function");
+    await broken.goto(base + "broken--default?timeout=30000");
+    await broken.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed");
+    const failure = await broken.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!));
+    expect(failure).toMatchObject({ stage: "import", status: "failed" });
+    expect(failure.error).toMatch(/Unexpected|Expression expected|Expected|Parse failure/i);
+    expect(await clean.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))).toMatchObject({ stage: "import", status: "running" });
+    await clean.evaluate(() => (window as unknown as { resumeStory(): void }).resumeStory());
+    await clean.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "passed");
+  } finally {
+    await clean.close();
+    await broken.close();
+    await dev?.close();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 120000);

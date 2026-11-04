@@ -103,7 +103,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           };
           options.signal?.addEventListener("abort", abort, { once: true });
           if (options.signal?.aborted) abort();
-          const started = Date.now();
+          let started = Date.now();
           let last: StoryResult = {
             story: item.story.id,
             stage: "import",
@@ -113,14 +113,13 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             durationMs: 0,
           };
           let timedOut = false;
-          const pageDeadline = setTimeout(() => {
-            timedOut = true;
-            void page.close().catch(() => {});
-          }, timeout);
+          const pageBudget = timeout + 5000;
+          let pageDeadline: ReturnType<typeof setTimeout> | undefined;
           try {
             await page.exposeFunction("__protoStoryReport", (value: unknown) => {
               const parsed = storyResultSchema.safeParse(value);
-              if (parsed.success && parsed.data.story === item.story.id) last = parsed.data;
+              if (last.status === "running" && parsed.success && parsed.data.story === item.story.id)
+                last = parsed.data;
             });
             await page.addInitScript(() => {
               new MutationObserver(() => {
@@ -135,19 +134,24 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
                 attributeFilter: ["data-proto-story"],
               });
             });
+            started = Date.now();
+            pageDeadline = setTimeout(() => {
+              timedOut = true;
+              void page.close().catch(() => {});
+            }, pageBudget);
             await page.goto(
               storyHref(renderUrl, {
                 kind: "story",
                 root: item.file.root,
                 slug: item.file.slug,
                 story: item.story.id,
-                theme: options.theme ?? "light",
+                theme: options.theme ?? "dark",
                 play: true,
                 timeout,
               }),
-              { waitUntil: "commit", timeout }
+              { waitUntil: "commit", timeout: pageBudget }
             );
-            const remaining = Math.max(1, timeout - (Date.now() - started));
+            const remaining = Math.max(1, pageBudget - (Date.now() - started));
             await page.waitForFunction(
               () => {
                 const value = document.documentElement.dataset.protoStory;
@@ -156,24 +160,26 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
               undefined,
               { timeout: remaining }
             );
-            last = storyResultSchema.parse(
-              await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
-            );
+            if (last.status === "running")
+              last = storyResultSchema.parse(
+                await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
+              );
           } catch (error) {
             try {
               const value = await page.evaluate(() => document.documentElement.dataset.protoStory);
-              if (value) last = storyResultSchema.parse(JSON.parse(value));
+              if (value && last.status === "running") last = storyResultSchema.parse(JSON.parse(value));
             } catch {
               /* A dead document has no readable result. */
             }
-            last = {
-              ...last,
-              status: "failed",
-              error: timedOut
-                ? `Story timed out at ${last.stage} after ${timeout}ms.`
-                : String(error).slice(0, 4000),
-              durationMs: Date.now() - started,
-            };
+            if (last.status === "running")
+              last = {
+                ...last,
+                status: "failed",
+                error: timedOut || (error instanceof Error && error.name === "TimeoutError")
+                  ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
+                  : String(error).slice(0, 4000),
+                durationMs: Date.now() - started,
+              };
           } finally {
             clearTimeout(pageDeadline);
             options.signal?.removeEventListener("abort", abort);

@@ -17,7 +17,13 @@ declare module "virtual:proto/canvas" {
 }
 
 declare module "virtual:proto/story-config" {
-  export const config: { shellOrigin: string; root: string; themeGlobal: string; staticBuild: boolean };
+  export const config: {
+    shellOrigin: string;
+    dir: string;
+    root: string;
+    themeGlobal: string;
+    staticBuild: boolean;
+  };
 }
 declare module "virtual:proto/story-runtime" {
   export type ComposedStory = ReturnType<typeof import("@storybook/react-vite").composeStory>;
@@ -26,10 +32,12 @@ declare module "virtual:proto/story-runtime" {
   export { within, userEvent } from "storybook/test";
 }
 declare module "virtual:proto/story-preview" {
+  export const previewPath: string;
   export function loadPreview(): Promise<import("@storybook/react-vite").Preview>;
 }
 declare module "virtual:proto/story-entries" {
   export const entries: (import("../model/registry.ts").RegistryStoryFile & {
+    modulePath: string;
     load(): Promise<{ default: import("@storybook/react-vite").Meta } & Record<string, unknown>>;
   })[];
 }

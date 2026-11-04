@@ -816,13 +816,43 @@ describe("stories CLI contracts", () => {
     expect(empty).toEqual({ exitCode: 0, data: { roots: [], stories: [] } });
     expect(formatHuman(["stories", "list"], empty).stdout).toBe("No stories configured.");
   });
-  it("UT-022: requires and validates state before adding a story comment", async () => {
+  it("UT-022 / IT-014: requires state and lists persisted story comments", async () => {
     const add = (...args: string[]) => cli("comments", "add", "story--ui-button", ...args);
     expect(await add()).toMatchObject({ exitCode: 2, data: { error: { code: "invalid_input", message: "--state is required on story keys." } } });
     expect(await add("--state", "ui-badge--default", "--note", "x", "--selector", "button")).toMatchObject({ exitCode: 2, data: { error: { code: "invalid_input" } } });
     expect(await add("--state", "ui-button--primary", "--note", "Ring", "--selector", "button")).toMatchObject({ exitCode: 0, data: { comment: { slug: "story--ui-button", context: { state: "ui-button--primary" } } } });
-    expect(await cli("comments", "list", "--slug", "story--ui-button")).toMatchObject({ exitCode: 0, data: { comments: [{ slug: "story--ui-button" }] } });
+    expect(await cli("comments", "list", "--slug", "story--ui-button")).toMatchObject({ exitCode: 0, data: { comments: [{ slug: "story--ui-button", thread: [expect.objectContaining({ body: "Ring" })], context: { state: "ui-button--primary" } }] } });
     writeFileSync(join(fixture.app, "src/story-foo.proto.tsx"), 'export const meta = {title:"Story foo",states:[{id:"default",label:"Default"}]}; export default function View(){return null}');
     expect(await cli("comments", "add", "story-foo", "--note", "x", "--selector", "button")).toMatchObject({ exitCode: 0, data: { comment: { context: { state: "default" } } } });
   });
+});
+
+// Invariant: release gates consume the public CLI report and allow only the exact load exception.
+// Owner: CLI JSON contract; compare real files through the shipped comparator process.
+it("compares public story run JSON with gate metadata", async () => {
+  const root = appFixture("proto-story-parity-");
+  try {
+    const comparator = resolve(import.meta.dirname, "../../../scripts/stories-parity.mjs");
+    const baseline = join(root, "baseline.json");
+    const candidate = join(root, "candidate.json");
+    const report = (id: string, stage = "render", status = "passed") => ({
+      revisions: { compozy: "consumer", proto: "candidate", storybook: "10.6.3" },
+      theme: "dark", summary: { total: 1, passed: status === "passed" ? 1 : 0, failed: status === "failed" ? 1 : 0 },
+      stories: [{ id, root: "ui", stage, status, hasPlay: false, durationMs: 212, error: status === "failed" ? "failure" : null }],
+    });
+    const compare = () => JSON.parse(execFileSync(process.execPath, [comparator, baseline, candidate], { encoding: "utf8" }));
+    writeFileSync(baseline, JSON.stringify(report("ui-button--primary")));
+    writeFileSync(candidate, JSON.stringify(report("ui-button--primary")));
+    expect(compare()).toMatchObject({ count: 1, violations: [] });
+    writeFileSync(candidate, JSON.stringify(report("ui-button--primary", "load", "failed")));
+    expect(compare).toThrow();
+    const exception = "systems-marketplace-routes-marketplace--logo-generator-failure";
+    writeFileSync(baseline, JSON.stringify(report(exception)));
+    writeFileSync(candidate, JSON.stringify(report(exception, "load", "failed")));
+    expect(compare()).toMatchObject({ count: 1, violations: [] });
+    writeFileSync(candidate, JSON.stringify(report(exception + "-other", "load", "failed")));
+    expect(compare).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

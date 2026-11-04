@@ -493,6 +493,14 @@ roots. Serve the gallery over HTTPS or a loopback HTTP host; stories report a se
 error on other HTTP origins. Existing consumers using `/mockServiceWorker.js` need this preview
 update; proto does not rewrite consumer previews.
 
+Static story assets use the same base as the worker: `static` mounts and `publicDir` assets
+live under `__stories/<root>/`, including the gallery's hosting subpath. Consumers must use
+base-relative URLs, for example
+`new URL("vendor/emojibase/en/data.json", new URL(import.meta.env.BASE_URL, window.location.href))`.
+A hard-coded `/vendor/emojibase/...` or `/fonts/...` requests the gallery origin's root and can
+404 in a static build even when it works on the separate dev origin. proto does not publish
+these assets at the gallery root or rewrite string URLs in consumer code.
+
 Errors: `invalid_input` (exit 2) for unknown roots or missing/invalid comment state;
 `story_not_found` (1) for unknown ids/empty filters; `project_mismatch` (1) for a different
 project on the requested port; `port_in_use` (1); `playwright_missing`, `storybook_missing`

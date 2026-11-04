@@ -66,7 +66,7 @@ export type RegistryProblem = {
   slug?: string;
   flow?: string;
   node?: string;
-  /** `network_import`: the import chain from the prototype or story to the forbidden module. */
+  /** Import chain for `network_import`, or both source files for `story_slug_duplicate`. */
   chain?: string[];
 };
 

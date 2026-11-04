@@ -65,7 +65,9 @@ export const Hang: Story = {
 };
 export const Late: Story = {
   play: async () => {
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => {
+      Object.assign(window, { finishLateStory: resolve });
+    });
   },
 };
 export const LoadHang: Story = {

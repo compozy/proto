@@ -79,16 +79,26 @@ function matches(node: ts.Expression | undefined, name: string) {
 export function mockWarnings(source: string, file: string, root: string): RegistryWarning[] {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let mock = false;
+  let mocked = false;
+  const modules: string[] = [];
   const visit = (node: ts.Node) => {
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.expression.getText(ast) === "sb" &&
       node.expression.name.text === "mock"
-    )
+    ) {
       mock = true;
-    if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === "mocked")
+      const argument = node.arguments[0];
+      const name = argument && ts.isCallExpression(argument)
+        ? text(argument.arguments[0])
+        : text(argument);
+      modules.push(name ?? argument?.getText(ast) ?? "<module>");
+    }
+    if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === "mocked") {
       mock = true;
+      mocked = true;
+    }
     ts.forEachChild(node, visit);
   };
   visit(ast);
@@ -98,7 +108,10 @@ export function mockWarnings(source: string, file: string, root: string): Regist
           code: "story_mock_unsupported",
           root,
           file,
-          message: `${file}: module mocks are not applied`,
+          message: modules.length
+            ? modules.map(name => `sb.mock(${JSON.stringify(name)}) is inert`).join("; ") +
+              (mocked ? " (1 file calls mocked())" : "")
+            : "1 file calls mocked()",
         },
       ]
     : [];
@@ -217,9 +230,7 @@ export function indexStoryFile(source: string, file: string, root: string): Resu
     return result;
   }
   const stories = names.map(exportName => {
-    const explicitId =
-      text(property(field(exportName, "parameters"), "__id")) ??
-      text(property(property(meta, "parameters"), "__id"));
+    const explicitId = text(property(field(exportName, "parameters"), "__id"));
     return {
       id: storyIdentity({ title, id, parameters: { __id: explicitId } }, exportName).id,
       exportName,
@@ -302,26 +313,41 @@ export function indexStories(
       }
       if (saved.result.entry) entries.push(saved.result.entry);
       problems.push(...saved.result.problems);
-      warnings.push(...saved.result.warnings);
+      warnings.push(...saved.result.warnings.map(warning => ({ ...warning })));
     }
   }
   for (const key of cache.keys()) if (!live.has(key)) cache.delete(key);
+  for (const root of roots) {
+    const rootWarnings = warnings.filter(
+      warning => warning.root === root.id && warning.code === "story_mock_unsupported"
+    );
+    const callers = rootWarnings.filter(
+      warning => warning.message.includes("1 file calls mocked()")
+    ).length;
+    for (const warning of rootWarnings)
+      if (warning.message.includes("sb.mock("))
+        warning.message = warning.message.replace(" (1 file calls mocked())", "") +
+          ` (${callers} ${callers === 1 ? "file calls" : "files call"} mocked())`;
+  }
   const bad = new Set<RegistryStoryFile>();
+  const titles = new Map<string, RegistryStoryFile>();
   const slugs = new Map<string, RegistryStoryFile>(),
     ids = new Map<string, RegistryStoryFile>();
   for (const entry of entries) {
-    const previous = slugs.get(entry.slug);
-    if (previous) {
+    for (const previous of new Set([slugs.get(entry.slug), titles.get(entry.title)])) {
+      if (!previous) continue;
       bad.add(entry);
       bad.add(previous);
       problems.push({
         code: "story_slug_duplicate",
         root: entry.root,
         file: entry.file,
-        message: `Duplicate slug ${entry.slug}: ${previous.root}/${previous.file} and ${entry.root}/${entry.file}`,
+        message: `Slug ${entry.slug} comes from two files.`,
+        chain: [`${previous.root}/${previous.file}`, `${entry.root}/${entry.file}`],
       });
     }
     slugs.set(entry.slug, entry);
+    titles.set(entry.title, entry);
     for (const story of entry.stories) {
       const previous = ids.get(story.id);
       if (previous) {

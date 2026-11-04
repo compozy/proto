@@ -68,4 +68,13 @@ Static workers stay scoped to `__stories/<root>/`, away from the gallery shell a
 Do not serve them with a broader `Service-Worker-Allowed` header. Use HTTPS or loopback HTTP;
 other HTTP hosts report that service workers need a secure context. Consumers with a hard-coded
 `/mockServiceWorker.js` must update their own preview; proto leaves previews unchanged.
+
+Static story assets use the same base as the worker: `static` mounts and `publicDir` assets
+live under `__stories/<root>/`, including the gallery's hosting subpath. Consumers must use
+base-relative URLs, for example
+`new URL("vendor/emojibase/en/data.json", new URL(import.meta.env.BASE_URL, window.location.href))`.
+A hard-coded `/vendor/emojibase/...` or `/fonts/...` requests the gallery origin's root and can
+404 in a static build even when it works on the separate dev origin. proto does not publish
+these assets at the gallery root or rewrite string URLs in consumer code.
+
 This repository's app adoption is a separate decision.

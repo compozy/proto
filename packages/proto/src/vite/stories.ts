@@ -32,7 +32,7 @@ export function storyPlugins(
       },
       async load(id) {
         if (id === `\0${ids[0]}`)
-          return `export const config = { ...${JSON.stringify({ shellOrigin, root: root.id, themeGlobal: root.themeGlobal ?? "theme", staticBuild })}${staticBuild ? ", shellOrigin: window.location.origin" : ""} };`;
+          return `export const config = { ...${JSON.stringify({ shellOrigin, dir, root: root.id, themeGlobal: root.themeGlobal ?? "theme", staticBuild })}${staticBuild ? ", shellOrigin: window.location.origin" : ""} };`;
         if (id === `\0${ids[1]}`) {
           const registry = await project.registry();
           const entries = (registry.stories ?? []).filter(entry => entry.root === root.id);
@@ -40,7 +40,7 @@ export function storyPlugins(
           return `export const entries = [${entries
             .map(
               entry =>
-                `({...${JSON.stringify(entry)}, load: () => import(${JSON.stringify(resolve(dir, entry.file))})})`
+                `({...${JSON.stringify({ ...entry, modulePath: resolve(dir, entry.file) })}, load: () => import(${JSON.stringify(resolve(dir, entry.file))})})`
             )
             .join(",")}];`;
         }
@@ -48,14 +48,15 @@ export function storyPlugins(
           return `export { composeStories, setProjectAnnotations } from "@storybook/react-vite"; export { addons, mockChannel } from "storybook/preview-api"; export { within, userEvent } from "storybook/test";`;
         // Dynamic import keeps preview errors inside the host's import-stage reporter.
         if (id === `\0${ids[3]}`)
-          return `export const loadPreview = () => import(${JSON.stringify(resolve(dir, root.preview))});`;
+          return `export const previewPath = ${JSON.stringify(resolve(dir, root.preview))}; export const loadPreview = () => import(${JSON.stringify(resolve(dir, root.preview))});`;
       },
       configureServer(server) {
         const patterns = typeof root.stories === "string" ? [root.stories] : root.stories;
         const authored = (file: string) =>
           patterns.some(pattern => matchesGlob(file, resolve(dir, pattern)));
         const changed = (file: string) => {
-          if (authored(file)) project.invalidateStories(root.id, [file]);
+          if (file === resolve(dir, root.preview) || authored(file))
+            project.invalidateStories(root.id, [file]);
         };
         // Watch directories too: new files do not yet belong to Vite's module graph.
         server.watcher.add(dir);

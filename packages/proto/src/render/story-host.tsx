@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { config } from "virtual:proto/story-config";
 import { entries } from "virtual:proto/story-entries";
-import { loadPreview } from "virtual:proto/story-preview";
+import { loadPreview, previewPath } from "virtual:proto/story-preview";
 import {
   composeStories,
   setProjectAnnotations,
@@ -35,7 +35,34 @@ const timeout = Math.min(
 let stage: StoryStage = "import";
 let hasPlay: boolean | null = null;
 let terminal = false;
-let compilerError: string | null = null;
+const compilerErrors: { files: string[]; message: string }[] = [];
+let importedFile = "";
+function modulePath(value: string) {
+  try {
+    const path = decodeURIComponent(new URL(value, window.location.href).pathname);
+    if (path.startsWith("/@fs/")) return path.slice(4);
+    return /^https?:/.test(value) ? config.dir + path : path;
+  } catch {
+    return value.split("?")[0]!;
+  }
+}
+async function importMessage(error: unknown) {
+  const message = messageOf(error);
+  // A rejection can name a transitive module rather than the requested entry.
+  const rejected = new Set(
+    [importedFile, ...(message.match(/(?:https?:\/\/|\/)[^\s"'<>]+/g) ?? [])].map(modulePath)
+  );
+  const matching = () => compilerErrors.find(error => error.files.some(file => rejected.has(file)));
+  const generic = /(?:dynamically imported module|Importing a module script|Failed to fetch)/i.test(
+    message
+  );
+  if (!matching() && generic && import.meta.hot) {
+    // HTTP rejection and the HMR error use different sockets. Neither is ordered first.
+    const remaining = Math.max(0, Math.min(500, timeout - (performance.now() - started) - 1));
+    await new Promise(resolve => setTimeout(resolve, remaining));
+  }
+  return matching()?.message ?? message;
+}
 function report(status: StoryResult["status"], error: string | null = null) {
   if (terminal) return;
   terminal = status !== "running";
@@ -45,13 +72,16 @@ function report(status: StoryResult["status"], error: string | null = null) {
     status,
     hasPlay,
     error: error?.slice(0, 4000) ?? null,
-    durationMs: performance.now() - started,
+    durationMs: Math.round(performance.now() - started),
   };
   document.documentElement.dataset.protoStory = JSON.stringify(result);
   bridge.post({ type: "story:status", ...result });
   if (terminal) clearTimeout(deadline);
 }
-const deadline = setTimeout(() => report("failed", `Story timed out after ${timeout} ms`), timeout);
+const deadline = setTimeout(
+  () => report("failed", `Story timed out at ${stage} after ${timeout} ms`),
+  timeout
+);
 function enter(next: StoryStage) {
   stage = next;
   report("running");
@@ -81,8 +111,12 @@ function setupUserEvent() {
 }
 if (import.meta.hot) {
   import.meta.hot.on("vite:error", payload => {
-    compilerError = payload.err.message;
-    if (stage === "import") report("failed", compilerError);
+    compilerErrors.push({
+      files: [payload.err.id, payload.err.loc?.file]
+        .filter((file): file is string => !!file)
+        .map(modulePath),
+      message: payload.err.message,
+    });
   });
 }
 async function run() {
@@ -93,6 +127,7 @@ async function run() {
     if (!entry || !indexed) throw new Error(`Unknown story: ${storyId}`);
     if (config.staticBuild && !window.isSecureContext)
       throw new Error("Story service workers need a secure context: use HTTPS or a loopback host.");
+    importedFile = previewPath;
     const preview = await loadPreview();
     if (terminal) return;
     const project = setProjectAnnotations([preview]);
@@ -100,6 +135,7 @@ async function run() {
     addons.setChannel(channel);
     await project.beforeAll?.();
     if (terminal) return;
+    importedFile = entry.modulePath;
     const module = await entry.load();
     if (terminal) return;
     const theme = params.get("theme") === "dark" ? "dark" : "light";
@@ -153,7 +189,7 @@ async function run() {
     }
     report("passed");
   } catch (error) {
-    report("failed", stage === "import" && compilerError ? compilerError : messageOf(error));
+    report("failed", stage === "import" ? await importMessage(error) : messageOf(error));
   }
 }
 void run();

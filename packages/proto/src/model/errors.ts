@@ -88,11 +88,11 @@ export const errors = {
     status: null,
     message: "Storybook <version> is not supported; proto needs ~10.6.0.",
   },
-  story_not_found: { exit: 1, status: 404, message: "Story not found." },
+  story_not_found: { exit: 1, status: 404, message: "No story matches <id>." },
   project_mismatch: {
     exit: 1,
     status: null,
-    message: "The running gallery belongs to another project.",
+    message: "The server on <port> belongs to another project; pass --port.",
   },
   invalid_input: { exit: 2, status: 400, message: "Invalid request input." },
   review_has_open_comments: {

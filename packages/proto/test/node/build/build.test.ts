@@ -504,3 +504,32 @@ it.each([
   });
   expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
 }, 120000);
+
+// Invariant: no stories config needs no Storybook graph in dev, check or local builds.
+// Owner: project integration; the existing static-build suite exercises the real shell.
+it("stories IT-019: story-free dev, check and build remain usable", async () => {
+  const { startDev } = await import("../../../src/node/dev.ts");
+  const { checkProject } = await import("../../../src/node/check.ts");
+  const { onFreePorts } = await import("../ports.ts");
+  const { root, project } = await fixture();
+  expect(existsSync(join(root, "node_modules/storybook"))).toBe(false);
+  const shellDir = await buildShell(join(root, "built-shell"));
+  const browser = await chromium.launch();
+  const dev = await onFreePorts(port => startDev(project, { port, quiet: true, shellDir }));
+  try {
+    const bootstrap = await fetch(dev.origin + "/__proto/bootstrap.json").then(response => response.json());
+    expect(bootstrap.storyRoots ?? []).toEqual([]);
+    const page = await browser.newPage();
+    await page.goto(dev.origin);
+    await page.getByRole("button", { name: "Search", exact: false }).first().waitFor();
+    expect(await page.getByRole("link", { name: "Components", exact: true }).count()).toBe(0);
+    expect(await checkProject(project)).toMatchObject({ ok: true, problems: [] });
+    await buildProject(project, { shellDir });
+    const registry = JSON.parse(await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8"));
+    expect(registry.storyRoots ?? []).toEqual([]);
+    expect(registry.stories ?? []).toEqual([]);
+  } finally {
+    await dev.close();
+    await browser.close();
+  }
+}, 120000);
