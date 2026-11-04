@@ -37,6 +37,11 @@ creating them, restores adopted Access settings, and atomically saves `Connectio
 `disconnect({ running })` requires the session owner's liveness callback to refuse a running share.
 The CLI passes `runningShare`; the session module implements that liveness callback.
 
+Lists use `total_pages`, then `total_count`, then a short page to detect completion, and fail after
+1,000 pages rather than returning a partial list. Status uses a five-second tunnel query with no retries
+and reports `unhealthy` on errors or timeout; `ShareRuntime.statusTimeout` can shorten this bound.
+Other calls retain their retry behavior.
+
 The session uses `readConnection`, `checkConnection`, `openInvitations`, `closeInvitations`, and `setIngress`.
 The start check rejects missing resources, changed Access settings and foreign application policies.
 Invitation helpers act only on application-scoped policies named `proto-share invitees`.

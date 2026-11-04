@@ -12,7 +12,8 @@ export async function fakeCloudflare() {
     records: [] as Record<string, unknown>[], apps: [] as Record<string, unknown>[],
     policies: [] as Record<string, unknown>[], ingress: null as unknown,
     calls: [] as { method: string; path: string; body: Record<string, unknown> }[],
-    failures: [] as { path: string; status: number; message?: string; retryAfter?: string }[],
+    pagination: "total_pages" as "total_pages" | "total_count" | "none",
+    failures: [] as { path: string; status: number; message?: string; retryAfter?: string; hang?: boolean }[],
   };
   let id = 0;
   const server = createServer(async (request, response) => {
@@ -26,7 +27,9 @@ export async function fakeCloudflare() {
       response.writeHead(status, { "Content-Type": "application/json" });
       const page = Number(url.searchParams.get("page") ?? 1);
       const perPage = Number(url.searchParams.get("per_page") ?? 50);
-      const result_info = Array.isArray(result) ? { total_pages: Math.max(1, Math.ceil(result.length / perPage)) } : undefined;
+      const result_info = !Array.isArray(result) || state.pagination === "none" ? undefined
+        : state.pagination === "total_count" ? { total_count: result.length, per_page: perPage }
+        : { total_pages: Math.max(1, Math.ceil(result.length / perPage)) };
       response.end(JSON.stringify({ success: status < 400,
         result: Array.isArray(result) ? result.slice((page - 1) * perPage, page * perPage) : result,
         result_info, errors: status < 400 ? [] : [{ message }] }));
@@ -34,6 +37,7 @@ export async function fakeCloudflare() {
     const failure = state.failures[0];
     if (failure && path.includes(failure.path)) {
       state.failures.shift();
+      if (failure.hang) return;
       if (failure.status === 0) { response.destroy(); return; }
       if (failure.retryAfter) response.setHeader("Retry-After", failure.retryAfter);
       send(null, failure.status, failure.message); return;

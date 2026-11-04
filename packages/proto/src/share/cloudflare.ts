@@ -12,8 +12,9 @@ export type AccessApp = {
 export type Policy = { id: string; name: string; decision: string };
 type Envelope<T> = {
   success?: boolean; result?: T; errors?: { message: string }[];
-  result_info?: { total_pages?: number };
+  result_info?: { total_pages?: number; total_count?: number; per_page?: number };
 };
+type RequestOptions = { signal?: AbortSignal; retry?: boolean };
 export class CloudflareClient {
   constructor(private readonly token: string, private readonly baseUrl = "https://api.cloudflare.com/client/v4") {
     if (!token.trim()) throw new ProtoError("cloudflare_token_invalid");
@@ -21,31 +22,37 @@ export class CloudflareClient {
 
   private async list<T>(path: string): Promise<T[]> {
     const result: T[] = [];
-    for (let page = 1; ; page++) {
+    const perPage = 50;
+    for (let page = 1; page <= 1000; page++) {
       const separator = path.includes("?") ? "&" : "?";
-      const envelope = await this.requestEnvelope<T[]>("GET", `${path}${separator}per_page=50&page=${page}`);
-      result.push(...(envelope.result ?? []));
-      if (page >= (envelope.result_info?.total_pages ?? 1)) return result;
+      const envelope = await this.requestEnvelope<T[]>("GET", `${path}${separator}per_page=${perPage}&page=${page}`);
+      const batch = envelope.result ?? [];
+      result.push(...batch);
+      const info = envelope.result_info;
+      const totalPages = info?.total_pages ?? (info?.total_count === undefined
+        ? undefined : Math.ceil(info.total_count / (info.per_page || perPage)));
+      if (totalPages === undefined ? batch.length < (info?.per_page || perPage) : page >= totalPages) return result;
     }
+    throw new ProtoError("cloudflare_api_error", "Cloudflare said: pagination exceeded 1000 pages.");
   }
 
-  async request<T>(method: string, path: string, body?: unknown, missing = false): Promise<T> {
-    return (await this.requestEnvelope<T>(method, path, body, missing)).result as T;
+  async request<T>(method: string, path: string, body?: unknown, missing = false, options: RequestOptions = {}): Promise<T> {
+    return (await this.requestEnvelope<T>(method, path, body, missing, options)).result as T;
   }
-  private async requestEnvelope<T>(method: string, path: string, body?: unknown, missing = false): Promise<Envelope<T>> {
+  private async requestEnvelope<T>(method: string, path: string, body?: unknown, missing = false, options: RequestOptions = {}): Promise<Envelope<T>> {
     for (let attempt = 0; attempt < 2; attempt++) {
       let response: Response;
       try {
         response = await fetch(`${this.baseUrl}${path}`, {
           method, headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
           body: body === undefined ? undefined : JSON.stringify(body),
-          signal: AbortSignal.timeout(10000), redirect: "error",
+          signal: options.signal ?? AbortSignal.timeout(10000), redirect: "error",
         });
       } catch {
-        if (!attempt && method === "GET") continue;
+        if (!attempt && method === "GET" && options.retry !== false && !options.signal?.aborted) continue;
         throw new ProtoError("cloudflare_api_error", "Cloudflare said: network request failed.");
       }
-      if (response.status === 429 && !attempt) {
+      if (response.status === 429 && !attempt && options.retry !== false) {
         const delay = response.headers.get("retry-after") ?? "1";
         const ms = /^\d+(\.\d+)?$/.test(delay) ? Number(delay) * 1000 : Date.parse(delay) - Date.now();
         await response.body?.cancel();
@@ -77,7 +84,7 @@ export class CloudflareClient {
   tunnels(account: string, name: string) { return this.list<Tunnel>(`/accounts/${account}/cfd_tunnel?name=${encodeURIComponent(name)}&is_deleted=false`); }
   createTunnel(account: string, name: string) { return this.request<Tunnel>("POST", `/accounts/${account}/cfd_tunnel`, { name, config_src: "cloudflare" }); }
   tunnelToken(account: string, tunnel: string) { return this.request<string>("GET", `/accounts/${account}/cfd_tunnel/${tunnel}/token`); }
-  tunnel(account: string, tunnel: string) { return this.request<Tunnel | undefined>("GET", `/accounts/${account}/cfd_tunnel/${tunnel}`, undefined, true); }
+  tunnel(account: string, tunnel: string, options?: RequestOptions) { return this.request<Tunnel | undefined>("GET", `/accounts/${account}/cfd_tunnel/${tunnel}`, undefined, true, options); }
   records(zone: string, host: string) { return this.list<DnsRecord>(`/zones/${zone}/dns_records?name=${encodeURIComponent(host)}`); }
   createRecord(zone: string, host: string, tunnel: string) { return this.request<DnsRecord>("POST", `/zones/${zone}/dns_records`, { type: "CNAME", name: host, content: `${tunnel}.cfargotunnel.com`, proxied: true }); }
   apps(account: string) { return this.list<AccessApp>(`/accounts/${account}/access/apps`); }

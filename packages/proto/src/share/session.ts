@@ -42,6 +42,7 @@ type SessionRecord = Omit<ShareSummary, "link"> & {
 export type ShareRuntime = {
   path?: string; connectionPath?: string; client?: CloudflareClient;
   fetch?: typeof fetch; binary?: string; shellDir?: string; readinessTimeout?: number;
+  statusTimeout?: number;
   activity?: (event: ShareActivity) => void; notice?: (message: string) => void;
   log?: ReviewServerOptions["log"];
 };
@@ -304,7 +305,9 @@ export async function startShare(project: ProtoProject, options: ShareOptions, r
       if (request.headers.authorization !== `Bearer ${record.controlToken}`) { send(401, {}); return; }
       void (async () => {
         if (request.method === "GET" && request.url === "/status") {
-          const tunnel = await client!.tunnel(connection!.accountId, connection!.tunnelId).catch(() => undefined);
+          const tunnel = await client!.tunnel(connection!.accountId, connection!.tunnelId, {
+            signal: AbortSignal.timeout(runtime.statusTimeout ?? 5000), retry: false,
+          }).catch(() => undefined);
           send(200, { running: true, ...summary, tunnel: tunnel?.connections?.length ? "healthy" : "unhealthy", startedAt: record.startedAt });
         } else if (request.method === "POST" && request.url === "/refresh") send(200, await refresh());
         else if (request.method === "POST" && request.url === "/stop") {

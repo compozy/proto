@@ -56,8 +56,10 @@ bun run proto share disconnect --json
 All commands accept `--app` and `--json`. Start prints exactly one JSON object when ready with
 `link`, `target`, `invitees` (`email`, `role`), `snapshot`, and `commit`, then stays silent. Status returns
 `running`, the start fields, `tunnel` (`starting`, `healthy` or `unhealthy`), and `startedAt`. During
-startup, link/version fields may still be empty; API failures report an unhealthy tunnel. With no session it
-returns `{ "running": false }`. Refresh returns `{ "snapshot": "…", "commit": "…" }`; stop returns
+startup, link/version fields may still be empty. Tunnel health queries have a five-second deadline and
+do not retry; API errors, rate limits and timeouts report an unhealthy tunnel. Other API operations keep
+their existing retry behavior. With no session it returns `{ "running": false }`.
+Refresh returns `{ "snapshot": "…", "commit": "…" }`; stop returns
 `{ "stopped": true }`. Refresh and stop work from another process through a bearer-protected loopback
 control port. They do not require the caller's current directory to be the shared app.
 

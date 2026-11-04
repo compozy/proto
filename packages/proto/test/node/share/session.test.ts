@@ -4,7 +4,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { createServer, Server, request as httpRequest } from "node:http";
-import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -145,35 +145,43 @@ async function snapshotEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
 
 // Invariant: refresh certifies current configuration, and a committed swap stays successful
 // even if private metadata cannot be persisted. Owner/canonical suite: node/share/session.
-it("ASTRA-002/003: refresh reloads config and publishes even when the record write fails", async () => {
+it("ASTRA-002/003/OPUS-N10: refresh publishes despite a record write failure, including as root", async () => {
   const f = await fixture(); const session = await f.start();
   await writeFile(join(f.root, "proto.config.ts"), "export default {title:'Refreshed configuration'};");
   f.git("add", "proto.config.ts"); f.git("commit", "--quiet", "-m", "change config");
   const stream = await f.request("/api/events"); const reader = stream.body!.getReader();
   await reader.read();
   const old = session.summary.snapshot;
-  await chmod(join(f.path, ".."), 0o500);
+  // A directory cannot be replaced by save's file rename, even as root. Keep the
+  // old record available to the control client so refresh/status still reach the owner.
+  const backup = `${f.path}.backup`;
+  await rename(f.path, backup);
+  await mkdir(f.path);
+  const controlRuntime = { ...f.runtime, path: backup };
   try {
-    const next = await refreshShare(f.runtime);
+    const next = await refreshShare(controlRuntime);
     expect(next.snapshot).not.toBe(old);
     expect(await snapshotEvent(reader)).toEqual({ id: next.snapshot });
-    expect(await shareStatus(f.runtime)).toMatchObject({ snapshot: next.snapshot, commit: next.commit });
+    expect(await shareStatus(controlRuntime)).toMatchObject({ snapshot: next.snapshot, commit: next.commit });
     const bootstrap = await (await f.request("/__proto/bootstrap.json")).json();
     expect(bootstrap).toMatchObject({ snapshot: next.snapshot });
     const registry = await (await f.request("/api/registry")).json();
     expect(registry.title).toBe("Refreshed configuration");
-    expect((await f.record()).snapshot).toBe(old);
     expect(f.notices).toContain("The new snapshot is live, but the private session record could not be updated.");
   } finally {
-    await chmod(join(f.path, ".."), 0o700);
+    await rm(f.path, { recursive: true, force: true });
+    await rename(backup, f.path);
     await reader.cancel();
   }
+  expect((await f.record()).snapshot).toBe(old);
 }, 120_000);
 
-// Invariant: status describes a live owner during startup and survives provider outages.
+// Invariant: status describes a live owner during startup and survives provider outages
+// within the caller's deadline, including rate limiting and a hung provider.
 // Owner/canonical suite: node/share/session.
 it("OPUS-N05: status reports startup and an unhealthy tunnel when the API fails", async () => {
   const f = await fixture();
+  f.runtime.statusTimeout = 100;
   let release!: () => void, reached!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; });
   const entered = new Promise<void>(resolve => { reached = resolve; });
@@ -190,6 +198,18 @@ it("OPUS-N05: status reports startup and an unhealthy tunnel when the API fails"
   await starting;
   f.api.state.failures.push({ path: "/cfd_tunnel/", status: 500 });
   expect(await shareStatus(f.runtime)).toMatchObject({ running: true, tunnel: "unhealthy" });
+  for (const failure of [
+    { path: "/cfd_tunnel/", status: 429, retryAfter: "60" },
+    { path: "/cfd_tunnel/", status: 200, hang: true },
+  ]) {
+    f.api.state.failures.push(failure);
+    const before = Date.now();
+    expect(await shareStatus(f.runtime)).toMatchObject({ running: true, tunnel: "unhealthy" });
+    expect(Date.now() - before).toBeLessThan(5000);
+    expect(f.api.state.failures).toEqual([]);
+  }
+  f.api.state.tunnels[0]!.connections = [{}];
+  expect(await shareStatus(f.runtime)).toMatchObject({ running: true, tunnel: "healthy" });
 }, 120_000);
 
 it("UT-011: missing, dead and reused session pids cannot be controlled", async () => {

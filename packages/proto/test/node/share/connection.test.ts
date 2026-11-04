@@ -137,3 +137,16 @@ it("OPUS-N07: list uses total_pages, including a full final page", async () => {
   expect(await f.client.accounts()).toEqual(f.state.accounts);
   expect(f.state.calls.filter(call => call.path === "/accounts")).toHaveLength(2);
 });
+
+// Invariant: absent total_pages cannot hide resources on later pages.
+// Owner/canonical suite: node/share/connection at the Cloudflare network boundary.
+it.each([
+  ["total_count", 100, 2], ["total_count", 101, 3],
+  ["none", 100, 3], ["none", 101, 3],
+] as const)("OPUS-N09: list with %s metadata returns all %i apps in %i pages", async (pagination, count, pages) => {
+  const f = await fixture();
+  f.state.pagination = pagination;
+  f.state.apps = Array.from({ length: count }, (_, id) => ({ id: String(id), name: `App ${id}` }));
+  expect(await f.client.apps("account")).toEqual(f.state.apps);
+  expect(f.state.calls.filter(call => call.path.endsWith("/access/apps"))).toHaveLength(pages);
+});
