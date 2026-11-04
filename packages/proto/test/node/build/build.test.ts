@@ -327,13 +327,33 @@ it("UT-044: remote builds require an explicit boolean CLI flag or Node option", 
 it("stories IT-027: remote builds keep omitting stories", async () => {
   const remote = "https://gallery.example.test";
   const { root, project, options } = await fixture();
-  project.config.stories = { roots: [{ id: "ui", title: "UI", dir: ".", stories: ["src/**/*.stories.tsx"], preview: "missing.ts", vite: "missing-vite.ts", static: [], themeGlobal: "theme", guards: { forbidRuntimeImports: [] } }] };
+  project.config.stories = {
+    roots: [
+      {
+        id: "ui",
+        title: "UI",
+        dir: ".",
+        stories: ["src/**/*.stories.tsx"],
+        preview: "missing.ts",
+        vite: "missing-vite.ts",
+        static: [],
+        themeGlobal: "theme",
+        guards: { forbidRuntimeImports: [] },
+      },
+    ],
+  };
   await writeFile(join(root, "src/broken.stories.tsx"), "export default {");
-  expect((await project.registry()).problems.some(problem => problem.code.startsWith("story_"))).toBe(true);
+  expect(
+    (await project.registry()).problems.some(problem => problem.code.startsWith("story_"))
+  ).toBe(true);
   const result = await buildProject(project, { ...options, remote });
   expect(result.warnings).toContainEqual(expect.objectContaining({ code: "stories_not_built" }));
-  const registry = JSON.parse(await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8"));
-  const bootstrap = JSON.parse(await readFile(join(root, "dist-proto/__proto/bootstrap.json"), "utf8"));
+  const registry = JSON.parse(
+    await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8")
+  );
+  const bootstrap = JSON.parse(
+    await readFile(join(root, "dist-proto/__proto/bootstrap.json"), "utf8")
+  );
   expect(registry).not.toHaveProperty("stories");
   expect(registry).not.toHaveProperty("storyRoots");
   expect(bootstrap).not.toHaveProperty("storyRoots");
@@ -402,7 +422,9 @@ it("stories IT-020: local static roots run MSW and play with confined workers", 
         const result = document.documentElement.dataset.protoStory;
         return result && JSON.parse(result).status !== "running";
       });
-      return JSON.parse((await page.locator("html").getAttribute("data-proto-story"))!) as StoryResult;
+      return JSON.parse(
+        (await page.locator("html").getAttribute("data-proto-story"))!
+      ) as StoryResult;
     };
     await page.goto(href("app", "ui-button--network"));
     expect(await outcome()).toMatchObject({ status: "passed", stage: "play", hasPlay: true });
@@ -483,27 +505,31 @@ it("stories IT-020: a failing local root prevents publication", async () => {
 it.each([
   ["storybook_missing", { version: "10.6.2", exports: {} }],
   ["storybook_unsupported", { version: "10.7.0" }],
-])("stories IT-020: local builds reject %s", async (code, manifest) => {
-  const fixture = storiesFixture();
-  roots.push(fixture.root);
-  const dir = join(fixture.root, "isolated");
-  await mkdir(join(dir, "node_modules/storybook"), { recursive: true });
-  await writeFile(join(dir, "node_modules/storybook/package.json"), JSON.stringify(manifest));
-  await writeFile(join(dir, "package.json"), '{"type":"module"}');
-  await writeFile(join(dir, "preview.ts"), "export {};");
-  const project = await loadProject(fixture.app);
-  project.config.stories!.roots[1]!.dir = "../isolated";
-  project.config.stories!.roots[1]!.preview = "preview.ts";
-  const shellDir = join(fixture.app, "fixture-shell");
-  await mkdir(shellDir);
-  await writeFile(join(shellDir, "index.html"), "<!doctype html><title>Fixture</title>");
-  await expect(buildProject(project, { shellDir })).rejects.toMatchObject({
-    code,
-    message: expect.stringContaining("Story root ui failed to build"),
-    exit: 3,
-  });
-  expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
-}, 120000);
+])(
+  "stories IT-020: local builds reject %s",
+  async (code, manifest) => {
+    const fixture = storiesFixture();
+    roots.push(fixture.root);
+    const dir = join(fixture.root, "isolated");
+    await mkdir(join(dir, "node_modules/storybook"), { recursive: true });
+    await writeFile(join(dir, "node_modules/storybook/package.json"), JSON.stringify(manifest));
+    await writeFile(join(dir, "package.json"), '{"type":"module"}');
+    await writeFile(join(dir, "preview.ts"), "export {};");
+    const project = await loadProject(fixture.app);
+    project.config.stories!.roots[1]!.dir = "../isolated";
+    project.config.stories!.roots[1]!.preview = "preview.ts";
+    const shellDir = join(fixture.app, "fixture-shell");
+    await mkdir(shellDir);
+    await writeFile(join(shellDir, "index.html"), "<!doctype html><title>Fixture</title>");
+    await expect(buildProject(project, { shellDir })).rejects.toMatchObject({
+      code,
+      message: expect.stringContaining("Story root ui failed to build"),
+      exit: 3,
+    });
+    expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
+  },
+  120000
+);
 
 // Invariant: no stories config needs no Storybook graph in dev, check or local builds.
 // Owner: project integration; the existing static-build suite exercises the real shell.
@@ -517,7 +543,9 @@ it("stories IT-019: story-free dev, check and build remain usable", async () => 
   const browser = await chromium.launch();
   const dev = await onFreePorts(port => startDev(project, { port, quiet: true, shellDir }));
   try {
-    const bootstrap = await fetch(dev.origin + "/__proto/bootstrap.json").then(response => response.json());
+    const bootstrap = await fetch(dev.origin + "/__proto/bootstrap.json").then(response =>
+      response.json()
+    );
     expect(bootstrap.storyRoots ?? []).toEqual([]);
     const page = await browser.newPage();
     await page.goto(dev.origin);
@@ -525,7 +553,9 @@ it("stories IT-019: story-free dev, check and build remain usable", async () => 
     expect(await page.getByRole("link", { name: "Components", exact: true }).count()).toBe(0);
     expect(await checkProject(project)).toMatchObject({ ok: true, problems: [] });
     await buildProject(project, { shellDir });
-    const registry = JSON.parse(await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8"));
+    const registry = JSON.parse(
+      await readFile(join(root, "dist-proto/__proto/registry.json"), "utf8")
+    );
     expect(registry.storyRoots ?? []).toEqual([]);
     expect(registry.stories ?? []).toEqual([]);
   } finally {

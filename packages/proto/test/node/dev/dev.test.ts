@@ -88,6 +88,13 @@ it("UT-094 and IT-013 serve bootstrap, registry and render HTML with host confin
       await (await fetch(`${server.origin}/__proto/bootstrap.json`)).json()
     );
     const shell = await fetch(server.origin);
+    // The local bridge accepts only a parsed, exact origin; CLI requests may omit it.
+    for (const origin of ["http://foreign.test", `${server.origin}.evil.test`, "null"]) {
+      const denied = await fetch(server.origin, { headers: { Origin: origin } });
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ error: { code: "origin_not_allowed" } });
+    }
+    expect((await fetch(server.origin, { headers: { Origin: server.origin } })).status).toBe(200);
     expect(shell.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
     const rendered = await fetch(`${server.renderOrigin}/__proto/render/login-form`);
     expect(rendered.headers.get("content-security-policy")).toBe(
@@ -573,32 +580,40 @@ it.each([
   { stories: true, quiet: false },
   { stories: true, quiet: true },
   { stories: false, quiet: false },
-])("prints startup URLs for stories=$stories quiet=$quiet", async ({ stories, quiet }) => {
-  const fixture = storiesFixture();
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
-  try {
-    const project = await loadProject(fixture.app);
-    if (!stories) delete project.config.stories;
-    dev = await onFreePorts(port => {
-      log.mockClear();
-      return startDev(project, { port, quiet });
-    });
-    const startup = log.mock.calls.map(args => args.join(" ")).filter(
-      line => /^(?:proto  |render |stories )/.test(line)
-    );
-    expect(startup).toEqual(stories && !quiet ? [
-      `proto  ${dev.origin}`,
-      `render ${dev.renderOrigin}`,
-      `stories app ${new URL(dev.storyRoots[0]!.renderUrl).origin}  1 files, 9 stories`,
-      `stories ui ${new URL(dev.storyRoots[1]!.renderUrl).origin}  1 files, 1 stories`,
-    ] : []);
-  } finally {
-    await dev?.close();
-    log.mockRestore();
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-}, 120000);
+])(
+  "prints startup URLs for stories=$stories quiet=$quiet",
+  async ({ stories, quiet }) => {
+    const fixture = storiesFixture();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+    try {
+      const project = await loadProject(fixture.app);
+      if (!stories) delete project.config.stories;
+      dev = await onFreePorts(port => {
+        log.mockClear();
+        return startDev(project, { port, quiet });
+      });
+      const startup = log.mock.calls
+        .map(args => args.join(" "))
+        .filter(line => /^(?:proto  |render |stories )/.test(line));
+      expect(startup).toEqual(
+        stories && !quiet
+          ? [
+              `proto  ${dev.origin}`,
+              `render ${dev.renderOrigin}`,
+              `stories app ${new URL(dev.storyRoots[0]!.renderUrl).origin}  1 files, 9 stories`,
+              `stories ui ${new URL(dev.storyRoots[1]!.renderUrl).origin}  1 files, 1 stories`,
+            ]
+          : []
+      );
+    } finally {
+      await dev?.close();
+      log.mockRestore();
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  },
+  120000
+);
 
 // Invariants: real portable lifecycle, one terminal result, root isolation, shutdown and host policy.
 // Owner: existing real dev-server integration suite (Chromium, no runtime mocks).
@@ -620,7 +635,9 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     expect(bootstrap.projectId).toMatch(/^[a-f0-9]{16}$/);
     expect(bootstrap.storyRoots).toHaveLength(2);
     for (const [index, root] of bootstrap.storyRoots!.entries()) {
-      expect(Number(new URL(root.renderUrl).port)).toBe(Number(new URL(dev.origin).port) + 2 + index);
+      expect(Number(new URL(root.renderUrl).port)).toBe(
+        Number(new URL(dev.origin).port) + 2 + index
+      );
       const asset = await fetch(new URL("/vendor/root.txt", root.renderUrl));
       expect(await asset.text()).toBe(index === 0 ? "app\n" : "packages/ui\n");
     }
@@ -751,20 +768,27 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
     // IT-014: picker controls are visible to the document but outside within(canvasElement).
     // Owner: real story-host integration; the parent uses the actual trusted bridge.
     await shellPage.evaluate(origin => {
-      document.querySelector("iframe")!.contentWindow!.postMessage(
-        { proto: 1, frame: "network-0", type: "pick:start", mode: "element" }, origin
-      );
+      document
+        .querySelector("iframe")!
+        .contentWindow!.postMessage(
+          { proto: 1, frame: "network-0", type: "pick:start", mode: "element" },
+          origin
+        );
     }, new URL(storyBase).origin);
     const picking = shellPage.frames().find(frame => frame.url().includes("frame=network-0"))!;
     await picking.getByTestId("proto-picker").waitFor();
-    expect(await picking.evaluate(async () => {
-      const runtime = "/@id/__x00__virtual:proto/story-runtime";
-      const { within } = await import(runtime);
-      return {
-        document: within(document.body).getAllByTestId("proto-picker").length,
-        canvas: within(document.getElementById("proto-story-canvas")!).queryAllByTestId("proto-picker").length,
-      };
-    })).toEqual({ document: 1, canvas: 0 });
+    expect(
+      await picking.evaluate(async () => {
+        const runtime = "/@id/__x00__virtual:proto/story-runtime";
+        const { within } = await import(runtime);
+        return {
+          document: within(document.body).getAllByTestId("proto-picker").length,
+          canvas: within(document.getElementById("proto-story-canvas")!).queryAllByTestId(
+            "proto-picker"
+          ).length,
+        };
+      })
+    ).toEqual({ document: 1, canvas: 0 });
     await shellPage.close();
     const network = await open("ui-button--network");
     expect(network.result.status).toBe("passed");
@@ -781,7 +805,9 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
       const { page, result } = await open(`ui-button--${name}`, true, 10000);
       expect(result).toMatchObject({ stage, status: "failed" });
       if (name === "late") {
-        await page.evaluate(() => (window as unknown as { finishLateStory(): void }).finishLateStory());
+        await page.evaluate(() =>
+          (window as unknown as { finishLateStory(): void }).finishLateStory()
+        );
         await page.waitForTimeout(100);
         expect(
           await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!).status)
@@ -985,7 +1011,7 @@ it("refreshes story discovery and reruns edited frames, including syntax recover
     writeFileSync(file, source("Recovered"));
     await page.waitForFunction(() => document.documentElement.dataset.livePlay === "Recovered");
     const preview = join(fixture.app, "preview.tsx");
-    for (const source of ['sb.mock("fixture-module");', null, 'export {};']) {
+    for (const source of ['sb.mock("fixture-module");', null, "export {};"]) {
       const previousRevision = project.revision;
       const updated = readEvent(reader, "event: registry");
       if (source === null) rmSync(preview);
@@ -993,8 +1019,12 @@ it("refreshes story discovery and reruns edited frames, including syntax recover
       await updated;
       expect(project.revision).toBeGreaterThan(previousRevision);
       const registry = await project.registry();
-      expect(registry.problems.some(problem => problem.code === "story_preview_missing")).toBe(source === null);
-      expect(registry.warnings.some(warning => warning.code === "story_mock_unsupported")).toBe(source?.includes("sb.mock") ?? false);
+      expect(registry.problems.some(problem => problem.code === "story_preview_missing")).toBe(
+        source === null
+      );
+      expect(registry.warnings.some(warning => warning.code === "story_mock_unsupported")).toBe(
+        source?.includes("sb.mock") ?? false
+      );
     }
     const removed = readEvent(reader, "event: registry");
     rmSync(file);
@@ -1056,7 +1086,9 @@ it("composes both themes, custom theme globals and pinned stories", async () => 
         const attribute = index === 0 ? "data-theme-global" : "data-global";
         expect(await page.locator(`[${attribute}]`).getAttribute(attribute)).toBe(expected);
         if (index === 1)
-          expect(await page.locator("[data-retained]").getAttribute("data-retained")).toBe("preview");
+          expect(await page.locator("[data-retained]").getAttribute("data-retained")).toBe(
+            "preview"
+          );
       }
     }
   } finally {
@@ -1100,30 +1132,75 @@ it("stories IT-015 / E2E-003: runs selected roots and reports lifecycle stages",
   const { formatHuman } = await import("../../../src/cli/human.ts");
   try {
     const project = await loadProject(fixture.app);
-    writeFileSync(join(fixture.root, "packages/ui/vite.config.ts"), 'throw new Error("unselected root started");');
+    writeFileSync(
+      join(fixture.root, "packages/ui/vite.config.ts"),
+      'throw new Error("unselected root started");'
+    );
     await onFreePorts(async port => {
-      const argv = ["stories", "run", "--root", "app", "--filter", "ui-button--{plain,fail,load-hang}", "--timeout", "10000", "--port", String(port), "--json"];
+      const argv = [
+        "stories",
+        "run",
+        "--root",
+        "app",
+        "--filter",
+        "ui-button--{plain,fail,load-hang}",
+        "--timeout",
+        "10000",
+        "--port",
+        String(port),
+        "--json",
+      ];
       const result = await runCli(argv, { project });
-      expect(result).toMatchObject({ exitCode: 1, data: {
-        summary: { total: 3, passed: 1, failed: 2 },
-        stories: expect.arrayContaining([
-          expect.objectContaining({ id: "ui-button--plain", stage: "render", status: "passed", hasPlay: false, error: null, durationMs: expect.any(Number) }),
-          expect.objectContaining({ id: "ui-button--fail", stage: "play", status: "failed" }),
-          expect.objectContaining({ id: "ui-button--load-hang", stage: "load", status: "failed", error: "Story timed out at load after 10000 ms" }),
-        ]),
-      } });
+      expect(result).toMatchObject({
+        exitCode: 1,
+        data: {
+          summary: { total: 3, passed: 1, failed: 2 },
+          stories: expect.arrayContaining([
+            expect.objectContaining({
+              id: "ui-button--plain",
+              stage: "render",
+              status: "passed",
+              hasPlay: false,
+              error: null,
+              durationMs: expect.any(Number),
+            }),
+            expect.objectContaining({ id: "ui-button--fail", stage: "play", status: "failed" }),
+            expect.objectContaining({
+              id: "ui-button--load-hang",
+              stage: "load",
+              status: "failed",
+              error: "Story timed out at load after 10000 ms",
+            }),
+          ]),
+        },
+      });
       expect(formatHuman(argv, result).stdout).toContain("3 stories: 1 passed, 2 failed");
       for (const candidate of [port, port + 1, port + 2, port + 3])
         await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
       writeFileSync(join(fixture.app, "src/broken.stories.tsx"), "export default {");
-      expect(await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], { project })).toMatchObject({ exitCode: 1, data: {
-        summary: { total: 1, passed: 1, failed: 0 }, problems: expect.arrayContaining([expect.objectContaining({ code: "story_parse" })]),
-      } });
+      expect(
+        await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], {
+          project,
+        })
+      ).toMatchObject({
+        exitCode: 1,
+        data: {
+          summary: { total: 1, passed: 1, failed: 0 },
+          problems: expect.arrayContaining([expect.objectContaining({ code: "story_parse" })]),
+        },
+      });
       rmSync(join(fixture.app, "src/broken.stories.tsx"));
-      expect(await executeTool("proto_stories_run", { filter: "ui-button--plain", port }, project)).toMatchObject({ summary: { total: 1, passed: 1, failed: 0 } });
-      expect(await runCli(["stories", "run", "--filter", "absent"], { project })).toMatchObject({ exitCode: 1, data: { error: { code: "story_not_found" } } });
+      expect(
+        await executeTool("proto_stories_run", { filter: "ui-button--plain", port }, project)
+      ).toMatchObject({ summary: { total: 1, passed: 1, failed: 0 } });
+      expect(await runCli(["stories", "run", "--filter", "absent"], { project })).toMatchObject({
+        exitCode: 1,
+        data: { error: { code: "story_not_found" } },
+      });
     });
-  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 }, 180000);
 
 // Invariant: reuse requires project identity; interrupt closes only resources owned by this run.
@@ -1138,19 +1215,39 @@ it("stories IT-016: refuses another project, reuses its own server and cleans up
     await onFreePorts(async port => {
       const dev = await startDev(project, { port, quiet: true, storyRoots: ["app"] });
       try {
-        await expect(runStories(await loadProject(other.app), { port, filter: "ui-button--plain" })).rejects.toMatchObject({ code: "project_mismatch" });
-        expect((await runStories(project, { port, filter: "ui-button--plain" })).results[0]?.status).toBe("passed");
-        const running = runCli(["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)], { project });
+        await expect(
+          runStories(await loadProject(other.app), { port, filter: "ui-button--plain" })
+        ).rejects.toMatchObject({ code: "project_mismatch" });
+        expect(
+          (await runStories(project, { port, filter: "ui-button--plain" })).results[0]?.status
+        ).toBe("passed");
+        const running = runCli(
+          ["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)],
+          { project }
+        );
         // A real host request proves the shared server is ready before delivering the interrupt.
-        await expect.poll(async () => (await fetch(`${dev.origin}/__proto/bootstrap.json`)).ok).toBe(true);
+        await expect
+          .poll(async () => (await fetch(`${dev.origin}/__proto/bootstrap.json`)).ok)
+          .toBe(true);
         process.emit("SIGINT");
         expect((await running).exitCode).toBe(1);
         expect((await fetch(`${dev.origin}/__proto/bootstrap.json`)).ok).toBe(true);
-      } finally { await dev.close(); }
-      const running = runCli(["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)], { project });
-      await expect.poll(async () => {
-        try { return (await fetch(`http://127.0.0.1:${port}/__proto/bootstrap.json`)).ok; } catch { return false; }
-      }).toBe(true);
+      } finally {
+        await dev.close();
+      }
+      const running = runCli(
+        ["stories", "run", "--filter", "ui-button--load-hang", "--port", String(port)],
+        { project }
+      );
+      await expect
+        .poll(async () => {
+          try {
+            return (await fetch(`http://127.0.0.1:${port}/__proto/bootstrap.json`)).ok;
+          } catch {
+            return false;
+          }
+        })
+        .toBe(true);
       process.emit("SIGINT");
       expect((await running).exitCode).toBe(1);
       for (const candidate of [port, port + 1, port + 2])
@@ -1162,7 +1259,6 @@ it("stories IT-016: refuses another project, reuses its own server and cleans up
   }
 }, 180000);
 
-
 // Invariant: unavailable Chromium maps to the registered dependency exit and closes owned servers.
 // Owner: runner's browser-launch I/O boundary; dev listeners remain real.
 it("stories IT-015: missing Playwright returns exit 3 and releases ports", async () => {
@@ -1172,8 +1268,11 @@ it("stories IT-015: missing Playwright returns exit 3 and releases ports", async
   try {
     const project = await loadProject(fixture.app);
     await onFreePorts(async port => {
-      expect(await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], { project }))
-        .toMatchObject({ exitCode: 3, data: { error: { code: "playwright_missing" } } });
+      expect(
+        await runCli(["stories", "run", "--filter", "ui-button--plain", "--port", String(port)], {
+          project,
+        })
+      ).toMatchObject({ exitCode: 3, data: { error: { code: "playwright_missing" } } });
       for (const candidate of [port, port + 1, port + 2])
         await expect(fetch(`http://127.0.0.1:${candidate}`)).rejects.toThrow();
     });
@@ -1193,33 +1292,59 @@ it("isolates concurrent import failures on the same root", async () => {
   const sibling = await sharedBrowser.newPage();
   let dev: Awaited<ReturnType<typeof startDev>> | undefined;
   try {
-    writeFileSync(join(fixture.app, "preview.tsx"), `export const beforeAll = async () => {
+    writeFileSync(
+      join(fixture.app, "preview.tsx"),
+      `export const beforeAll = async () => {
       if (location.search.includes("pause=1")) await new Promise(resolve => { window.resumeStory = resolve; });
-    };`);
-    writeFileSync(join(fixture.app, "src/clean.stories.tsx"), 'export default { title: "Clean" }; export const Default = { render: () => <button>Clean</button> };');
-    writeFileSync(join(fixture.app, "src/broken.stories.tsx"), 'import "./broken-dependency"; export default { title: "Broken" }; export const Default = {};');
-    writeFileSync(join(fixture.app, "src/broken-dependency.ts"), 'export const value = ;');
-    writeFileSync(join(fixture.app, "src/sibling.stories.tsx"), 'import "./broken.stories"; export default { title: "Sibling" }; export const Default = {};');
+    };`
+    );
+    writeFileSync(
+      join(fixture.app, "src/clean.stories.tsx"),
+      'export default { title: "Clean" }; export const Default = { render: () => <button>Clean</button> };'
+    );
+    writeFileSync(
+      join(fixture.app, "src/broken.stories.tsx"),
+      'import "./broken-dependency"; export default { title: "Broken" }; export const Default = {};'
+    );
+    writeFileSync(join(fixture.app, "src/broken-dependency.ts"), "export const value = ;");
+    writeFileSync(
+      join(fixture.app, "src/sibling.stories.tsx"),
+      'import "./broken.stories"; export default { title: "Sibling" }; export const Default = {};'
+    );
     const project = await loadProject(fixture.app);
     dev = await onFreePorts(port => startDev(project, { port, quiet: true, storyRoots: ["app"] }));
     const base = dev.storyRoots[0]!.renderUrl;
     await clean.goto(base + "clean--default?pause=1&timeout=30000");
-    await clean.waitForFunction(() => typeof (window as unknown as { resumeStory: unknown }).resumeStory === "function");
+    await clean.waitForFunction(
+      () => typeof (window as unknown as { resumeStory: unknown }).resumeStory === "function"
+    );
     await Promise.all([
       broken.goto(base + "broken--default?timeout=30000"),
       sibling.goto(base + "sibling--default?timeout=30000"),
     ]);
-    await broken.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed");
-    const failure = await broken.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!));
+    await broken.waitForFunction(
+      () => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed"
+    );
+    const failure = await broken.evaluate(() =>
+      JSON.parse(document.documentElement.dataset.protoStory!)
+    );
     expect(failure).toMatchObject({ stage: "import", status: "failed" });
     expect(failure.error).toMatch(/Unexpected|Expression expected|Expected|Parse failure/i);
-    await sibling.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed");
-    const sharedFailure = await sibling.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!));
+    await sibling.waitForFunction(
+      () => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed"
+    );
+    const sharedFailure = await sibling.evaluate(() =>
+      JSON.parse(document.documentElement.dataset.protoStory!)
+    );
     expect(sharedFailure).toMatchObject({ stage: "import", status: "failed" });
     expect(sharedFailure.error).toMatch(/Unexpected|Expression expected|Expected|Parse failure/i);
-    expect(await clean.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))).toMatchObject({ stage: "import", status: "running" });
+    expect(
+      await clean.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
+    ).toMatchObject({ stage: "import", status: "running" });
     await clean.evaluate(() => (window as unknown as { resumeStory(): void }).resumeStory());
-    await clean.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "passed");
+    await clean.waitForFunction(
+      () => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "passed"
+    );
   } finally {
     await clean.close();
     await broken.close();

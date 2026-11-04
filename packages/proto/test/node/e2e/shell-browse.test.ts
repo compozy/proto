@@ -563,7 +563,9 @@ describe("stories browsing", () => {
       const frame = await renderFrame(page, stories.storyRoots[0]!.renderUrl, "button");
       await frame.getByRole("button", { name: "Mock response", exact: true }).waitFor();
       expect(await frame.locator('[data-preview="outer"] [data-preview="inner"]').count()).toBe(1);
-      await expect.poll(() => page.getByRole("status", { name: "Play status" }).textContent()).toBe("Passed");
+      await expect
+        .poll(() => page.getByRole("status", { name: "Play status" }).textContent())
+        .toBe("Passed");
     } finally {
       await page.close();
     }
@@ -576,10 +578,16 @@ describe("stories browsing", () => {
       const selected = tree.getByRole("treeitem", { name: "Primary", exact: true });
       await selected.waitFor();
       expect(await selected.getAttribute("aria-selected")).toBe("true");
-      expect(await tree.getByRole("treeitem", { name: "Button", exact: true }).getAttribute("aria-expanded")).toBe("true");
+      expect(
+        await tree
+          .getByRole("treeitem", { name: "Button", exact: true })
+          .getAttribute("aria-expanded")
+      ).toBe("true");
       const frame = await renderFrame(page, stories.storyRoots[0]!.renderUrl, "button");
       await frame.getByRole("button", { name: "Clicked", exact: true }).waitFor();
-      await expect.poll(() => page.getByRole("status", { name: "Play status" }).textContent()).toBe("Passed");
+      await expect
+        .poll(() => page.getByRole("status", { name: "Play status" }).textContent())
+        .toBe("Passed");
     } finally {
       await page.close();
     }

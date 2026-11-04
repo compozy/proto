@@ -131,8 +131,7 @@ export function createReviewRouter(
           assertKey(input.key);
           assertSupportedKey(input.key);
           const registry = await options.registry();
-          if (!reviewKeys(registry).includes(input.key))
-            throw new ProtoError("comment_not_found");
+          if (!reviewKeys(registry).includes(input.key)) throw new ProtoError("comment_not_found");
           if (input.target.kind !== "node") {
             const roots = options.roots ?? (await options.registry()).sourceRoots ?? sourceRoots();
             if (input.target.source !== null) confineSource(input.target.source, roots);

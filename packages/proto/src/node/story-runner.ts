@@ -46,10 +46,11 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
   const port = options.port ?? project.config.dev.port;
   validatePortRange(port, project.config.stories?.roots.length ?? 0);
   const origin = `http://127.0.0.1:${port}`;
-  const mismatch = () => new ProtoError(
-    "project_mismatch",
-    `The server on ${port} belongs to another project; pass --port.`
-  );
+  const mismatch = () =>
+    new ProtoError(
+      "project_mismatch",
+      `The server on ${port} belongs to another project; pass --port.`
+    );
   options.signal?.throwIfAborted();
   let bootstrap:
     | { projectId?: string; storyRoots?: { id: string; renderUrl: string }[] }
@@ -69,12 +70,13 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
       bootstrap = { projectId: projectId(project.root), storyRoots: owned.storyRoots };
     }
     if (response) {
+      if (!response.ok) throw mismatch();
       try {
         bootstrap = await response.json();
       } catch {
         throw mismatch();
       }
-      if (!response.ok || bootstrap?.projectId !== projectId(project.root)) throw mismatch();
+      if (bootstrap?.projectId !== projectId(project.root)) throw mismatch();
     }
     const rows: StoryRunRow[] = [];
     options.signal?.throwIfAborted();
@@ -84,14 +86,13 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
       throw new ProtoError("playwright_missing");
     }
     const activeBrowser = browser;
+    const renderUrls = new Map(bootstrap?.storyRoots?.map(root => [root.id, root.renderUrl]));
     let next = 0;
     await Promise.all(
       Array.from({ length: Math.min(concurrency, selected.length) }, async () => {
         while (next < selected.length && !options.signal?.aborted) {
           const item = selected[next++]!;
-          const renderUrl = bootstrap?.storyRoots?.find(
-            root => root.id === item.file.root
-          )?.renderUrl;
+          const renderUrl = renderUrls.get(item.file.root);
           if (!renderUrl)
             throw new ProtoError(
               "project_mismatch",
@@ -117,9 +118,16 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
           let pageDeadline: ReturnType<typeof setTimeout> | undefined;
           try {
             await page.exposeFunction("__protoStoryReport", (value: unknown) => {
-              const parsed = storyResultSchema.safeParse(value);
-              if (last.status === "running" && parsed.success && parsed.data.story === item.story.id)
-                last = parsed.data;
+              try {
+                const parsed = storyResultSchema.safeParse(
+                  typeof value === "string" ? JSON.parse(value) : value
+                );
+                if (!parsed.success || parsed.data.story !== item.story.id) return false;
+                if (last.status === "running") last = parsed.data;
+                return last.status !== "running";
+              } catch {
+                return false;
+              }
             });
             await page.addInitScript(() => {
               new MutationObserver(() => {
@@ -127,7 +135,7 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
                 if (value)
                   void (
                     window as unknown as { __protoStoryReport(value: unknown): Promise<void> }
-                  ).__protoStoryReport(JSON.parse(value));
+                  ).__protoStoryReport(value);
               }).observe(document, {
                 subtree: true,
                 attributes: true,
@@ -153,21 +161,27 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
             );
             const remaining = Math.max(1, pageBudget - (Date.now() - started));
             await page.waitForFunction(
-              () => {
+              async () => {
                 const value = document.documentElement.dataset.protoStory;
-                return value && JSON.parse(value).status !== "running";
+                return (
+                  value &&
+                  (await (
+                    window as unknown as { __protoStoryReport(value: unknown): Promise<boolean> }
+                  ).__protoStoryReport(value))
+                );
               },
               undefined,
               { timeout: remaining }
             );
             if (last.status === "running")
               last = storyResultSchema.parse(
-                await page.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))
+                JSON.parse(await page.evaluate(() => document.documentElement.dataset.protoStory!))
               );
           } catch (error) {
             try {
               const value = await page.evaluate(() => document.documentElement.dataset.protoStory);
-              if (value && last.status === "running") last = storyResultSchema.parse(JSON.parse(value));
+              if (value && last.status === "running")
+                last = storyResultSchema.parse(JSON.parse(value));
             } catch {
               /* A dead document has no readable result. */
             }
@@ -175,9 +189,10 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
               last = {
                 ...last,
                 status: "failed",
-                error: timedOut || (error instanceof Error && error.name === "TimeoutError")
-                  ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
-                  : String(error).slice(0, 4000),
+                error:
+                  timedOut || (error instanceof Error && error.name === "TimeoutError")
+                    ? `Story timed out at ${last.stage} after ${pageBudget}ms.`
+                    : String(error).slice(0, 4000),
                 durationMs: Date.now() - started,
               };
           } finally {

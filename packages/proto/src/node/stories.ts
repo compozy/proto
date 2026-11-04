@@ -39,7 +39,7 @@ const strings = (node: ts.Expression | undefined): string[] =>
 const sanitize = (value: string) =>
   value
     .toLowerCase()
-    .replace(/[ ’–—―′¿'`~!@#$%^&*()_|+\-= ?;:'",.<>\{\}\[\]\\\/]/gi, "-")
+    .replace(/[ ’–—―′¿'`~!@#$%^&*()_|+\-= ?;:'",.<>{}[\]\\/]/gi, "-")
     .replace(/-+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
@@ -90,9 +90,8 @@ export function mockWarnings(source: string, file: string, root: string): Regist
     ) {
       mock = true;
       const argument = node.arguments[0];
-      const name = argument && ts.isCallExpression(argument)
-        ? text(argument.arguments[0])
-        : text(argument);
+      const name =
+        argument && ts.isCallExpression(argument) ? text(argument.arguments[0]) : text(argument);
       modules.push(name ?? argument?.getText(ast) ?? "<module>");
     }
     if (ts.isImportSpecifier(node) && (node.propertyName ?? node.name).text === "mocked") {
@@ -321,22 +320,25 @@ export function indexStories(
     const rootWarnings = warnings.filter(
       warning => warning.root === root.id && warning.code === "story_mock_unsupported"
     );
-    const callers = rootWarnings.filter(
-      warning => warning.message.includes("1 file calls mocked()")
+    const callers = rootWarnings.filter(warning =>
+      warning.message.includes("1 file calls mocked()")
     ).length;
     if (!rootWarnings.length) continue;
     const declarations = [
-      ...new Set(rootWarnings.flatMap(warning =>
-        warning.message
-          .replace(" (1 file calls mocked())", "")
-          .split("; ")
-          .filter(message => message.startsWith("sb.mock("))
-      )),
+      ...new Set(
+        rootWarnings.flatMap(warning =>
+          warning.message
+            .replace(" (1 file calls mocked())", "")
+            .split("; ")
+            .filter(message => message.startsWith("sb.mock("))
+        )
+      ),
     ];
     warnings.push({
       code: "story_mock_unsupported",
       root: root.id,
-      message: (declarations.join("; ") || "Module mocks are inert") +
+      message:
+        (declarations.join("; ") || "Module mocks are inert") +
         (callers ? ` (${callers} ${callers === 1 ? "file calls" : "files call"} mocked())` : ""),
     });
   }

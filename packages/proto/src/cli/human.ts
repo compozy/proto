@@ -239,10 +239,16 @@ export function formatHuman(
       const roots = data.roots as { id: string }[];
       if (!roots.length) return out("No stories configured.");
       return out(
-        files.map(file => [
-          `${file.root}  ${file.title}  ${file.slug}  ${file.stories.length} ${file.stories.length === 1 ? "story" : "stories"}`,
-          table(file.stories.map(story => ["  ", story.name, story.id, story.play ? "play" : ""])),
-        ].join("\n")).join("\n")
+        files
+          .map(file =>
+            [
+              `${file.root}  ${file.title}  ${file.slug}  ${file.stories.length} ${file.stories.length === 1 ? "story" : "stories"}`,
+              table(
+                file.stories.map(story => ["  ", story.name, story.id, story.play ? "play" : ""])
+              ),
+            ].join("\n")
+          )
+          .join("\n")
       );
     }
     case "stories run": {
@@ -250,11 +256,13 @@ export function formatHuman(
       const summary = data.summary as { total: number; passed: number; failed: number };
       return {
         stdout: [
-          table(rows.map(row => [
-            row.status === "passed" ? "pass" : "fail",
-            row.id,
-            row.status === "passed" ? `${row.durationMs}ms` : `${row.stage}   ${row.error ?? ""}`,
-          ])),
+          table(
+            rows.map(row => [
+              row.status === "passed" ? "pass" : "fail",
+              row.id,
+              row.status === "passed" ? `${row.durationMs}ms` : `${row.stage}   ${row.error ?? ""}`,
+            ])
+          ),
           `${summary.total} stories: ${summary.passed} passed, ${summary.failed} failed`,
         ].join("\n"),
         stderr: [

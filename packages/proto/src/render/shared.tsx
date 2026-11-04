@@ -1,24 +1,18 @@
 import {
   Component,
   useEffect,
-  useEffectEvent,
   useState,
+  useLayoutEffect,
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import type { Anchor, PickMode, ShellMessage } from "../model/protocol.ts";
+import type { Anchor, PickMode } from "../model/protocol.ts";
 import type { Bridge } from "./bridge.ts";
 import { watchAnchors } from "./anchors.ts";
-import { queryElement } from "./dom.ts";
+import { useShellMessages } from "./use-shell-messages.ts";
 import { Picker } from "./picker.tsx";
 import { sourceRoots } from "../model/source.ts";
-export const limit = (text: string, max: number) => (text.length > max ? text.slice(0, max) : text);
-
-export function messageOf(error: unknown) {
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
-  return String(error);
-}
-
+import { messageOf } from "./errors.ts";
 export type BoundaryProps = {
   children: ReactNode;
   component: unknown;
@@ -71,28 +65,6 @@ export function RenderError({ message }: { message: string }) {
   );
 }
 
-/** The shell side drives picking, anchors and scrolling; everything else stays local. */
-export function useShellMessages(
-  bridge: Bridge,
-  handlers: {
-    pick: (mode: PickMode | null) => void;
-    anchors: (anchors: Anchor[]) => void;
-  }
-) {
-  const onMessage = useEffectEvent((message: ShellMessage) => {
-    if (message.type === "pick:start") handlers.pick(message.mode);
-    else if (message.type === "pick:cancel") handlers.pick(null);
-    else if (message.type === "anchors:watch") handlers.anchors(message.anchors);
-    else if (message.type === "scroll:to") {
-      queryElement(document, message.selector)?.scrollIntoView({ block: "center" });
-    }
-  });
-  useEffect(() => {
-    const stop = bridge.listen(onMessage);
-    return () => stop();
-  }, [bridge]);
-}
-
 /** Picker overlays have their own root, outside the story canvas. */
 export function StoryPicker({ bridge }: { bridge: Bridge }) {
   const [pick, setPick] = useState<PickMode | null>(null);
@@ -117,4 +89,16 @@ export function StoryPicker({ bridge }: { bridge: Bridge }) {
       }}
     />
   ) : null;
+}
+
+/** Notify the host only after React has committed the story subtree. */
+export function RenderCommit({
+  children,
+  onCommit,
+}: {
+  children: ReactNode;
+  onCommit: () => void;
+}) {
+  useLayoutEffect(() => onCommit(), [onCommit]);
+  return children;
 }

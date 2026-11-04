@@ -1,5 +1,4 @@
 import { createRoot } from "react-dom/client";
-import { flushSync } from "react-dom";
 import { config } from "virtual:proto/story-config";
 import { entries } from "virtual:proto/story-entries";
 import { loadPreview, previewPath } from "virtual:proto/story-preview";
@@ -14,7 +13,9 @@ import {
 } from "virtual:proto/story-runtime";
 import type { StoryResult, StoryStage } from "../model/protocol.ts";
 import { createBridge } from "./bridge.ts";
-import { RenderBoundary, StoryPicker, messageOf } from "./shared.tsx";
+import { RenderBoundary, RenderCommit, StoryPicker } from "./shared.tsx";
+
+import { messageOf } from "./errors.ts";
 
 // Public Storybook entry points do not export this event constant.
 const STORY_RENDERED = "storyRendered";
@@ -35,6 +36,7 @@ const timeout = Math.min(
 let stage: StoryStage = "import";
 let hasPlay: boolean | null = null;
 let terminal = false;
+const lifecycle = new AbortController();
 const compilerErrors: { files: string[]; message: string }[] = [];
 let importedFile = "";
 function modulePath(value: string) {
@@ -76,7 +78,10 @@ function report(status: StoryResult["status"], error: string | null = null) {
   };
   document.documentElement.dataset.protoStory = JSON.stringify(result);
   bridge.post({ type: "story:status", ...result });
-  if (terminal) clearTimeout(deadline);
+  if (terminal) {
+    clearTimeout(deadline);
+    lifecycle.abort();
+  }
 }
 const deadline = setTimeout(
   () => report("failed", `Story timed out at ${stage} after ${timeout} ms`),
@@ -110,9 +115,12 @@ function setupUserEvent() {
   return user;
 }
 if (import.meta.hot) {
-  import.meta.hot.on("proto:story-import-error", (payload: { entries: string[]; message: string }) => {
-    compilerErrors.push({ files: payload.entries.map(modulePath), message: payload.message });
-  });
+  import.meta.hot.on(
+    "proto:story-import-error",
+    (payload: { entries: string[]; message: string }) => {
+      compilerErrors.push({ files: payload.entries.map(modulePath), message: payload.message });
+    }
+  );
   import.meta.hot.on("vite:error", payload => {
     compilerErrors.push({
       files: [payload.err.id, payload.err.loc?.file]
@@ -132,15 +140,15 @@ async function run() {
       throw new Error("Story service workers need a secure context: use HTTPS or a loopback host.");
     importedFile = previewPath;
     const preview = await loadPreview();
-    if (terminal) return;
+    lifecycle.signal.throwIfAborted();
     const project = setProjectAnnotations([preview]);
     const channel = mockChannel();
     addons.setChannel(channel);
     await project.beforeAll?.();
-    if (terminal) return;
+    lifecycle.signal.throwIfAborted();
     importedFile = entry.modulePath;
     const module = await entry.load();
-    if (terminal) return;
+    lifecycle.signal.throwIfAborted();
     const theme = params.get("theme") === "dark" ? "dark" : "light";
     const stories = composeStories(
       { ...module, default: { ...module.default, title: entry.title } },
@@ -153,7 +161,7 @@ async function run() {
     enter("load");
     applyTheme(Story.globals[config.themeGlobal] ?? theme);
     await Story.load();
-    if (terminal) return;
+    lifecycle.signal.throwIfAborted();
     enter("render");
     const canvasElement = document.getElementById("proto-story-canvas")!;
     const layout = Story.parameters.layout;
@@ -167,21 +175,29 @@ async function run() {
         boxSizing: "border-box",
       });
     const root = createRoot(canvasElement);
-    flushSync(() =>
+    await new Promise<void>((resolve, reject) => {
       root.render(
-        <RenderBoundary component={Story} onError={error => report("failed", messageOf(error))}>
-          <Story />
+        <RenderBoundary
+          component={Story}
+          onError={error => {
+            report("failed", messageOf(error));
+            reject(error);
+          }}
+        >
+          <RenderCommit onCommit={resolve}>
+            <Story />
+          </RenderCommit>
         </RenderBoundary>
-      )
-    );
-    if (terminal) return;
+      );
+    });
+    lifecycle.signal.throwIfAborted();
     channel.emit(STORY_RENDERED, Story.id);
     document.documentElement.dataset.protoReady = `${entry.slug}:${indexed.id}`;
     bridge.post({ type: "ready", slug: entry.slug, state: indexed.id });
     const overlays = document.getElementById("proto-story-overlays")!;
     createRoot(overlays).render(<StoryPicker bridge={bridge} />);
     await nextPaint();
-    if (terminal) return;
+    lifecycle.signal.throwIfAborted();
     if (params.get("play") !== "0" && Story.play) {
       enter("play");
       await Story.play({

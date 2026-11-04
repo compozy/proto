@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Socket } from "node:net";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createServer, type InlineConfig } from "vite";
 import { validatePortRange } from "../config.ts";
 import { hostAllowed, renderGuard } from "./render-guard.ts";
@@ -62,14 +62,12 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
   const port = options.port ?? project.config.dev.port;
   const roots = project.config.stories?.roots ?? [];
   validatePortRange(port, roots.length);
-  if (
-    Array.isArray(options.storyRoots) &&
-    options.storyRoots.some(id => !roots.some(root => root.id === id))
-  )
+  const rootIds = new Set(roots.map(root => root.id));
+  if (Array.isArray(options.storyRoots) && options.storyRoots.some(id => !rootIds.has(id)))
     throw new ProtoError("invalid_input", "Unknown story root");
+  const requestedRoots = Array.isArray(options.storyRoots) ? new Set(options.storyRoots) : null;
   const selected = roots.flatMap((root, index) =>
-    options.storyRoots === "none" ||
-    (Array.isArray(options.storyRoots) && !options.storyRoots.includes(root.id))
+    options.storyRoots === "none" || (requestedRoots !== null && !requestedRoots.has(root.id))
       ? []
       : [{ root, port: port + 2 + index }]
   );
@@ -121,6 +119,24 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: { code: "host_not_allowed", message: "Host not allowed" } }));
       return;
+    }
+    // Review mutations retain their dedicated origin/header authorization below.
+    if (req.headers.origin && (req.method === "GET" || req.method === "HEAD")) {
+      const allowedOrigins = new Set([
+        origin,
+        ...project.config.dev.allowedHosts.map(host => `http://${host}:${port}`),
+      ]);
+      let requestOrigin: string | undefined;
+      try {
+        requestOrigin = new URL(req.headers.origin).origin;
+      } catch {
+        requestOrigin = undefined;
+      }
+      if (requestOrigin !== req.headers.origin || !allowedOrigins.has(requestOrigin)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { code: "origin_not_allowed" } }));
+        return;
+      }
     }
     if (req.headers.host === `localhost:${port}`) {
       res.writeHead(302, { Location: `${origin}${req.url}` });
@@ -292,7 +308,12 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       console.log(`proto  ${origin}`);
       console.log(`render http://127.0.0.1:${port + 1}`);
     }
-    for (const { root, port: storyPort } of selected) {
+    // Preserve declared startup order and register each server before starting the next,
+    // so the enclosing rollback always owns every successfully opened listener.
+    async function startNextStoryRoot(index: number): Promise<void> {
+      const selection = selected[index];
+      if (!selection) return;
+      const { root, port: storyPort } = selection;
       storyServers.push(
         await startStoryServer(project, root, { shell: port, story: storyPort }, options.quiet)
       );
@@ -304,12 +325,14 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
           `stories ${root.id} http://127.0.0.1:${storyPort}  ${files.length} files, ${count} stories`
         );
         for (const warning of registry.warnings.filter(
-          warning => warning.root === root.id &&
-            (warning.code !== "story_mock_unsupported" || !warning.file)
+          warning =>
+            warning.root === root.id && (warning.code !== "story_mock_unsupported" || !warning.file)
         ))
           console.warn(`warning ${warning.code} ${root.id}: ${warning.message}`);
       }
+      await startNextStoryRoot(index + 1);
     }
+    await startNextStoryRoot(0);
   } catch (error) {
     stopReviews();
     stopEvents();
@@ -323,15 +346,9 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
     throw error;
   }
   if (options.open) {
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "explorer.exe"
-          : "xdg-open";
-    execFile(command, [origin], error => {
-      if (error && !options.quiet) console.warn("Could not open the browser; visit " + origin);
-    });
+    // Vite owns platform-specific browser launching; only open our canonical shell URL.
+    vite.config.server.open = origin;
+    vite.openBrowser();
   }
   const stop = project.watch(() => publish("registry", { revision: project.revision }));
   registryWatcherReady = true;

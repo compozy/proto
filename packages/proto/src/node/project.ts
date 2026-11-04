@@ -61,14 +61,15 @@ export async function loadProject(
   const storyCache: StoryCache = new Map();
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshRequest = 0;
-  const publishLatest = async (request: number): Promise<void> => {
+  async function publishLatest(request: number): Promise<void> {
+    if (request !== refreshRequest || !listeners.size) return;
     const registry = await project.registry();
     if (request !== refreshRequest || !listeners.size) return;
     // A concurrent read can finish a newer build before this continuation runs.
     // Follow that snapshot instead of losing the refresh notification.
     if (revisions.get(registry) !== generation) return publishLatest(request);
     for (const listener of listeners) listener(registry);
-  };
+  }
   const refresh = () => {
     cached = undefined;
     generation++;

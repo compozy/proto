@@ -280,6 +280,10 @@ See [deployment details](../../docs/proto/deployment.md) for routing and login s
   credential always has only the `comment` scope (comment, reply, resolve, attach), so it can
   never approve, delete comments or manage credentials. The CLI stores it with `proto auth login`
   and uses it with `--remote`.
+- **Local shell reads validate browser origins.** Requests with an `Origin` header must name
+  the exact parsed shell origin or an explicitly configured `dev.allowedHosts` origin, including
+  its port. CLI requests without an `Origin` header still work; review writes keep their own
+  origin and request-header authorization.
 - **Prototype code can't act as the reviewer.** Prototypes render on a separate origin that holds
   no review cookies, behind short-lived render tickets. Cookie-authenticated writes require the
   gallery's origin plus an `X-Proto-Request` header.
@@ -443,11 +447,11 @@ proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react
 `~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
 Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
 
-| CLI | Options/result |
-| --- | --- |
-| `proto stories list` | `--root`, `--filter` on story ids, `--json`; no config prints `No stories configured.` (exit 0) |
-| `proto stories run` | `--root`, `--filter`, `--theme light\|dark`, `--concurrency` (6), `--timeout` in ms (30000, clamped 1000–120000), `--port`, `--json` |
-| `proto stories url <id>` | Gallery URL `/?c=<component>&story=<id>` |
+| CLI                      | Options/result                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `proto stories list`     | `--root`, `--filter` on story ids, `--json`; no config prints `No stories configured.` (exit 0)                                      |
+| `proto stories run`      | `--root`, `--filter`, `--theme light\|dark`, `--concurrency` (6), `--timeout` in ms (30000, clamped 1000–120000), `--port`, `--json` |
+| `proto stories url <id>` | Gallery URL `/?c=<component>&story=<id>`                                                                                             |
 
 Run JSON contains `summary: { total, passed, failed }` and `stories` rows with `id`, `root`,
 `stage` (`import`, `load`, `render`, `play`), `status`, `hasPlay`, `durationMs` and `error`.

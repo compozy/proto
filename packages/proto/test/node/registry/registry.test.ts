@@ -231,7 +231,11 @@ describe("story registry", () => {
       "explicit-id",
     ]);
     expect(result.entry?.stories[1]?.name).toBe("Visible");
-    expect(parse('export default { title: "UI/Button", parameters: { __id: "meta-only" } }; export const Primary = {}; export const Secondary = { parameters: { __id: "story-only" } };').entry?.stories.map(story => story.id)).toEqual(["ui-button--primary", "story-only"]);
+    expect(
+      parse(
+        'export default { title: "UI/Button", parameters: { __id: "meta-only" } }; export const Primary = {}; export const Secondary = { parameters: { __id: "story-only" } };'
+      ).entry?.stories.map(story => story.id)
+    ).toEqual(["ui-button--primary", "story-only"]);
     expect(
       parse('export default { title: "UI/Button" }; export const helper = {};').entry?.stories
     ).toHaveLength(1);
@@ -300,14 +304,23 @@ describe("story registry", () => {
     expect(indexed.problems.map(problem => problem.code)).toEqual(
       expect.arrayContaining(["story_slug_duplicate", "story_id_duplicate"])
     );
-    writeFileSync(join(app, "one.stories.tsx"), 'export default { title: "UI/Button", id: "one" }; export const Primary = {};');
-    writeFileSync(join(app, "two.stories.tsx"), 'export default { title: "UI/Button", id: "two" }; export const Secondary = {};');
+    writeFileSync(
+      join(app, "one.stories.tsx"),
+      'export default { title: "UI/Button", id: "one" }; export const Primary = {};'
+    );
+    writeFileSync(
+      join(app, "two.stories.tsx"),
+      'export default { title: "UI/Button", id: "two" }; export const Secondary = {};'
+    );
     const duplicateTitle = indexStories(app, [root]);
     expect(duplicateTitle.entries).toEqual([]);
-    expect(duplicateTitle.problems).toContainEqual(expect.objectContaining({
-      code: "story_slug_duplicate", message: "Slug two comes from two files.",
-      chain: ["ui/one.stories.tsx", "ui/two.stories.tsx"],
-    }));
+    expect(duplicateTitle.problems).toContainEqual(
+      expect.objectContaining({
+        code: "story_slug_duplicate",
+        message: "Slug two comes from two files.",
+        chain: ["ui/one.stories.tsx", "ui/two.stories.tsx"],
+      })
+    );
     expect(indexStories(app, [{ ...root, stories: "none/*.tsx" }]).warnings[0]?.code).toBe(
       "story_glob_empty"
     );
@@ -333,17 +346,32 @@ it("keeps cache entries stable until file metadata changes or explicit invalidat
   const first = indexStories(app, [root], cache);
   expect(indexStories(app, [root], cache).entries[0]).toBe(first.entries[0]);
   writeFileSync(join(app, "preview.ts"), 'sb.mock("boring-avatars");');
-  writeFileSync(file, 'import { mocked } from "storybook/test"; export default { title: "UI/Button" }; export const Primary = {};');
+  writeFileSync(
+    file,
+    'import { mocked } from "storybook/test"; export default { title: "UI/Button" }; export const Primary = {};'
+  );
   cache.clear();
   const warned = indexStories(app, [root], cache);
-  expect(warned.warnings).toContainEqual(expect.objectContaining({ message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())' }));
+  expect(warned.warnings).toContainEqual(
+    expect.objectContaining({
+      message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())',
+    })
+  );
   expect(indexStories(app, [root], cache).warnings).toEqual(warned.warnings);
   // Invariant: one root summary is printable; file diagnostics remain addressable by the shell.
   // Owner: story index warnings, in the canonical registry suite.
-  expect(warned.warnings.filter(warning => warning.code === "story_mock_unsupported" && !warning.file)).toEqual([
-    expect.objectContaining({ root: "ui", message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())' }),
+  expect(
+    warned.warnings.filter(warning => warning.code === "story_mock_unsupported" && !warning.file)
+  ).toEqual([
+    expect.objectContaining({
+      root: "ui",
+      message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())',
+    }),
   ]);
-  expect(warned.warnings.filter(warning => warning.file).map(warning => warning.file)).toEqual(["preview.ts", "button.stories.tsx"]);
+  expect(warned.warnings.filter(warning => warning.file).map(warning => warning.file)).toEqual([
+    "preview.ts",
+    "button.stories.tsx",
+  ]);
   writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
   expect(indexStories(app, [root], cache).entries[0]?.stories[0]?.id).toBe("ui-button--secondary");
   expect(indexStories(app, [root], cache).warnings.filter(warning => !warning.file)).toEqual([
@@ -438,16 +466,29 @@ it("stories UT-021: check reports root and file without loading stories", async 
   try {
     // The prototype config must remain usable: only the separate story pipeline throws.
     writeFileSync(join(fixture.app, "story-vite.ts"), 'throw new Error("story Vite loaded");');
-    writeFileSync(join(fixture.app, "preview.tsx"), 'import "./missing-preview-dependency"; throw new Error("preview loaded");');
-    writeFileSync(join(fixture.app, "src/button.stories.tsx"), 'import "./missing-story-dependency"; export default { title: "Clean" }; export const Default = {};');
-    writeFileSync(join(fixture.app, "proto.canvas.tsx"), 'export function Canvas({ children }) { return children; }');
+    writeFileSync(
+      join(fixture.app, "preview.tsx"),
+      'import "./missing-preview-dependency"; throw new Error("preview loaded");'
+    );
+    writeFileSync(
+      join(fixture.app, "src/button.stories.tsx"),
+      'import "./missing-story-dependency"; export default { title: "Clean" }; export const Default = {};'
+    );
+    writeFileSync(
+      join(fixture.app, "proto.canvas.tsx"),
+      "export function Canvas({ children }) { return children; }"
+    );
     const project = await loadProject(fixture.app);
     project.config.stories!.roots[0]!.vite = "story-vite.ts";
     expect(await checkProject(project)).toMatchObject({ ok: true, problems: [] });
     rmSync(join(fixture.app, "preview.tsx"));
     const result = await checkProject(await loadProject(fixture.app));
     expect(result.ok).toBe(false);
-    expect(result.problems).toContainEqual(expect.objectContaining({ code: "story_preview_missing", root: "app", file: "preview.tsx" }));
+    expect(result.problems).toContainEqual(
+      expect.objectContaining({ code: "story_preview_missing", root: "app", file: "preview.tsx" })
+    );
     expect(result).not.toHaveProperty("error");
-  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 });

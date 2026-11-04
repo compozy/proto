@@ -13,14 +13,9 @@ import type { PrototypeModule, RenderConfig, RenderPrototype } from "../model/re
 import { sourceRoots } from "../model/source.ts";
 import { watchAnchors } from "./anchors.ts";
 import { createBridge, type Bridge } from "./bridge.ts";
-import {
-  RenderBoundary,
-  RenderError,
-  useShellMessages,
-  limit,
-  messageOf,
-  type BoundaryProps,
-} from "./shared.tsx";
+import { RenderBoundary, RenderError, type BoundaryProps } from "./shared.tsx";
+import { limit, messageOf } from "./errors.ts";
+import { useShellMessages } from "./use-shell-messages.ts";
 import { Picker } from "./picker.tsx";
 import { ThemeProvider, useTheme } from "./theme.tsx";
 import { PrototypeToolbar } from "./toolbar.tsx";

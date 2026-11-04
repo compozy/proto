@@ -420,7 +420,9 @@ it("keeps story keys, removed stories and approval history lossless", async () =
       });
     registry.stories = [];
     expect((await h.store.get(component.id)).context.state).toBe("ui-button--primary");
-    expect((await h.store.list({ status: "all" })).map(comment => comment.id)).toContain(component.id);
+    expect((await h.store.list({ status: "all" })).map(comment => comment.id)).toContain(
+      component.id
+    );
     expect((await h.store.readFile(component.slug)).events).toHaveLength(1);
     registry.stories = [{ slug: "ui-button" }];
     registry.prototypes = [];
