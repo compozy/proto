@@ -272,6 +272,17 @@ try {
               .find(frame => frame.url().includes("/__proto/render/welcome"));
             assert.ok(render, "Welcome must render in the installed gallery iframe");
             assert.equal(new URL(render.url()).origin, `http://127.0.0.1:${port + 1}`);
+            // Invariant: an installed prototype importing `@compozy/proto` never makes the render
+            // optimizer discover the package late; in larger apps that rebundle reloads every
+            // render document. Owner: tarball adoption, the only suite running a real install.
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const { optimized } = JSON.parse(
+              await readFile(join(app, "node_modules/.vite/deps/_metadata.json"), "utf8")
+            );
+            assert.ok(
+              !("@compozy/proto" in optimized),
+              "The render origin optimized @compozy/proto"
+            );
           } finally {
             await browser.close();
           }

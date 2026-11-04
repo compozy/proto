@@ -98,6 +98,16 @@ export function renderPlugins(project: ProtoProject, renderConfig: RenderConfig)
     sourceTags(project.root, project.root),
     ...protoPresentation(),
     {
+      // Prototypes reach the package only through a virtual import the optimizer never scans,
+      // and its published entry carries its own copy of the URL state the host subscribes to.
+      name: "proto:runtime",
+      enforce: "pre",
+      resolveId(id) {
+        if (id === "@compozy/proto")
+          return fileURLToPath(new URL("../render/runtime.ts", import.meta.url));
+      },
+    },
+    {
       name: "proto:render",
       config() {
         const require = createRequire(resolve(project.root, "package.json"));
