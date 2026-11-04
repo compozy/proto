@@ -5,24 +5,17 @@
  * not `standalone`; never drafts) → the prototype inside an error boundary; and speaks the render
  * side of the protocol: `ready`, `error`, `context`, picking, anchors and `scroll:to`.
  */
-import {
-  Component,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-  type ComponentType,
-  type ErrorInfo,
-  type ReactNode,
-} from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ComponentType } from "react";
 
 import type { CanvasProps, FrameProps } from "../contract.ts";
-import type { Anchor, ElementTarget, PickMode, ShellMessage } from "../model/protocol.ts";
+import type { Anchor, ElementTarget, PickMode } from "../model/protocol.ts";
 import type { PrototypeModule, RenderConfig, RenderPrototype } from "../model/render-host.ts";
 import { sourceRoots } from "../model/source.ts";
 import { watchAnchors } from "./anchors.ts";
 import { createBridge, type Bridge } from "./bridge.ts";
-import { queryElement } from "./dom.ts";
+import { RenderBoundary, RenderError, type BoundaryProps } from "./shared.tsx";
+import { limit, messageOf } from "./errors.ts";
+import { useShellMessages } from "./use-shell-messages.ts";
 import { Picker } from "./picker.tsx";
 import { ThemeProvider, useTheme } from "./theme.tsx";
 import { PrototypeToolbar } from "./toolbar.tsx";
@@ -62,65 +55,6 @@ async function grantExpired(url: string) {
   }
 }
 
-const limit = (text: string, max: number) => (text.length > max ? text.slice(0, max) : text);
-
-function messageOf(error: unknown) {
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
-  return String(error);
-}
-
-type BoundaryProps = {
-  children: ReactNode;
-  component: PrototypeModule["default"];
-  onError: (error: unknown, componentStack: string | null) => void;
-};
-
-/** A canvas, frame or prototype that throws shows the error and reports it to the shell. */
-class RenderBoundary extends Component<
-  BoundaryProps,
-  { error: unknown; component: PrototypeModule["default"] }
-> {
-  state: { error: unknown; component: PrototypeModule["default"] } = {
-    error: null,
-    component: this.props.component,
-  };
-
-  /** Clear a failed render when the component changes without remounting a healthy Canvas subtree. */
-  static getDerivedStateFromProps(props: BoundaryProps, state: RenderBoundary["state"]) {
-    return props.component !== state.component ? { error: null, component: props.component } : null;
-  }
-
-  static getDerivedStateFromError(error: unknown) {
-    return { error: error ?? new Error("Unknown render error") };
-  }
-
-  componentDidCatch(error: unknown, info: ErrorInfo) {
-    this.props.onError(error, info.componentStack ?? null);
-  }
-
-  render() {
-    if (this.state.error) return <RenderError message={messageOf(this.state.error)} />;
-    return this.props.children;
-  }
-}
-
-function RenderError({ message }: { message: string }) {
-  return (
-    <pre
-      role="alert"
-      data-testid="proto-render-error"
-      style={{
-        margin: 0,
-        padding: 24,
-        font: "12px/1.5 ui-monospace, monospace",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {message}
-    </pre>
-  );
-}
-
 /** Posts `ready` once the prototype state committed (an effect of the prototype's sibling). */
 function ReportReady({ onReady }: { onReady: () => void }) {
   const ready = useEffectEvent(onReady);
@@ -154,28 +88,6 @@ function useModule(entry: RenderPrototype | undefined, onFailure: (error: unknow
     };
   }, [entry]);
   return loaded?.slug === entry?.slug ? loaded : null;
-}
-
-/** The shell side drives picking, anchors and scrolling; everything else stays local. */
-function useShellMessages(
-  bridge: Bridge,
-  handlers: {
-    pick: (mode: PickMode | null) => void;
-    anchors: (anchors: Anchor[]) => void;
-  }
-) {
-  const onMessage = useEffectEvent((message: ShellMessage) => {
-    if (message.type === "pick:start") handlers.pick(message.mode);
-    else if (message.type === "pick:cancel") handlers.pick(null);
-    else if (message.type === "anchors:watch") handlers.anchors(message.anchors);
-    else if (message.type === "scroll:to") {
-      queryElement(document, message.selector)?.scrollIntoView({ block: "center" });
-    }
-  });
-  useEffect(() => {
-    const stop = bridge.listen(onMessage);
-    return () => stop();
-  }, [bridge]);
 }
 
 /** The loaded prototype owns the error boundary; a replacement component resets a failed render. */

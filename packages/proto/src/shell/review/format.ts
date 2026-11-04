@@ -1,7 +1,7 @@
 /** How review data reads in the shell: numbers, authors, times, targets, waiting. Pure. */
 import type { CommentMessage, ReviewComment } from "../../model/review";
-import { flowOfKey } from "../../model/registry";
-import { screenView, type View } from "../lib/view";
+import { flowOfKey, keyKind, storyOfKey, type Registry } from "../../model/registry";
+import { componentView, screenView, type View } from "../lib/view";
 import type { Locale } from "../lib/i18n";
 
 /** `login-form-7` → 7. */
@@ -72,18 +72,71 @@ export function byActivity(a: ReviewComment, b: ReviewComment) {
   return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
 }
 
-/** Where a comment opens: its prototype state, or its flow step. */
+/**
+ * Where a comment opens: its prototype state, its flow step, or its story (`story--<slug>` keys
+ * keep the story id in `context.state`). Key forms are read only through the model's `keyKind`.
+ */
 export function commentView(comment: ReviewComment): View {
-  const flow = flowOfKey(comment.slug);
-  if (flow)
+  const kind = keyKind(comment.slug);
+  if (kind === "flow")
     return {
       area: "flow",
-      flow,
+      flow: flowOfKey(comment.slug) ?? comment.slug,
       node: comment.target.kind === "node" ? comment.target.node : null,
       comment: comment.id,
     };
+  if (kind === "story")
+    return componentView(storyOfKey(comment.slug) ?? comment.slug, comment.context.state || null, {
+      comment: comment.id,
+    });
   return screenView(comment.slug, comment.context.state, {
     comment: comment.id,
     role: comment.context.role,
   });
+}
+
+/**
+ * How a review key reads in lists: its title, the line under it (the state, or the story name)
+ * and a flag. A `story--` key is a component: `orphaned` when no component has that slug any
+ * more, `stale` when the commented story is gone. Without a registry (still loading) a key
+ * shows its slug, never a guess.
+ */
+export type KeySubject = {
+  kind: "screen" | "flow" | "story";
+  title: string;
+  detail: string;
+  spec: string | null;
+  flag: "stale" | "orphaned" | null;
+};
+
+export function describeKey(
+  key: string,
+  state: string,
+  registry: Pick<Registry, "prototypes" | "flows" | "stories"> | null
+): KeySubject {
+  const kind = keyKind(key);
+  if (kind === "story") {
+    const slug = storyOfKey(key) ?? key;
+    const base = { kind, title: slug, detail: state, spec: null, flag: null } as const;
+    if (!registry) return base;
+    const file = registry.stories?.find(item => item.slug === slug);
+    if (!file) return { ...base, flag: "orphaned" };
+    const story = file.stories.find(item => item.id === state);
+    return story
+      ? { ...base, title: file.title, detail: story.name }
+      : { ...base, title: file.title, flag: "stale" };
+  }
+  if (kind === "flow") {
+    const id = flowOfKey(key) ?? key;
+    const flow = registry?.flows.find(item => item.id === id);
+    return { kind, title: flow?.title ?? id, detail: state, spec: flow?.spec ?? null, flag: null };
+  }
+  const prototype = registry?.prototypes.find(item => item.slug === key);
+  return {
+    kind: "screen",
+    title: prototype?.title ?? key,
+    detail: state,
+    spec: prototype?.spec ?? null,
+    flag: null,
+  };
 }

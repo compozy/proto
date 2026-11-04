@@ -6,7 +6,7 @@ export const mcpTools = catalog
   .filter(c => c.mcp)
   .map(c => ({
     name: c.mcp!,
-    description: `${c.cli}: ${c.authority}`,
+    description: `${c.cli}: ${c.authority}${c.cli === "stories run" ? "; requires root or filter" : ""}`,
     inputSchema: z.toJSONSchema(c.store ? argumentSchema : argumentSchema.omit({ remote: true }), {
       io: "input",
     }),

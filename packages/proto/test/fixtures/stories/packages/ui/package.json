@@ -1,0 +1,16 @@
+{
+    "name": "proto-stories-fixture-packages-ui",
+    "private": true,
+    "type": "module",
+    "devDependencies": {
+        "@storybook/addon-themes": "10.6.2",
+        "@storybook/react-vite": "10.6.2",
+        "@vitejs/plugin-react": "6.1.2",
+        "msw": "2.14.6",
+        "msw-storybook-addon": "2.0.7",
+        "react": "19.2.0",
+        "react-dom": "19.2.0",
+        "storybook": "10.6.2",
+        "vite": "8.3.4"
+    }
+}

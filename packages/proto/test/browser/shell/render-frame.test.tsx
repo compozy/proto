@@ -1,25 +1,36 @@
 /**
- * Shell side of the shell ⇄ render protocol (`_tests.md` UT-065, IT-018; Safety Invariant 7).
- * This page plays the shell on http://127.0.0.1:<port>; the real render host runs in a
- * cross-origin iframe on http://localhost:<port> with the render suite's harness prototypes
- * (`test/browser/render/harness`). The shell accepts a message only from the iframe it created,
- * from the render origin and with that frame's current nonce.
+ * Shell side of the shell ⇄ render protocol (`_tests.md` UT-065, IT-018, IT-021; Safety
+ * Invariants 2 and 7). This page plays the shell on http://127.0.0.1:<port>; the real render
+ * host runs in a cross-origin iframe on http://localhost:<port> with the render suite's harness
+ * prototypes (`test/browser/render/harness`). The shell accepts a message only from the iframe
+ * it created, from its target's root origin (the render host, or a story root's server) and
+ * with that frame's current nonce.
  */
 import "../../../src/shell/theme.css";
 
-import { act, useState, type ReactNode } from "react";
+import { act, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { commands } from "vitest/browser";
 import { RenderErrorCard } from "../../../src/shell/frames/frame-status.tsx";
 
-import { protocolVersion } from "../../../src/model/protocol.ts";
+import {
+  protocolVersion,
+  type RenderMessage,
+  type StoryFrameTarget,
+} from "../../../src/model/protocol.ts";
 import { ScreenFrame } from "../../../src/shell/frames/screen-frame.tsx";
-import type { FrameContext } from "../../../src/shell/frames/use-render-frame.ts";
+import { useRenderFrame, type FrameContext } from "../../../src/shell/frames/use-render-frame.ts";
 import { LocaleProvider } from "../../../src/shell/lib/i18n.tsx";
-import { acceptRenderMessage } from "../../../src/shell/lib/render-channel.ts";
+import {
+  acceptRenderMessage,
+  initialStatus,
+  nextStatus,
+  type FrameStatus,
+} from "../../../src/shell/lib/render-channel.ts";
 import { ShellDataProvider, type ShellEnv } from "../../../src/shell/lib/shell-data.tsx";
 import { ReviewProvider } from "../../../src/shell/review/data.tsx";
+import { PlayStatus } from "../../../src/shell/pages/story-page.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
 
 const renderOrigin = window.location.origin.replace("127.0.0.1", "localhost");
@@ -245,6 +256,8 @@ describe("ScreenFrame", () => {
     );
     expect(alert.textContent).toContain("Broken · Default failed to render");
     expect(alert.textContent).toContain("Broken on purpose");
+    // A failed prototype drops its document (only story frames keep theirs for recovery).
+    expect(container.querySelector("iframe")).toBeNull();
     const reload = [...alert.querySelectorAll("button")].find(button =>
       button.textContent?.includes("Reload state")
     );
@@ -358,5 +371,406 @@ describe("ScreenFrame", () => {
     });
     expect(alert.textContent).toContain("keeps rejecting");
     expect(tickets).toBe(3);
+  });
+});
+
+describe("nextStatus", () => {
+  const status = (
+    stage: "import" | "load" | "render" | "play",
+    result: "running" | "passed" | "failed",
+    error: string | null = null
+  ): RenderMessage => ({
+    proto: protocolVersion,
+    frame: "current",
+    type: "story:status",
+    story: "ui-button--primary",
+    stage,
+    status: result,
+    hasPlay: true,
+    error,
+    durationMs: 12,
+  });
+  const ready: FrameStatus = { kind: "ready" };
+
+  test("a terminal story failure before play is a frame error that frees the preview slot", () => {
+    // Invariant: `import`, `load` and `render` failures end the frame with the host's message.
+    // Owner: shell render channel (`_spec.md` § Core Interfaces, `story:status`).
+    for (const stage of ["import", "load", "render"] as const) {
+      expect(nextStatus(initialStatus, status(stage, "failed", `${stage} broke`))).toEqual({
+        kind: "error",
+        message: `${stage} broke`,
+        componentStack: null,
+      });
+    }
+    // A render failure after commit replaces the ready frame too.
+    expect(nextStatus(ready, status("render", "failed", "boom"))).toMatchObject({ kind: "error" });
+    // A failure without a message still names the stage it stopped at.
+    expect(nextStatus(initialStatus, status("load", "failed"))).toMatchObject({ message: "load" });
+  });
+
+  test("a play failure, running and passed reports leave the frame as it is", () => {
+    // Invariant: a story whose play failed stays visible; lifecycle progress never settles a frame.
+    expect(nextStatus(ready, status("play", "failed", "expected disabled"))).toBe(ready);
+    expect(nextStatus(ready, status("play", "passed"))).toBe(ready);
+    expect(nextStatus(initialStatus, status("load", "running"))).toBe(initialStatus);
+    expect(nextStatus(initialStatus, status("render", "passed"))).toBe(initialStatus);
+  });
+
+  test("an error stays final: a later story report never hides it", () => {
+    const error: FrameStatus = { kind: "error", message: "first", componentStack: null };
+    expect(nextStatus(error, status("render", "passed"))).toBe(error);
+    expect(nextStatus(error, status("import", "failed", "second"))).toBe(error);
+  });
+});
+
+describe("story frames", () => {
+  // Two story roots on two origins: `web` on the render origin, `ui` on the shell's own origin.
+  const webOrigin = renderOrigin;
+  const uiOrigin = window.location.origin;
+  const storyEnv: ShellEnv = {
+    ...env,
+    bootstrap: {
+      ...env.bootstrap,
+      storyRoots: [
+        { id: "web", renderUrl: `${webOrigin}/test/browser/render/__proto/story/` },
+        { id: "ui", renderUrl: `${uiOrigin}/test/browser/render/__proto/story/` },
+      ],
+    },
+  };
+  const target = (root: string): StoryFrameTarget => ({
+    kind: "story",
+    root,
+    slug: "ui-button",
+    story: "ui-button--primary",
+    theme: "light",
+    play: true,
+  });
+  const failed = (frame: string) => ({
+    proto: protocolVersion,
+    frame,
+    type: "story:status",
+    story: "ui-button--primary",
+    stage: "render",
+    status: "failed",
+    hasPlay: false,
+    error: "Forged failure",
+    durationMs: 5,
+  });
+
+  /** A story frame whose status, result and Replay are readable from the DOM. */
+  function StoryProbe({ target: probe }: { target: StoryFrameTarget }) {
+    const iframe = useRef<HTMLIFrameElement>(null);
+    const frame = useRenderFrame(iframe, probe, { slugs });
+    return (
+      <div
+        data-root={probe.root}
+        data-status={frame.status.kind}
+        data-reason={frame.status.kind === "error" ? (frame.status.reason ?? "") : ""}
+        data-result={frame.result?.status ?? ""}
+      >
+        <button type="button" onClick={frame.reload}>
+          Replay
+        </button>
+        <iframe key={frame.nonce} ref={iframe} src={frame.src ?? undefined} title={probe.root} />
+      </div>
+    );
+  }
+
+  const probeOf = (container: HTMLElement, root: string) => {
+    const probe = container.querySelector<HTMLElement>(`[data-root="${root}"]`);
+    const iframe = probe?.querySelector("iframe");
+    if (!probe || !iframe) throw new Error(`No ${root} story frame yet`);
+    return { probe, iframe };
+  };
+
+  test("IT-021 a story frame loads from its root's server and never takes a render ticket", async () => {
+    const container = mount(<StoryProbe target={target("ui")} />, storyEnv);
+    const { iframe } = await vi.waitFor(() => probeOf(container, "ui"));
+    const src = new URL(iframe.src);
+    expect(src.origin).toBe(uiOrigin);
+    expect(src.pathname).toBe("/test/browser/render/__proto/story/ui-button--primary");
+    expect(src.searchParams.get("play")).toBe("1");
+    expect(src.searchParams.get("frame")).toMatch(/^[0-9a-f]{32}$/);
+    expect(src.searchParams.has("ticket")).toBe(false);
+  });
+
+  test("IT-021 each story frame accepts only its root origin, its own window and its nonce", async () => {
+    // Invariant: Safety Invariant 2. Owner: shell frame channel (`useRenderFrame`).
+    const container = mount(
+      <>
+        <StoryProbe target={target("web")} />
+        <StoryProbe target={target("ui")} />
+      </>,
+      storyEnv
+    );
+    const web = await vi.waitFor(() => probeOf(container, "web"));
+    const ui = await vi.waitFor(() => probeOf(container, "ui"));
+    const sibling = document.createElement("iframe");
+    sibling.src = `${webOrigin}/test/browser/render/__proto/story/ui-button--primary`;
+    document.body.append(sibling);
+    cleanups.push(() => sibling.remove());
+    const webNonce = nonceOf(web.iframe);
+    const uiNonce = nonceOf(ui.iframe);
+
+    act(() => {
+      // Another root's origin, a same-origin sibling window, the other frame's nonce.
+      deliver(failed(webNonce), { source: web.iframe.contentWindow, origin: uiOrigin });
+      deliver(failed(webNonce), { source: sibling.contentWindow, origin: webOrigin });
+      deliver(failed(uiNonce), { source: web.iframe.contentWindow, origin: webOrigin });
+      deliver(failed(uiNonce), { source: ui.iframe.contentWindow, origin: webOrigin });
+    });
+    // Synthetic dispatch runs the shell's listener synchronously inside act(): nothing to wait for.
+    expect(web.probe.dataset.status).toBe("loading");
+    expect(ui.probe.dataset.status).toBe("loading");
+
+    act(() => deliver(failed(uiNonce), { source: ui.iframe.contentWindow, origin: uiOrigin }));
+    expect(ui.probe.dataset.status).toBe("error");
+    expect(ui.probe.dataset.result).toBe("failed");
+    expect(web.probe.dataset.status).toBe("loading");
+
+    act(() => deliver(failed(webNonce), { source: web.iframe.contentWindow, origin: webOrigin }));
+    expect(web.probe.dataset.status).toBe("error");
+  });
+
+  test("IT-021 after Replay the replaced document's nonce is stale", async () => {
+    const container = mount(<StoryProbe target={target("web")} />, storyEnv);
+    const first = await vi.waitFor(() => probeOf(container, "web"));
+    const stale = nonceOf(first.iframe);
+    act(() => first.probe.querySelector("button")?.click());
+    const next = await vi.waitFor(() => {
+      const found = probeOf(container, "web");
+      if (nonceOf(found.iframe) === stale) throw new Error("No replayed document yet");
+      return found;
+    });
+    act(() => deliver(failed(stale), { source: next.iframe.contentWindow, origin: webOrigin }));
+    expect(next.probe.dataset.status).toBe("loading");
+    act(() =>
+      deliver(failed(nonceOf(next.iframe)), {
+        source: next.iframe.contentWindow,
+        origin: webOrigin,
+      })
+    );
+    expect(next.probe.dataset.status).toBe("error");
+  });
+
+  test("IT-021 ready counts only for the component and story the frame asked for", async () => {
+    const container = mount(<StoryProbe target={target("web")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "web"));
+    const ready = (slug: string, state: string) => ({
+      proto: protocolVersion,
+      frame: nonceOf(iframe),
+      type: "ready",
+      slug,
+      state,
+    });
+    const from = { source: iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(ready("ui-button", "ui-button--disabled"), from));
+    act(() => deliver(ready("other", "ui-button--primary"), from));
+    expect(probe.dataset.status).toBe("loading");
+    act(() => deliver(ready("ui-button", "ui-button--primary"), from));
+    expect(probe.dataset.status).toBe("ready");
+  });
+
+  test("IT-024 a 390 viewport preset gives the story frame a 390-wide document", async () => {
+    // Invariant: US-005.AC-3. Owner: `ScreenFrame` with a story target (the story page's frame).
+    const container = mount(
+      <ScreenFrame
+        target={target("web")}
+        width={390}
+        title="UI/Button · Primary"
+        slugs={slugs}
+        className="flex-1"
+      />,
+      storyEnv
+    );
+    const iframe = await vi.waitFor(() => frameOf(container));
+    expect(iframe.style.width).toBe("390px");
+    expect(new URL(iframe.src).searchParams.get("w")).toBe("390");
+  });
+
+  /** A story frame with the story page's play status chip. */
+  function StatusProbe({ target: probe }: { target: StoryFrameTarget }) {
+    const iframe = useRef<HTMLIFrameElement>(null);
+    const frame = useRenderFrame(iframe, probe, { slugs });
+    return (
+      <div data-root={probe.root}>
+        <PlayStatus frame={frame} />
+        <iframe key={frame.nonce} ref={iframe} src={frame.src ?? undefined} title={probe.root} />
+      </div>
+    );
+  }
+  const status = (frame: string, patch: Record<string, unknown>) => ({
+    ...failed(frame),
+    status: "passed",
+    hasPlay: false,
+    error: null,
+    ...patch,
+  });
+  const chipOf = (probe: HTMLElement) =>
+    probe.querySelector<HTMLElement>('[role="status"][aria-label="Play status"]');
+  const replayOf = (probe: HTMLElement) =>
+    [...probe.querySelectorAll("button")].find(button => button.textContent === "Replay");
+
+  test("a story without play shows no status; a render failure names its stage, without Replay", async () => {
+    // Invariant: truthful UI, the chip follows the host result, never the registry `play` flag.
+    // Owner: `PlayStatus` on the story page.
+    const container = mount(
+      <>
+        <StatusProbe target={target("web")} />
+        <StatusProbe target={target("ui")} />
+      </>,
+      storyEnv
+    );
+    const web = await vi.waitFor(() => probeOf(container, "web"));
+    const ui = await vi.waitFor(() => probeOf(container, "ui"));
+    act(() =>
+      deliver(status(nonceOf(web.iframe), {}), {
+        source: web.iframe.contentWindow,
+        origin: webOrigin,
+      })
+    );
+    expect(chipOf(web.probe)).toBeNull();
+    act(() =>
+      deliver(status(nonceOf(ui.iframe), { status: "failed", error: "boom" }), {
+        source: ui.iframe.contentWindow,
+        origin: uiOrigin,
+      })
+    );
+    expect(chipOf(ui.probe)?.textContent).toContain("Failed at render");
+    expect(chipOf(ui.probe)?.textContent).toContain("boom");
+    expect(replayOf(ui.probe)).toBeUndefined();
+  });
+
+  test("a story with play shows Running then Passed, and Replay loads a fresh document", async () => {
+    // Invariant: US-006.AC-2 and AC-4. Owner: `PlayStatus` on the story page.
+    const container = mount(<StatusProbe target={target("web")} />, storyEnv);
+    const first = await vi.waitFor(() => probeOf(container, "web"));
+    const nonce = nonceOf(first.iframe);
+    const from = { source: first.iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(status(nonce, { stage: "play", status: "running", hasPlay: true }), from));
+    expect(chipOf(first.probe)?.textContent).toContain("Running");
+    act(() => deliver(status(nonce, { stage: "play", hasPlay: true }), from));
+    expect(chipOf(first.probe)?.textContent).toContain("Passed");
+    act(() => replayOf(first.probe)?.click());
+    const next = await vi.waitFor(() => {
+      const found = probeOf(container, "web");
+      if (nonceOf(found.iframe) === nonce) throw new Error("No replayed document yet");
+      return found;
+    });
+    expect(chipOf(next.probe)).toBeNull();
+  });
+
+  test("a new document under the same nonce starts a new run; one document keeps its first result", async () => {
+    // Invariant: BR 7 and Invariant 11 (OPUS-002, ASTRA-001). An edit reloads the iframe in place
+    // (same URL and nonce); its first report, `import`/`running`, replaces the previous verdict,
+    // so the chip never says Passed for a run that has not reported. Owner: `useRenderFrame`.
+    const container = mount(<StatusProbe target={target("web")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "web"));
+    const nonce = nonceOf(iframe);
+    const from = { source: iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(status(nonce, { stage: "play", hasPlay: true }), from));
+    expect(chipOf(probe)?.textContent).toContain("Passed");
+    // A later report of the same document never overwrites its terminal result.
+    act(() =>
+      deliver(status(nonce, { stage: "play", status: "failed", hasPlay: true, error: "x" }), from)
+    );
+    expect(chipOf(probe)?.textContent).toContain("Passed");
+
+    act(() => deliver(status(nonce, { stage: "import", status: "running", hasPlay: null }), from));
+    expect(chipOf(probe)).toBeNull();
+    act(() => deliver(status(nonce, { stage: "play", status: "running", hasPlay: true }), from));
+    expect(chipOf(probe)?.textContent).toContain("Running");
+    act(() =>
+      deliver(
+        status(nonce, { stage: "play", status: "failed", hasPlay: true, error: "expected" }),
+        from
+      )
+    );
+    expect(chipOf(probe)?.textContent).toContain("Failed at play");
+    expect(nonceOf(probeOf(container, "web").iframe)).toBe(nonce);
+  });
+
+  test("a story failure clears when the same frame's new document starts", async () => {
+    // Invariant: a frame error from a story failure lasts one document (US-007.AC-2); the next
+    // document's results drive the frame. Owner: `useRenderFrame`.
+    const container = mount(<StoryProbe target={target("web")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "web"));
+    const nonce = nonceOf(iframe);
+    const from = { source: iframe.contentWindow, origin: webOrigin };
+    act(() => deliver(failed(nonce), from));
+    expect(probe.dataset.status).toBe("error");
+    act(() => deliver(errorMessage(nonce), from));
+    expect(probe.dataset.status).toBe("error");
+    act(() => deliver(status(nonce, { stage: "import", status: "running", hasPlay: null }), from));
+    expect(probe.dataset.status).toBe("loading");
+    expect(probe.dataset.result).toBe("running");
+    const ready = {
+      proto: protocolVersion,
+      frame: nonce,
+      type: "ready",
+      slug: "ui-button",
+      state: "ui-button--primary",
+    };
+    act(() => deliver(ready, from));
+    expect(probe.dataset.status).toBe("ready");
+  });
+
+  test("a failed story keeps its document behind the card and recovers from an in-place reload", async () => {
+    // Invariant: US-007.AC-2 and US-004.EC-3 (ASTRA-004): a fixed story, preview or imported
+    // module recovers without a shell reload because the failed frame can still receive Vite's
+    // `full-reload`. Owner: `ScreenFrame` with a story target. The stand-in story host
+    // (`test/browser/render/harness/story-host.ts`) plays the reloaded document.
+    const queryEnv: ShellEnv = {
+      ...env,
+      bootstrap: {
+        ...env.bootstrap,
+        storyRoots: [
+          { id: "web", renderUrl: `${webOrigin}/test/browser/render/__proto/story/index.html` },
+        ],
+      },
+    };
+    const container = mount(
+      <ScreenFrame
+        target={target("web")}
+        width="fit"
+        title="UI/Button · Primary"
+        slugs={slugs}
+        className="flex-1"
+        toolbar={(_, frame) => <PlayStatus frame={frame} />}
+      />,
+      queryEnv
+    );
+    const iframe = await vi.waitFor(() => frameOf(container));
+    const nonce = nonceOf(iframe);
+    await vi.waitFor(() => expect(chipOf(container)?.textContent).toContain("Passed"), {
+      timeout: 8000,
+    });
+    // The story breaks (as the host would report a failed render of an edited story).
+    act(() => deliver(failed(nonce), { source: iframe.contentWindow, origin: webOrigin }));
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Forged failure");
+    const kept = frameOf(container);
+    expect(kept).toBe(iframe);
+    expect(kept.classList.contains("invisible")).toBe(true);
+    expect(kept.getAttribute("aria-hidden")).toBe("true");
+
+    // The fix lands: the document reloads itself under the same URL and nonce.
+    await commands.renderFrameEval(`frame=${nonce}`, "setTimeout(() => location.reload(), 0)");
+    await vi.waitFor(() => expect(container.querySelector('[role="alert"]')).toBeNull(), {
+      timeout: 8000,
+    });
+    await vi.waitFor(() => expect(chipOf(container)?.textContent).toContain("Passed"), {
+      timeout: 8000,
+    });
+    expect(frameOf(container)).toBe(iframe);
+    expect(nonceOf(iframe)).toBe(nonce);
+    expect(iframe.classList.contains("invisible")).toBe(false);
+  });
+
+  test("IT-021 a root without a story server shows its failure and loads nothing", async () => {
+    const container = mount(<StoryProbe target={target("absent")} />, storyEnv);
+    const { probe, iframe } = await vi.waitFor(() => probeOf(container, "absent"));
+    expect(probe.dataset.status).toBe("error");
+    expect(probe.dataset.reason).toBe("story_root");
+    expect(iframe.getAttribute("src")).toBeNull();
   });
 });

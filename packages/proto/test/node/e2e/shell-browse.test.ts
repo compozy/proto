@@ -4,7 +4,7 @@
  * with roles, a framed component, a draft, a flow problem and a prototype that throws. The shell
  * is built from source; Playwright Chromium drives it. Assertions own the journeys.
  */
-import { appFixture, appFiles } from "../app-fixture.ts";
+import { appFixture, appFiles, storiesFixture } from "../app-fixture.ts";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -116,6 +116,8 @@ let appCopy: string;
 let app: Awaited<ReturnType<typeof devWithTempStore>>;
 let local: Awaited<ReturnType<typeof startProtoDev>>;
 let browser: Browser;
+let storyFixture: ReturnType<typeof storiesFixture>;
+let stories: Awaited<ReturnType<typeof startProtoDev>>;
 
 beforeAll(async () => {
   const shellDir = await buildShell(join(work.dir, "shell"));
@@ -123,6 +125,8 @@ beforeAll(async () => {
   appCopy = appFixture("proto-browse-app-", appFiles);
   app = await devWithTempStore(appCopy, shellDir);
   local = await startProtoDev(join(work.dir, "fixture"), shellDir);
+  storyFixture = storiesFixture();
+  stories = await startProtoDev(storyFixture.app, shellDir);
   browser = await chromium.launch();
 }, 240_000);
 
@@ -130,6 +134,8 @@ afterAll(async () => {
   await browser?.close();
   await app?.close();
   await local?.close();
+  await stories?.close();
+  if (storyFixture) rmSync(storyFixture.root, { recursive: true, force: true });
   work.remove();
   if (appCopy) rmSync(appCopy, { recursive: true, force: true });
 });
@@ -540,5 +546,50 @@ describe("browsing a fixture", () => {
     await card.getByText("Broken on purpose").waitFor({ timeout: 20_000 });
     await card.getByRole("button", { name: "Reload state" }).waitFor();
     await page.close();
+  }, 90_000);
+});
+
+// Invariant: navigation through Components and direct URLs opens and reveals a real story.
+// Owner: real-process browsing E2E; actual Storybook preview, MSW and play, with no stand-in host.
+describe("stories browsing", () => {
+  it("stories E2E-001: expands Components and runs decorators, MSW and play", async () => {
+    const page = await open(stories.origin, "/?components");
+    try {
+      const tree = page.getByRole("tree", { name: "Component tree" });
+      await tree.getByRole("treeitem", { name: "UI", exact: true }).first().click();
+      await tree.getByRole("treeitem", { name: "Button", exact: true }).click();
+      await tree.getByRole("treeitem", { name: "Network", exact: true }).click();
+      await expect.poll(() => search(page).get("story")).toBe("ui-button--network");
+      const frame = await renderFrame(page, stories.storyRoots[0]!.renderUrl, "button");
+      await frame.getByRole("button", { name: "Mock response", exact: true }).waitFor();
+      expect(await frame.locator('[data-preview="outer"] [data-preview="inner"]').count()).toBe(1);
+      await expect
+        .poll(() => page.getByRole("status", { name: "Play status" }).textContent())
+        .toBe("Passed");
+    } finally {
+      await page.close();
+    }
+  }, 90_000);
+
+  it("stories E2E-002: a deep link reveals its story in the expanded tree", async () => {
+    const page = await open(stories.origin, "/?c=ui-button&story=ui-button--primary");
+    try {
+      const tree = page.getByRole("tree", { name: "Component tree" });
+      const selected = tree.getByRole("treeitem", { name: "Primary", exact: true });
+      await selected.waitFor();
+      expect(await selected.getAttribute("aria-selected")).toBe("true");
+      expect(
+        await tree
+          .getByRole("treeitem", { name: "Button", exact: true })
+          .getAttribute("aria-expanded")
+      ).toBe("true");
+      const frame = await renderFrame(page, stories.storyRoots[0]!.renderUrl, "button");
+      await frame.getByRole("button", { name: "Clicked", exact: true }).waitFor();
+      await expect
+        .poll(() => page.getByRole("status", { name: "Play status" }).textContent())
+        .toBe("Passed");
+    } finally {
+      await page.close();
+    }
   }, 90_000);
 });

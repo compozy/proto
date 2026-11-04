@@ -20,7 +20,7 @@ it("IT-015 every catalog operation has CLI and MCP or an explicit exclusion", ()
       if (capability.store) expect(tool?.inputSchema.properties).toHaveProperty("remote");
     } else expect(capability.exclusion).toBeTruthy();
   }
-  expect(mcpTools).toHaveLength(22);
+  expect(mcpTools).toHaveLength(25);
 });
 it("IT-015 MCP results equal CLI JSON through the actual SDK transport", async () => {
   const project = await loadProject(fixtureApp);
@@ -30,6 +30,17 @@ it("IT-015 MCP results equal CLI JSON through the actual SDK transport", async (
   try {
     await Promise.all([server.connect(left), client.connect(right)]);
     expect((await client.listTools()).tools.map(t => t.name)).toEqual(mcpTools.map(t => t.name));
+    // Invariant: MCP hosts can accept a plain object schema; selection stays required at runtime.
+    // Owner: MCP catalog and SDK transport, in the canonical parity suite.
+    const storiesRun = (await client.listTools()).tools.find(t => t.name === "proto_stories_run")!;
+    expect(storiesRun.description).toContain("requires root or filter");
+    for (const keyword of ["oneOf", "anyOf", "allOf"])
+      expect(storiesRun.inputSchema).not.toHaveProperty(keyword);
+    const missingSelection = await client.callTool({ name: "proto_stories_run", arguments: {} });
+    expect(missingSelection.isError).toBe(true);
+    expect(JSON.parse((missingSelection.content as { text: string }[])[0]!.text)).toMatchObject({
+      error: { code: "invalid_input", message: "root or filter is required." },
+    });
     const cliError = await runCli(["url", "--json"], { project });
     const mcpError = await client.callTool({ name: "proto_url", arguments: {} });
     expect(mcpError.isError).toBe(true);

@@ -9,8 +9,9 @@ The CLI is `bun run proto <command> --app app`.
 - `loadProject(root)` validates configuration, discovers prototype and flow literals without
   executing them, returns registry snapshots and watches authored files. Paths are app-relative.
 - `startDev(project, { port, review })` starts shell/API on port 4400 and the consumer render
-  server on 4401. `mountReview(handler)` replaces the fetch handler for review API requests;
-  `publish("comments" | "review" | "registry", data)` sends SSE events. `close()` stops both servers.
+  server on 4401. Configured story roots render on separate servers at 4402 + root index;
+  `DevOptions.storyRoots` selects which roots start. Stories never render on the prototype server. `mountReview(handler)` replaces the fetch handler for review API requests;
+  `publish("comments" | "review" | "registry", data)` sends SSE events. `close()` stops every server it started.
 - The shell is served from `dist/shell` (`bun run build:shell`, config `vite.config.ts`); a
   missing bundle explains how to build it. It is its own React app: it imports only `src/model`
   and its vendored BnUI in `src/shell/ui` (never `@proto/ui`), learns its environment from
@@ -24,7 +25,11 @@ The CLI is `bun run proto <command> --app app`.
   assets. `proto build --remote` explicitly selects a remote build using `PROTO_REMOTE_URL` or
   `review.remote.url`, with path-form render URLs and the public shell origin. The Node API selects
   this mode with `buildProject(project, { remote: publicOrigin })`. Offline review snapshots are opt-in with `build.includeReview`.
-  Invalid registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
+  Story config/index diagnostics appear in `check`; it never loads or builds story graphs.
+  Local builds include lazy story roots under `__stories/<root>/` and optional `story--` snapshots;
+  story index problems and missing/unsupported peers fail local builds. Remote builds omit stories
+  with `stories_not_built`. MSW needs a base-aware worker URL and root-local scope (README).
+  Invalid prototype/flow registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
   `store()` returns FileStore; `store({ remote: true })` returns HttpStore using the configured URL
   and credential. `migrate` delegates to local file migration; the Node entry also exports
   `migrateRemote` for the database cutover.
@@ -56,7 +61,8 @@ troubleshooting, with `references/`) and `proto-apply-comments` (the comment loo
 consumer contract, so every command, flag, key and error code they name must match the source.
 `proto init --skills` syncs them into the Git top level's `.agents/skills/` (the app root outside
 Git), also in an app that is already set up, and reports 0.1.x copies under `legacySkills`. After
-editing a skill, run `bun run proto init --skills --app app` to refresh this repository's copy.
+editing a skill, sync the same files into this repository's `.agents/skills` copy (normally with
+`bun run proto init --skills --app app`).
 Agents never approve reviews. MCP excludes review transitions, unlock, credentials, migrations and
 process lifecycle. Store commands accept `--remote`, and store-backed MCP tools accept `remote: true`,
 using HttpStore with bearer credentials. Remote approval/deletion is denied to bearers. Capture uses
@@ -66,3 +72,7 @@ evidence under `docs/design/<slug>/`.
 `proto mcp` uses the optional `@modelcontextprotocol/sdk` peer over stdio; stdout is reserved for MCP.
 Tests cover parity through the SDK transport, real Chromium screenshots and inert HTML, static
 packaging, and fresh-tarball consumer adoption.
+
+`proto stories list/run/url` and MCP `proto_stories_list/run/url` expose the story index and runner.
+MCP run requires a root or filter. Runs verify `projectId` before server reuse and close only owned
+resources. Story comments use `story--<component slug>` and require a valid story id in `--state`.

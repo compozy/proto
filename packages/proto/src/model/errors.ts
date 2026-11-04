@@ -78,6 +78,22 @@ export const errors = {
   },
   cloudflare_api_error: { exit: 4, status: null, message: "The Cloudflare API request failed." },
 
+  storybook_missing: {
+    exit: 3,
+    status: null,
+    message: "storybook is not installed in <root>; install storybook and @storybook/react-vite.",
+  },
+  storybook_unsupported: {
+    exit: 3,
+    status: null,
+    message: "Storybook <version> is not supported; proto needs ~10.6.0.",
+  },
+  story_not_found: { exit: 1, status: 404, message: "No story matches <id>." },
+  project_mismatch: {
+    exit: 1,
+    status: null,
+    message: "The server on <port> belongs to another project; pass --port.",
+  },
   invalid_input: { exit: 2, status: 400, message: "Invalid request input." },
   review_has_open_comments: {
     exit: 1,
@@ -205,6 +221,11 @@ export function errorBody(error: ProtoError): ErrorBody {
 
 /** Problems fail `check` and `build`; warnings never do. */
 export const problemCodes = [
+  "story_parse",
+  "story_id_duplicate",
+  "story_slug_duplicate",
+  "story_slug_invalid",
+  "story_preview_missing",
   "duplicate_slug",
   "reserved_slug",
   "invalid_slug",
@@ -230,5 +251,13 @@ export const problemCodes = [
 ] as const;
 export type ProblemCode = (typeof problemCodes)[number];
 
-export const warningCodes = ["canvas_missing", "uncovered_state", "specs_unavailable"] as const;
+export const warningCodes = [
+  "canvas_missing",
+  "uncovered_state",
+  "specs_unavailable",
+  "story_mock_unsupported",
+  "story_title_dynamic",
+  "story_glob_empty",
+  "stories_not_built",
+] as const;
 export type WarningCode = (typeof warningCodes)[number];

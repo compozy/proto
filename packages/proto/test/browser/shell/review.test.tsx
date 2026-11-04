@@ -37,7 +37,13 @@ import { SessionWatch } from "../../../src/shell/lib/session-watch.ts";
 import { SessionNotice } from "../../../src/shell/app/session-notice.tsx";
 import { useDraft } from "../../../src/shell/review/drafts.ts";
 import { ShellRail } from "../../../src/shell/app/chrome.tsx";
-import { bootstrapFor, registry } from "../../harness/fixtures.ts";
+import { commentView, describeKey } from "../../../src/shell/review/format.ts";
+import { NeedsReview } from "../../../src/shell/review/review-ui.tsx";
+import { componentView, screenView } from "../../../src/shell/lib/view.ts";
+import type { ReviewComment } from "../../../src/model/review.ts";
+import { bootstrapFor, registry, storyRegistry } from "../../harness/fixtures.ts";
+import { env as reviewEnv } from "./comment-fixtures.ts";
+import { installBackend } from "./review-harness.ts";
 
 type Call = { method: string; url: string; headers: Headers; body: string | null };
 
@@ -894,5 +900,120 @@ describe("the shell in a share (proto-share S1, S3, S4, S5)", () => {
     const gallery = mount(shareEnv({ snapshot: undefined }, one), <ShellRail view={view} />);
     await vi.waitFor(() => expect(labels(gallery)).toContain("Screens"));
     expect(labels(gallery)).toEqual(expect.arrayContaining(["Flows", "Drafts"]));
+  });
+});
+
+describe("review keys in the inbox (story--<slug>)", () => {
+  // Invariant: key forms are read only through the model's syntactic `keyKind` (ADR-004), so a
+  // component comment opens its story and reads as component · story. Owner: `review/format.ts`.
+  const comment = (slug: string, state: string): ReviewComment => ({
+    id: `${slug}-3`,
+    slug,
+    status: "open",
+    createdAt: "2026-11-03T10:00:00.000Z",
+    updatedAt: "2026-11-03T10:00:00.000Z",
+    resolvedAt: null,
+    context: {
+      commit: null,
+      state,
+      theme: "dark",
+      role: null,
+      viewport: { width: 800, height: 600 },
+    },
+    target: {
+      kind: "element",
+      selector: "button",
+      testId: null,
+      tag: "button",
+      text: "Primary",
+      source: null,
+      sourceChain: [],
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      rectNormalized: { x: 0, y: 0, width: 0.1, height: 0.1 },
+      offset: null,
+    },
+    thread: [],
+  });
+
+  test("a story comment opens its story with the comment focused", () => {
+    expect(commentView(comment("story--ui-button", "ui-button--primary"))).toEqual(
+      componentView("ui-button", "ui-button--primary", { comment: "story--ui-button-3" })
+    );
+    // Prototype keys keep opening their state; a `story-` prototype slug stays a prototype.
+    expect(commentView(comment("story-foo", "default"))).toEqual(
+      screenView("story-foo", "default", { comment: "story-foo-3", role: null })
+    );
+  });
+
+  test("component title and story name, stale story, orphaned key and a loading registry", () => {
+    expect(describeKey("story--ui-button", "ui-button--primary", storyRegistry)).toEqual({
+      kind: "story",
+      title: "UI/Button",
+      detail: "Primary",
+      spec: null,
+      flag: null,
+    });
+    expect(describeKey("story--ui-button", "ui-button--removed", storyRegistry)).toMatchObject({
+      title: "UI/Button",
+      detail: "ui-button--removed",
+      flag: "stale",
+    });
+    expect(describeKey("story--renamed", "renamed--primary", storyRegistry)).toMatchObject({
+      kind: "story",
+      title: "renamed",
+      flag: "orphaned",
+    });
+    expect(describeKey("story--ui-button", "ui-button--primary", null)).toMatchObject({
+      kind: "story",
+      title: "ui-button",
+      flag: null,
+    });
+    expect(describeKey("story-foo", "default", storyRegistry)).toMatchObject({
+      kind: "screen",
+      title: "story-foo",
+    });
+  });
+
+  test("the overview's Needs review reads a story key as component title and story name", async () => {
+    // Invariant: S6, `story--` keys read the same on the overview as in the inbox (through
+    // `describeKey`), never as the raw key. Owner: `NeedsReview` on the overview.
+    const backend = installBackend();
+    backend.seed({
+      ...comment("story--ui-button", "ui-button--primary"),
+      id: "story--ui-button-1",
+      thread: [
+        {
+          id: crypto.randomUUID(),
+          at: "2026-11-03T10:00:00.000Z",
+          editedAt: null,
+          body: "Focus ring is too faint",
+          author: "reviewer",
+          attachments: [],
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <LocaleProvider locale="en">
+          <ShellDataProvider env={reviewEnv}>
+            <ReviewProvider keys={["story--ui-button"]}>
+              <NeedsReview />
+            </ReviewProvider>
+          </ShellDataProvider>
+        </LocaleProvider>
+      )
+    );
+    try {
+      await vi.waitFor(() => expect(container.textContent).toContain("Focus ring is too faint"));
+      await vi.waitFor(() => expect(container.textContent).toContain("UI/Button · Primary"));
+      expect(container.textContent).not.toContain("story--ui-button");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      backend.restore();
+    }
   });
 });

@@ -1,5 +1,6 @@
 /**
- * Canvas tools of comment mode. Screen view: Select and Comment (`C` starts a keyboard pick).
+ * Canvas tools of comment mode. Screen and story views: Select and Comment (`C` starts a keyboard
+ * pick).
  * Flow canvas: a comment on the selected step, or on the whole flow without a selection
  * (US-017; node targets, key `flow-<id>`). Absent when the build cannot write reviews.
  */
@@ -22,10 +23,10 @@ import { useCommentFocusState, useCommentTool } from "./state";
 export function CommentTools({ target }: { target: ReviewTarget }) {
   const review = useReviewData();
   if (!review?.writable) return null;
-  return target.kind === "prototype" ? (
-    <ScreenTools reviewKey={target.key} />
-  ) : (
+  return target.kind === "flow" ? (
     <FlowTool target={target} />
+  ) : (
+    <ScreenTools reviewKey={target.key} />
   );
 }
 

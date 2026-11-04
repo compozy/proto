@@ -2,64 +2,45 @@
  * One render iframe and its channel: the render URL with a fresh frame nonce, the frame status
  * (`loading` → `ready` | `error`, amber after 10 s), `context` changes from the prototype and a
  * `send` for shell → render messages. Picking, anchors and scrolling (review slice) build on
- * `send` and `onMessage`; this hook never reads the iframe's document.
+ * `send` and `onMessage`; this hook never reads the iframe's document. The frame model and the
+ * message handling live in `frame-channel.ts`; render tickets apply to prototypes only.
  */
 import { useEffect, useRef, useState, type RefObject } from "react";
 
-import {
-  readContextUrl,
-  parsePreviewRole,
-  renderHref,
-  type RenderMessage,
-  type ShellMessage,
-} from "../../model/protocol";
-import {
-  acceptRenderMessage,
-  allowReticket,
-  frameNonce,
-  initialStatus,
-  nextStatus,
-  slowAfterMs,
-  type FrameStatus,
-} from "../lib/render-channel";
+import type { RenderMessage } from "../../model/protocol";
+import { nextStatus, slowAfterMs } from "../lib/render-channel";
 import { useShellData } from "../lib/shell-data";
 import { useRenderTickets } from "../review/data";
+import {
+  awaitsSlow,
+  createEmitter,
+  forNonce,
+  forwardTo,
+  frameFor,
+  frameListener,
+  isStoryTarget,
+  keyOf,
+  knownRoles,
+  loadFrame,
+  postToFrame,
+  requestTicket,
+  reticketHandler,
+  storyOf,
+  targetParts,
+  ticketedSrc,
+  type Frame,
+  type FrameContext,
+  type RenderTarget,
+  type ShellOutgoing,
+} from "./frame-channel";
 
-export type FrameTarget = {
-  slug: string;
-  state: string;
-  theme: "light" | "dark";
-  role: string | null;
-  /** Viewport width hint for the render host (`w`); resizing never reloads the frame. */
-  width?: number;
-};
-
-/** A validated `context.url`: only these parameters are ever applied. */
-export type FrameContext = {
-  slug: string;
-  state: string | null;
-  theme: "light" | "dark" | null;
-  role: string | null;
-  w: number | null;
-};
-
-/** Accept catalog-confined frame context and normalize unsupported themes to no selection. */
-function readContext(
-  url: string,
-  slugs: ReadonlySet<string>,
-  roles: ReadonlySet<string>
-): FrameContext | null {
-  const context = readContextUrl(url, slugs, roles);
-  if (!context) return null;
-  const theme = context.theme === "light" || context.theme === "dark" ? context.theme : null;
-  return { ...context, theme };
-}
-
-type ShellOutgoing = ShellMessage extends infer Message
-  ? Message extends { proto: number; frame: string }
-    ? Omit<Message, "proto" | "frame">
-    : never
-  : never;
+export {
+  frameHref,
+  isStoryTarget,
+  type FrameContext,
+  type FrameTarget,
+  type RenderTarget,
+} from "./frame-channel";
 
 type Options = {
   /** Known slugs: a `context.url` naming anything else is ignored. */
@@ -70,74 +51,30 @@ type Options = {
   onMessage?: (message: RenderMessage) => void;
 };
 
-const windowOf = (iframe: RefObject<HTMLIFrameElement | null>) =>
-  iframe.current?.contentWindow ?? null;
-
-const keyOf = (target: Pick<FrameTarget, "slug" | "state" | "theme" | "role">) =>
-  [target.slug, target.state, target.theme, target.role ?? ""].join("\u0000");
-
-type Frame = {
-  key: string;
-  adopted: string | null;
-  nonce: string;
-  src: string;
-  status: FrameStatus;
-};
-
 /** Own frame tickets, nonce-scoped messaging and navigation without reloading unchanged documents. */
 export function useRenderFrame(
   iframe: RefObject<HTMLIFrameElement | null>,
-  target: FrameTarget,
+  target: RenderTarget,
   options: Options
 ) {
-  const { renderUrl, renderOrigin, registry, session } = useShellData();
-  // Remote galleries protect the render origin: each load carries a short-lived ticket.
-  const tickets = useRenderTickets();
+  const env = useShellData();
+  const { registry, session } = env;
+  const { storySlug, storyId, ticketFor } = targetParts(target);
+  // Remote galleries protect the render origin: each prototype load carries a short-lived
+  // ticket. Stories exist only in dev and local static builds, so they never take one.
+  const remoteTickets = useRenderTickets();
+  const tickets = isStoryTarget(target) ? null : remoteTickets;
   const [ticket, setTicket] = useState<{ nonce: string; value: string } | null>(null);
-  const [messages] = useState(() => {
-    const listeners = new Set<(message: RenderMessage) => void>();
-    return {
-      emit: (message: RenderMessage) => {
-        for (const listener of listeners) listener(message);
-      },
-      listen: (listener: (message: RenderMessage) => void) => {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
-    };
-  });
-  const key = keyOf(target);
-  const load = (nonce: string) =>
-    renderHref(renderUrl, {
-      slug: target.slug,
-      state: target.state,
-      theme: target.theme,
-      role: target.role,
-      w: target.width,
-      frame: nonce,
-      chrome: 0,
-    });
-  const [frame, setFrame] = useState<Frame>(() => {
-    const nonce = frameNonce();
-    return { key, adopted: null, nonce, src: load(nonce), status: initialStatus };
-  });
+  const [messages] = useState(createEmitter);
+  const [frame, setFrame] = useState<Frame>(() => loadFrame(env, target));
 
   // A target the frame already shows (it reported it as `context`) keeps the frame; any other
   // target loads a new document with a new nonce, so late messages of the old one are stale.
-  if (frame.key !== key) {
-    if (key === frame.adopted) setFrame({ ...frame, key });
-    else {
-      const nonce = frameNonce();
-      setFrame({ key, adopted: null, nonce, src: load(nonce), status: initialStatus });
-    }
-  }
+  const shown = frameFor(frame, keyOf(target), () => loadFrame(env, target));
+  if (shown !== frame) setFrame(shown);
 
-  const reload = () => {
-    const nonce = frameNonce();
-    setFrame({ key, adopted: null, nonce, src: load(nonce), status: initialStatus });
-  };
+  /** Replay: the same target in a fresh document with a new nonce (the old one turns stale). */
+  const reload = () => setFrame(loadFrame(env, target));
 
   const reloadRef = useRef(reload);
   /** Times this frame re-ticketed after `auth:expired` (see `allowReticket`). */
@@ -146,77 +83,37 @@ export function useRenderFrame(
     reloadRef.current = reload;
   });
 
-  const { nonce } = frame;
+  const { nonce, origin } = frame;
   const { slugs, onContext, onMessage } = options;
   useEffect(() => {
-    const knownRoles = new Set(
-      registry.status === "ready"
-        ? [
-            ...Object.keys(registry.registry.roles),
-            ...registry.registry.prototypes.flatMap(prototype => prototype.roles),
-          ]
-        : []
-    );
-    /** Accept messages only from the current render window, origin and nonce before updating frame state. */
-    const listen = (event: MessageEvent) => {
-      const message = acceptRenderMessage(event, {
-        source: windowOf(iframe),
-        origin: renderOrigin,
-        nonce,
-      });
-      if (!message) return;
-      if (message.type === "ready" || message.type === "error") {
-        setFrame(current =>
-          current.nonce === nonce
-            ? { ...current, status: nextStatus(current.status, message) }
-            : current
-        );
-        return;
-      }
-      if (message.type === "context") {
-        const context = readContext(message.url, slugs, knownRoles);
-        if (!context) return;
-        const adopted = keyOf({
-          slug: context.slug,
-          state: context.state ?? message.state,
-          theme: context.theme ?? message.theme,
-          role: context.role ?? parsePreviewRole(message.role, knownRoles),
-        });
-        setFrame(current => (current.nonce === nonce ? { ...current, adopted } : current));
-        onContext?.(context);
-        return;
-      }
-      if (message.type === "auth:expired" && tickets) {
-        // The render grant expired: a fresh ticket and a fresh load, within a budget.
-        const budget = allowReticket(retickets.current, Date.now());
-        if (!budget.allowed) {
-          retickets.current = budget.recent;
-          setFrame(current =>
-            current.nonce === nonce
-              ? {
-                  ...current,
-                  status: {
-                    kind: "error",
-                    message: "auth_loop",
-                    componentStack: null,
-                    reason: "auth_loop",
-                  },
-                }
-              : current
-          );
-          return;
-        }
-        retickets.current = [...budget.recent, Date.now()];
-        tickets.invalidate();
-        reloadRef.current();
-        return;
-      }
-      onMessage?.(message);
-      messages.emit(message);
-    };
+    const update = (change: (current: Frame) => Frame) => setFrame(forNonce(nonce, change));
+    const listen = frameListener({
+      source: () => iframe.current?.contentWindow ?? null,
+      nonce,
+      origin,
+      story: storyOf(storySlug, storyId),
+      slugs,
+      roles: knownRoles(registry),
+      update,
+      onContext,
+      forward: forwardTo(onMessage, messages.emit),
+      onAuthExpired: reticketHandler(tickets, retickets, update, () => reloadRef.current()),
+    });
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [iframe, nonce, renderOrigin, slugs, registry, onContext, onMessage, tickets, messages]);
+  }, [
+    iframe,
+    nonce,
+    origin,
+    storySlug,
+    storyId,
+    slugs,
+    registry,
+    onContext,
+    onMessage,
+    tickets,
+    messages,
+  ]);
 
   // In a share, a frame that failed to load may be asking for a replaced version's chunk (S1).
   const failed = frame.status.kind === "error";
@@ -224,58 +121,44 @@ export function useRenderFrame(
     if (failed) session.compare();
   }, [failed, nonce, session]);
 
-  const loading = frame.status.kind === "loading" && !frame.status.slow;
+  const loading = awaitsSlow(frame.status);
   useEffect(() => {
     if (!loading) return;
     const timer = setTimeout(() => {
-      setFrame(current =>
-        current.nonce === nonce
-          ? { ...current, status: nextStatus(current.status, "slow") }
-          : current
+      setFrame(
+        forNonce(nonce, current => ({ ...current, status: nextStatus(current.status, "slow") }))
       );
     }, slowAfterMs);
     return () => clearTimeout(timer);
   }, [loading, nonce]);
 
-  const send = (message: ShellOutgoing) => {
-    windowOf(iframe)?.postMessage({ proto: 1, frame: nonce, ...message }, renderOrigin);
-  };
+  const send = (message: ShellOutgoing) =>
+    postToFrame(iframe.current?.contentWindow ?? null, frame, message);
 
   /** Moves keyboard focus into the frame (keyboard picking starts from a focused frame). */
   const focus = () => iframe.current?.focus();
 
-  useEffect(() => {
-    if (!tickets) return;
-    let current = true;
-    tickets.next(target.slug, target.state).then(
-      value => {
-        if (current) setTicket({ nonce, value });
-      },
-      (error: unknown) => {
-        if (current)
-          setFrame(state =>
-            state.nonce === nonce
-              ? {
-                  ...state,
-                  status: { kind: "error", message: String(error), componentStack: null },
-                }
-              : state
-          );
-      }
-    );
-    return () => {
-      current = false;
-    };
-  }, [tickets, nonce, target.slug, target.state]);
+  useEffect(
+    () =>
+      requestTicket(tickets, ticketFor, {
+        ticket: value => setTicket({ nonce, value }),
+        update: change => setFrame(forNonce(nonce, change)),
+      }),
+    [tickets, nonce, ticketFor]
+  );
 
-  /** Null while a remote frame waits for its render ticket. */
-  const src = !tickets
-    ? frame.src
-    : ticket?.nonce === nonce
-      ? `${frame.src}${frame.src.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(ticket.value)}`
-      : null;
-
-  return { src, nonce, status: frame.status, reload, send, focus, listen: messages.listen };
+  return {
+    /** Null while a remote frame waits for its render ticket. */
+    src: ticketedSrc(frame.src, tickets !== null, ticket, nonce),
+    nonce,
+    status: frame.status,
+    /** The story's lifecycle result (`story:status`); null for prototypes and before a report. */
+    result: frame.result,
+    reload,
+    send,
+    focus,
+    listen: messages.listen,
+  };
 }
 
 export type RenderFrameHandle = ReturnType<typeof useRenderFrame>;

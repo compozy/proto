@@ -51,6 +51,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       await sql`truncate proto_keys,proto_comments,proto_messages,proto_events,proto_attachments,proto_credentials cascade`;
       return httpContract(postgresStorage(sql), true);
     });
+    // Invariant: widening local keys does not enable remote story persistence. Owner: SQL HTTP adapter.
+    it("rejects story keys through Postgres-backed remote review", async () => {
+      const storage = postgresStorage(sql);
+      await expect(
+        storage.store.add("story--ui-button", input, { kind: "reviewer" })
+      ).rejects.toMatchObject({ code: "comment_not_found" });
+      const h = await serverHarness(storage);
+      try {
+        const response = await h.request("api/comments", "POST", {
+          ...input,
+          key: "story--ui-button",
+        });
+        expect(response.status).toBe(404);
+        expect((await response.json()).error.code).toBe("comment_not_found");
+      } finally {
+        await h.dispose();
+      }
+    });
     it("listing more review keys keeps database reads bounded and transfers only attachment metadata", async () => {
       // Invariant: collection reads do not create a transaction per key or download image bodies.
       // Owner: SQL adapter; actual queries and decoded bytes from the disposable Postgres database.

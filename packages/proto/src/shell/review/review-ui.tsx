@@ -22,6 +22,7 @@ import {
   byActivity,
   commentView,
   commentNode,
+  describeKey,
   commentNumber,
   isWaiting,
   relativeTime,
@@ -50,6 +51,8 @@ function reviewSlots(t: Translate): ShellSlots {
         content:
           target.kind === "prototype" ? (
             <PrototypeThreads target={target} />
+          ) : target.kind === "story" ? (
+            <StoryThreads target={target} />
           ) : (
             <FlowThreads target={target} />
           ),
@@ -77,12 +80,7 @@ function readOnlySlots(t: Translate): ShellSlots {
 
 function TopBarActions({ target }: { target: ReviewTarget | null }) {
   const registry = useRegistry();
-  const title =
-    target?.kind === "prototype"
-      ? (registry.prototypes.find(item => item.slug === target.slug)?.title ?? target.slug)
-      : target?.kind === "flow"
-        ? (registry.flows.find(item => item.id === target.flow)?.title ?? target.flow)
-        : null;
+  const title = target ? describeKey(target.key, "", registry).title : null;
   return <ReviewActions reviewKey={target?.key ?? null} title={title} />;
 }
 
@@ -108,6 +106,21 @@ function PrototypeThreads({ target }: { target: Extract<ReviewTarget, { kind: "p
       focused={comment}
       onFocus={id => {
         if (view.area === "screen") go({ ...view, comment: id }, { replace: true });
+      }}
+    />
+  );
+}
+
+/** Bind a component's threads to the story on screen and URL-owned comment focus. */
+function StoryThreads({ target }: { target: Extract<ReviewTarget, { kind: "story" }> }) {
+  const { view } = useLocation();
+  return (
+    <ThreadsPanel
+      reviewKey={target.key}
+      scope={{ kind: "state", state: target.story ?? "" }}
+      focused={view.area === "component" ? view.comment : null}
+      onFocus={id => {
+        if (view.area === "component") go({ ...view, comment: id }, { replace: true });
       }}
     />
   );
@@ -226,15 +239,22 @@ export function CommentsRailItem({
 /** ⌘K results for comments (`text` tier: after slugs, titles and state labels). */
 export function useCommentSearchItems(): SearchItem[] {
   const t = useT();
+  const registry = useRegistry();
   const comments = useAllComments().data ?? [];
   return comments.map(comment => {
     const first = comment.thread[0];
     const flow = flowOfKey(comment.slug);
+    const subject = describeKey(comment.slug, comment.context.state, registry);
     return {
       id: `c:${comment.id}`,
       group: "comments" as const,
       label: `#${commentNumber(comment)} ${first?.body ?? ""}`,
-      detail: flow ? `${t("rail.flows")} · ${flow}` : comment.slug,
+      detail:
+        subject.kind === "story"
+          ? `${t("rail.components")} · ${subject.title}`
+          : flow
+            ? `${t("rail.flows")} · ${flow}`
+            : comment.slug,
       hint: comment.status === "resolved" ? t("thread.resolved") : undefined,
       text: comment.thread.map(message => message.body).join("\n"),
       target: { view: commentView(comment) },
@@ -277,8 +297,11 @@ export function NeedsReview() {
   const locale = useLocale();
   const review = useReviewData();
   const comments = useAllComments().data;
+  const { registry } = useShellData();
   if (!review || !comments) return null;
   const open = comments.filter(item => item.status === "open").sort(byActivity);
+  // Keys read as the inbox reads them (S6): a `story--` key shows the component title and story.
+  const known = registry.status === "ready" ? registry.registry : null;
   return (
     <aside
       aria-label={t("overview.needsReview")}
@@ -295,6 +318,7 @@ export function NeedsReview() {
         {open.slice(0, 50).map(comment => {
           const first = comment.thread[0];
           const replies = comment.thread.length - 1;
+          const subject = describeKey(comment.slug, comment.context.state, known);
           return (
             <li key={comment.id}>
               <Link
@@ -306,7 +330,7 @@ export function NeedsReview() {
                     {commentNumber(comment)}
                   </span>
                   <span className="truncate font-mono">
-                    {comment.slug} · {comment.context.state || "—"}
+                    {subject.title} · {subject.detail || "—"}
                   </span>
                   <span className="ml-auto shrink-0">
                     {relativeTime(comment.updatedAt, locale)}

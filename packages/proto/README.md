@@ -280,6 +280,10 @@ See [deployment details](../../docs/proto/deployment.md) for routing and login s
   credential always has only the `comment` scope (comment, reply, resolve, attach), so it can
   never approve, delete comments or manage credentials. The CLI stores it with `proto auth login`
   and uses it with `--remote`.
+- **Local shell reads validate browser origins.** Requests with an `Origin` header must name
+  the exact parsed shell origin or an explicitly configured `dev.allowedHosts` origin, including
+  its port. CLI requests without an `Origin` header still work; review writes keep their own
+  origin and request-header authorization.
 - **Prototype code can't act as the reviewer.** Prototypes render on a separate origin that holds
   no review cookies, behind short-lived render tickets. Cookie-authenticated writes require the
   gallery's origin plus an `X-Proto-Request` header.
@@ -408,7 +412,7 @@ Environment: `PROTO_PORT`, `PROTO_POLL=1`, `PROTO_REMOTE_URL`, `PROTO_REMOTE_TOK
 - **Milestone 2:** remote review server, `--remote` CLI and MCP, credentials.
 - **Then:** a documentation site.
 
-Out of scope: frameworks other than React + Vite, replacing Storybook, visual regression diffing,
+Out of scope: frameworks other than React + Vite, Storybook's addon panels, visual regression diffing,
 a hosted SaaS, and syncing local and remote review data.
 
 ## Contributing
@@ -420,3 +424,93 @@ conventions, and follow the [Code of Conduct](https://github.com/compozy/proto/b
 ## License
 
 [MIT](https://github.com/compozy/proto/blob/main/LICENSE) © 2026 Pedro Nauck and Compozy contributors
+
+### Existing Storybook stories
+
+Opt in per app; apps without `stories` need no Storybook dependency:
+
+```ts
+stories: {
+  roots: [{
+    id: "ui", dir: "../packages/ui", stories: "src/**/*.stories.tsx",
+    preview: ".storybook/preview.ts", vite: "vite.stories.ts",
+    static: [{ from: "public", to: "/" }], themeGlobal: "theme",
+    guards: { forbidRuntimeImports: ["src/data.ts"] },
+  }],
+}
+```
+
+`id` matches `^[a-z][a-z0-9-]*$`. `dir` defaults to `.`; globs, preview, Vite config and
+static sources resolve inside it. `title` defaults to the id, `static` and guards to empty,
+and `themeGlobal` to `theme`. The root config installs React/CSS/aliases without `proto()`;
+proto never runs `.storybook/main.ts`. Install `storybook` and `@storybook/react-vite` at
+`~10.6.0` (for example `10.6.3`) in each root. Each root gets a separate origin and cache.
+Stories keep CSF, preview decorators/loaders and `play`. `sb.mock` is inert and warns.
+
+| CLI                      | Options/result                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `proto stories list`     | `--root`, `--filter` on story ids, `--json`; no config prints `No stories configured.` (exit 0)                                      |
+| `proto stories run`      | `--root`, `--filter`, `--theme light\|dark`, `--concurrency` (6), `--timeout` in ms (30000, clamped 1000–120000), `--port`, `--json` |
+| `proto stories url <id>` | Gallery URL `/?c=<component>&story=<id>`                                                                                             |
+
+Run JSON contains `summary: { total, passed, failed }` and `stories` rows with `id`, `root`,
+`stage` (`import`, `load`, `render`, `play`), `status`, `hasPlay`, `durationMs` and `error`.
+Index problems are reported alongside results; selected stories still run. Exit is 0 when all
+pass, 1 on failure, index problems or an empty selection, and 3 for missing Playwright/Chromium.
+Only selected roots start. Existing servers are reused only after a `projectId` match;
+interrupt closes owned servers/browser and emits no partial report.
+
+MCP exposes `proto_stories_list({ root?, filter? })`,
+`proto_stories_run({ root?, filter?, theme?, concurrency?, timeout?, port? })` (root or filter
+required) and `proto_stories_url({ id })`, returning the same JSON as the CLI.
+
+Story comments use `story--<component slug>`. `comments add` requires `--state <story-id>` from
+that component, plus the usual `--note` and `--selector`. Read with
+`comments list --slug story--<component slug>`. Remote review rejects these keys.
+`check` validates story configuration and index without loading the story graph. Local `build`
+includes each root under `__stories/<root>/index.html?story=<id>`, using its own Vite config,
+`publicDir` and `static` mounts with lazy story and preview chunks. Story problems, missing or
+unsupported peers, and any root build failure fail the local build without publishing output.
+The read-only bootstrap carries relative `storyRoots`; `projectId` remains dev-only. With
+`build.includeReview`, snapshots include `story--` keys from the local FileStore.
+`build --remote` omits stories permanently and warns `stories_not_built`; story problems and
+missing peers do not fail remote builds. Remote stores continue rejecting story keys.
+Application production bundles gain no story runtime.
+
+With MSW 2.14+, use `msw-storybook-addon` 2.0.7 or a compatible newer release; 2.0.6 relies on
+the removed `worker.context` field and fails during preview import.
+
+MSW previews must use a base-aware worker URL (put the worker in the root's `publicDir` or a
+`static` mount at `/`):
+
+```ts
+const base = new URL(import.meta.env.BASE_URL, window.location.href);
+initialize({
+  serviceWorker: {
+    url: new URL("mockServiceWorker.js", base).href,
+    options: { scope: base.pathname },
+  },
+});
+```
+
+This uses `/` on a dev root's separate origin and `__stories/<root>/` inside a static gallery,
+including galleries hosted under a subpath. Keep the static worker scope inside its root and
+serve without a broader `Service-Worker-Allowed` header so it cannot control the shell or other
+roots. Serve the gallery over HTTPS or a loopback HTTP host; stories report a secure-context
+error on other HTTP origins. Existing consumers using `/mockServiceWorker.js` need this preview
+update; proto does not rewrite consumer previews.
+
+Static story assets use the same base as the worker: `static` mounts and `publicDir` assets
+live under `__stories/<root>/`, including the gallery's hosting subpath. Consumers must use
+base-relative URLs, for example
+`new URL("vendor/emojibase/en/data.json", new URL(import.meta.env.BASE_URL, window.location.href))`.
+A hard-coded `/vendor/emojibase/...` or `/fonts/...` requests the gallery origin's root and can
+404 in a static build even when it works on the separate dev origin. proto does not publish
+these assets at the gallery root or rewrite string URLs in consumer code.
+
+Errors: `invalid_input` (exit 2) for unknown roots or missing/invalid comment state;
+`story_not_found` (1) for unknown ids/empty filters; `project_mismatch` (1) for a different
+project on the requested port; `port_in_use` (1); `playwright_missing`, `storybook_missing`
+and `storybook_unsupported` (3). Story index problems include `story_parse`,
+`story_id_duplicate`, `story_slug_duplicate`, `story_slug_invalid`, `story_preview_missing`;
+warnings include `story_mock_unsupported`, `story_title_dynamic`, `story_glob_empty`.

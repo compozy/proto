@@ -256,6 +256,69 @@ export const emptyRegistry: Registry = {
   warnings: [],
 };
 
+const story = (slug: string, exportName: string, name: string, play = false) => ({
+  id: `${slug}--${name.toLowerCase().replace(/\s+/g, "-")}`,
+  exportName,
+  name,
+  play,
+  tags: [],
+});
+
+/**
+ * Two story roots (`web`, `ui`): `ui-button` has a story with `play` and two that fail (at render
+ * and at import, served as such by the browser suites' story host harness), and a module-mock
+ * warning; `ui-card` nests under the same `UI` group.
+ */
+export const storyRegistry: Registry = {
+  ...registry,
+  storyRoots: [
+    { id: "web", title: "Web" },
+    { id: "ui", title: "UI kit" },
+  ],
+  stories: [
+    {
+      slug: "ui-button",
+      root: "ui",
+      file: "src/button.stories.tsx",
+      title: "UI/Button",
+      path: ["UI", "Button"],
+      description: "Buttons trigger actions.",
+      stories: [
+        story("ui-button", "Primary", "Primary", true),
+        story("ui-button", "RenderFail", "Render Fail"),
+        story("ui-button", "ImportFail", "Import Fail"),
+      ],
+    },
+    {
+      slug: "ui-card",
+      root: "ui",
+      file: "src/card.stories.tsx",
+      title: "UI/Card",
+      path: ["UI", "Card"],
+      description: null,
+      stories: [story("ui-card", "Default", "Default")],
+    },
+    {
+      slug: "pages-home",
+      root: "web",
+      file: "src/home.stories.tsx",
+      title: "Pages/Home",
+      path: ["Pages", "Home"],
+      description: null,
+      stories: [story("pages-home", "Default", "Default")],
+    },
+  ],
+  warnings: [
+    ...registry.warnings,
+    {
+      code: "story_mock_unsupported",
+      root: "ui",
+      file: "src/button.stories.tsx",
+      message: "src/button.stories.tsx: module mocks are not applied",
+    },
+  ],
+};
+
 export function bootstrapFor(options: {
   mode?: Bootstrap["mode"];
   locale?: Bootstrap["locale"];

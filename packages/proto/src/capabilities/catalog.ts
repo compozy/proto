@@ -1,7 +1,9 @@
+import { runStories } from "../node/story-runner.ts";
+import { storyOfKey } from "../model/registry.ts";
 import { mapConcurrent } from "../node/concurrency.ts";
 import { z } from "zod";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, join, relative, matchesGlob } from "node:path";
 import { ProtoError } from "../model/errors.ts";
 import type { ProtoProject } from "../node/project.ts";
 import type { Author } from "../store/index.ts";
@@ -44,6 +46,9 @@ export const catalog: readonly Capability[] = [
     row(cli, cli === "share" ? ["slug"] : [], false, "Sharing is CLI-only", "process lifecycle")
   ),
   row("list"),
+  row("stories list"),
+  row("stories run"),
+  row("stories url", ["id"]),
   row("check"),
   row("url", ["slug"]),
   row("flow list"),
@@ -89,6 +94,10 @@ export const exclusions = [
   },
 ];
 export const argumentSchema = z.object({
+  root: z.string().optional(),
+  filter: z.string().optional(),
+  concurrency: z.coerce.number().int().min(1).max(32).optional(),
+  timeout: z.coerce.number().int().positive().optional(),
   from: z.string().optional(),
   "from-database": z.string().optional(),
   "to-database": z.string().optional(),
@@ -145,6 +154,8 @@ export async function executeCapability(
   context: CapabilityContext
 ): Promise<unknown> {
   const command = capability.cli;
+  if (command === "comments add" && args.slug && storyOfKey(args.slug) !== null && !args.state)
+    throw new ProtoError("invalid_input", "--state is required on story keys.");
   if (args.remote) {
     if (
       command === "review approve" ||
@@ -159,6 +170,63 @@ export async function executeCapability(
   if (command === "init") return initProject(context.root, args);
   const project = context.project;
   if (!project) throw new ProtoError("invalid_config", "Project was not loaded");
+  if (command.startsWith("stories ")) {
+    if (command === "stories run") {
+      if (context.transport === "mcp" && !args.root && !args.filter)
+        throw new ProtoError("invalid_input", "root or filter is required.");
+      const controller = new AbortController();
+      const interrupt = () => controller.abort();
+      if (context.transport === "cli") {
+        process.once("SIGINT", interrupt);
+        process.once("SIGTERM", interrupt);
+      }
+      try {
+        const report = await runStories(project, { ...args, signal: controller.signal });
+        const passed = report.results.filter(row => row.status === "passed").length;
+        return {
+          summary: { total: report.results.length, passed, failed: report.results.length - passed },
+          stories: report.results,
+          ...(report.problems.length ? { problems: report.problems } : {}),
+          ...(report.warnings.length ? { warnings: report.warnings } : {}),
+        };
+      } finally {
+        process.removeListener("SIGINT", interrupt);
+        process.removeListener("SIGTERM", interrupt);
+      }
+    }
+    const registry = await project.registry();
+    if (args.root && !registry.storyRoots?.some(root => root.id === args.root))
+      throw new ProtoError("invalid_input", `Unknown root "${args.root}".`);
+    if (command === "stories url") {
+      const id = required(args.id, "id");
+      const file = registry.stories?.find(file => file.stories.some(story => story.id === id));
+      if (!file) throw new ProtoError("story_not_found", `No story matches ${id}.`);
+      const url = new URL(`http://127.0.0.1:${args.port ?? project.config.dev.port}/`);
+      url.searchParams.set("c", file.slug);
+      url.searchParams.set("story", id);
+      return { url: url.href };
+    }
+    const stories = (registry.stories ?? [])
+      .filter(file => !args.root || file.root === args.root)
+      .map(file => ({
+        ...file,
+        stories: file.stories.filter(story => !args.filter || matchesGlob(story.id, args.filter)),
+      }))
+      .filter(file => file.stories.length);
+    return {
+      roots: (registry.storyRoots ?? [])
+        .filter(root => !args.root || root.id === args.root)
+        .map(root => {
+          const files = stories.filter(file => file.root === root.id);
+          return {
+            id: root.id,
+            files: files.length,
+            stories: files.reduce((sum, file) => sum + file.stories.length, 0),
+          };
+        }),
+      stories,
+    };
+  }
   if (command === "list") {
     const registry = await project.registry();
     return {
@@ -228,6 +296,13 @@ export async function executeCapability(
     };
   if (command === "comments add") {
     const slug = required(args.slug, "slug");
+    const component = storyOfKey(slug);
+    if (component !== null) {
+      const registry = await project.registry();
+      const file = registry.stories?.find(file => file.slug === component);
+      if (!file?.stories.some(story => story.id === args.state))
+        throw new ProtoError("invalid_input", `No story matches ${args.state}.`);
+    }
     const rect = { x: 0, y: 0, width: 0, height: 0 };
     return {
       comment: await store.add(

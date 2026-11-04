@@ -272,3 +272,121 @@ it.each([
   },
   60000
 );
+
+// Invariant: only the declaring root guards runtime imports, and failures retain the transitive chain.
+// Owner: root story server transformation and its real Vite websocket/Chromium host.
+it("isolates story root guards and reports import failures with their chain", async () => {
+  const { storiesFixture } = await import("../app-fixture.ts");
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const { startDev } = await import("../../../src/node/dev.ts");
+  const { onFreePorts } = await import("../ports.ts");
+  const { chromium } = await import("playwright");
+  const fixture = storiesFixture();
+  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+  const browser = await chromium.launch();
+  try {
+    // The same relative module exists in both roots; only app opts into the policy.
+    for (const folder of ["app", "packages/ui"]) {
+      const dir = join(fixture.root, folder);
+      writeFileSync(
+        join(dir, "src/private.ts"),
+        "export const value = 'Data'; export type Value = string;"
+      );
+      writeFileSync(join(dir, "src/view.ts"), 'export { value } from "./private.ts";');
+      writeFileSync(
+        join(dir, "src/probe.stories.tsx"),
+        `
+        import { value } from "./view.ts";
+        export default { title: "${folder === "app" ? "App" : "UI"}/Probe" };
+        export const Default = { render: () => <span>{value}</span> };
+      `
+      );
+      writeFileSync(
+        join(dir, "src/typed.stories.tsx"),
+        `
+        import type { Value } from "./private.ts";
+        export default { title: "${folder === "app" ? "App" : "UI"}/Typed" };
+        const value: Value = "Typed";
+        export const Default = { render: () => <span>{value}</span> };
+      `
+      );
+    }
+    // A consumer Vite config may already carry protoPresentation with app-level policy.
+    // In story mode it must defer to the root's explicit policy, including no policy on ui.
+    const presentation = join(import.meta.dirname, "../../../src/vite/index.ts");
+    writeFileSync(
+      join(fixture.root, "packages/ui/proto.config.ts"),
+      'export default { title: "UI", guards: { forbidRuntimeImports: ["src/private.ts"] } };'
+    );
+    writeFileSync(
+      join(fixture.root, "packages/ui/vite.config.ts"),
+      `
+      import react from "@vitejs/plugin-react";
+      import { protoPresentation } from ${JSON.stringify(presentation)};
+      export default { plugins: [react(), protoPresentation()] };
+    `
+    );
+    const project = await loadProject(fixture.app);
+    project.config.stories!.roots[0]!.guards = { forbidRuntimeImports: ["src/private.ts"] };
+    dev = await onFreePorts(port => startDev(project, { port, quiet: true }));
+    for (const [index, id, status] of [
+      [0, "app-probe--default", "failed"],
+      [0, "app-typed--default", "passed"],
+      [1, "ui-probe--default", "passed"],
+    ] as const) {
+      const page = await browser.newPage();
+      try {
+        await page.goto(dev.storyRoots[index]!.renderUrl + `${id}?play=0&instrument=false`);
+        await page.waitForFunction(() => {
+          const value = document.documentElement.dataset.protoStory;
+          return value && JSON.parse(value).status !== "running";
+        });
+        const result = await page.evaluate(() =>
+          JSON.parse(document.documentElement.dataset.protoStory!)
+        );
+        expect(result.status).toBe(status);
+        if (status === "failed") {
+          expect(result.stage).toBe("import");
+          expect(result.error).toContain("network_import");
+          expect(result.error).toContain("probe.stories.tsx → src/view.ts → src/private.ts");
+        }
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    await browser.close();
+    await dev?.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180000);
+
+// Invariant: configuring story roots never injects story/Storybook runtime into production graphs.
+// Owner: production Vite boundary, asserted against emitted chunk modules rather than source text.
+it("stories IT-026: configured stories add nothing to the production bundle", async () => {
+  const { storiesFixture } = await import("../app-fixture.ts");
+  const { proto } = await import("../../../src/vite/index.ts");
+  const fixture = storiesFixture();
+  try {
+    writeFileSync(join(fixture.app, "src/production.ts"), 'document.title = "Production";');
+    const result = await build({
+      root: fixture.app,
+      configFile: false,
+      logLevel: "silent",
+      plugins: proto(),
+      build: { write: false, rollupOptions: { input: join(fixture.app, "src/production.ts") } },
+    });
+    const outputs = Array.isArray(result) ? result : [result];
+    const modules = outputs.flatMap(output =>
+      "output" in output
+        ? output.output.flatMap(chunk => (chunk.type === "chunk" ? Object.keys(chunk.modules) : []))
+        : []
+    );
+    expect(modules).toContain(join(fixture.app, "src/production.ts"));
+    expect(modules.some(id => /stories\.tsx|storybook|story-host|story-runtime/.test(id))).toBe(
+      false
+    );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

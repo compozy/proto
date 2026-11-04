@@ -21,9 +21,14 @@ import {
   type CommentAttachment,
 } from "../model/review.ts";
 import type { AttachmentInput, CommentFilter, ReviewStore } from "../store/types.ts";
-import type { Registry } from "../model/registry.ts";
+import { keyKind, type Registry } from "../model/registry.ts";
 import type { Credential, ReviewStorage } from "./storage.ts";
 const version = 1;
+function remoteKey(key: string) {
+  keySchema.parse(key);
+  if (keyKind(key) === "story") throw new ProtoError("comment_not_found");
+}
+
 // Cast through text so a shared Drizzle client cannot bypass JSON serialization.
 type Row = Record<string, any>; // SQL rows are validated at the model boundary below.
 const iso = (value: Date | string | null) =>
@@ -74,7 +79,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     return this.revision();
   }
   async assertKey(key: string) {
-    keySchema.parse(key);
+    remoteKey(key);
     if (!this.registry) return;
     const registry = await this.registry();
     if (
@@ -88,13 +93,13 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
   }
   /** Read one validated review key, returning an empty v3 history when it has not been written. */
   async readFile(key: string): Promise<ReviewFileV3> {
-    keySchema.parse(key);
+    remoteKey(key);
     return (await this.readFiles([key]))[0] ?? emptyReviewFile(key);
   }
   /** Hydrate review keys with a bounded set of consistent relation reads, excluding image bodies. */
   private async readFiles(keys?: readonly string[]): Promise<ReviewFileV3[]> {
     if (keys?.length === 0) return [];
-    for (const key of keys ?? []) keySchema.parse(key);
+    for (const key of keys ?? []) remoteKey(key);
     if (!this.transaction.getStore())
       return (await this.sql.begin("isolation level repeatable read read only", sql =>
         this.transaction.run(sql, () => this.readFiles(keys))
@@ -160,7 +165,7 @@ class PostgresStore extends ReviewEngine implements ReviewStore {
     );
   }
   private async locked<T>(key: string, action: (sql: TransactionSql) => Promise<T>): Promise<T> {
-    keySchema.parse(key);
+    remoteKey(key);
     return (await this.sql.begin(async sql => {
       await sql`insert into proto_keys (key) values (${key}) on conflict do nothing`;
       await sql`select key from proto_keys where key=${key} for update`;

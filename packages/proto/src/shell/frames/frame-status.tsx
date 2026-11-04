@@ -76,7 +76,11 @@ export function RenderErrorCard({
         </div>
         <div className="p-4">
           <p className={status.reason ? "text-[13px]" : "font-mono text-[13px] break-words"}>
-            {status.reason === "auth_loop" ? t("frame.authLoop") : status.message}
+            {status.reason === "auth_loop"
+              ? t("frame.authLoop")
+              : status.reason === "story_root"
+                ? t("frame.storyRoot", { root: status.message })
+                : status.message}
           </p>
           {frames.length > 0 && (
             <pre className="mt-3 overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">

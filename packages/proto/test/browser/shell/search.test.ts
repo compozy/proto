@@ -1,9 +1,12 @@
-/** ⌘K ranking (`_tests.md` UT-025): exact slug > title > state label > comment text. */
+/**
+ * ⌘K ranking (`_tests.md` UT-025, UT-009): exact slug > title > state label > comment text;
+ * components and their stories are results with their own kinds.
+ */
 import { expect, test } from "vitest";
 
 import { registryItems, searchItems, type SearchItem } from "../../../src/shell/lib/search.ts";
-import { screenView } from "../../../src/shell/lib/view.ts";
-import { registry } from "../../harness/fixtures.ts";
+import { componentView, screenView } from "../../../src/shell/lib/view.ts";
+import { registry, storyRegistry } from "../../harness/fixtures.ts";
 
 const comment = (text: string): SearchItem => ({
   id: `c:${text}`,
@@ -47,4 +50,21 @@ test("UT-025 a state label matches by its label and opens that state", () => {
 
 test("UT-025 no match returns nothing", () => {
   expect(searchItems(registryItems(registry), "zzz-nothing")).toEqual([]);
+});
+
+test("UT-009 a query returns the component and its stories, each with its kind", () => {
+  // Invariant: US-002.AC-2. Owner: `registryItems` + `searchItems`.
+  const results = searchItems(registryItems(storyRegistry), "button");
+  expect(results.map(item => [item.group, item.label])).toEqual([
+    ["components", "UI/Button"],
+    ["stories", "UI/Button · Primary"],
+    ["stories", "UI/Button · Render Fail"],
+    ["stories", "UI/Button · Import Fail"],
+  ]);
+  expect(results[0]?.target).toEqual({ view: componentView("ui-button") });
+  expect(results[1]?.target).toEqual({ view: componentView("ui-button", "ui-button--primary") });
+  expect(searchItems(registryItems(storyRegistry), "primary")[0]).toMatchObject({
+    group: "stories",
+    label: "UI/Button · Primary",
+  });
 });

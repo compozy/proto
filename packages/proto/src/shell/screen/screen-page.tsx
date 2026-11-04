@@ -2,8 +2,6 @@
  * S6 Screen view and S7 Compare: one prototype state in a fitted frame (or light and dark side by
  * side) with the state picker, viewport, role and theme, all mirrored in the URL (US-013).
  */
-import { useState } from "react";
-
 import type { RegistryPrototype } from "../../model/registry";
 import {
   Fact,
@@ -21,7 +19,6 @@ import { useSlots, type InspectorTab, type ReviewTarget } from "../app/slots";
 import { ScreenFrame } from "../frames/screen-frame";
 import type { FrameContext } from "../frames/use-render-frame";
 import { useT } from "../lib/i18n";
-import { copyText } from "../lib/clipboard";
 import { go, navigate } from "../lib/navigation";
 import {
   occurrences,
@@ -35,10 +32,10 @@ import {
 import { useShellData, useRegistry } from "../lib/shell-data";
 import { useShortcuts } from "../lib/shortcuts";
 import { screenView, type ThemeChoice, type View } from "../lib/view";
-import { Button } from "../ui/button";
-import { Check, Copy, ExternalLink, Moon, Sun, Users } from "../ui/icons";
+import { ExternalLink, Users } from "../ui/icons";
 import { NativeSelect, NativeSelectOption } from "../ui/native-select";
 import { useStateAnnotation } from "../review/review-ui";
+import { CopyablePath, ThemeLabel } from "./inspector-parts";
 import { StatePicker } from "./state-picker";
 import { ViewportControl } from "./viewport-control";
 
@@ -299,11 +296,7 @@ function CompareCanvas({
     <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 px-6 py-5 xl:gap-8">
       {(["light", "dark"] as const).map(theme => (
         <div key={theme} className="flex min-h-0 min-w-0 flex-col gap-2.5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {theme === "light" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
-            <span className="font-mono tracking-[0.08em] uppercase">{theme}</span>
-            <span className="ml-auto font-mono tabular-nums">{width}</span>
-          </div>
+          <ThemeLabel theme={theme} aside={width} />
           <ScreenFrame
             target={{ ...target, theme }}
             width={width}
@@ -378,22 +371,11 @@ function StatePanel({
 function SourcePanel({ prototype }: { prototype: RegistryPrototype }) {
   const t = useT();
   const { renderUrl } = useShellData();
-  const [copied, setCopied] = useState(false);
   const bare = `${renderUrl.replace(/\/?$/, "/")}${prototype.slug}?chrome=0`;
   return (
     <>
       <Section title={t("inspector.file")}>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background py-1 pr-1 pl-3">
-          <code className="min-w-0 flex-1 truncate font-mono text-xs">{prototype.file}</code>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={copied ? t("common.copied") : t("health.copyPath")}
-            onClick={async () => setCopied(await copyText(prototype.file))}
-          >
-            {copied ? <Check /> : <Copy />}
-          </Button>
-        </div>
+        <CopyablePath path={prototype.file} />
       </Section>
       {!renderUrl.endsWith(".html") && (
         <Section title={t("inspector.bare")}>

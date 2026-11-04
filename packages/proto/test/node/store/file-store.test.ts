@@ -394,3 +394,50 @@ describe("FileStore filesystem invariants", () => {
     expect((await store.readFile("login-form")).sequence).toBe(1);
   }, 90000);
 });
+
+// Invariants: component histories never alias prototypes; orphan and stale comments stay readable.
+// Owner: FileStore persistence; real v3 files and registry changes.
+it("keeps story keys, removed stories and approval history lossless", async () => {
+  const { reviewKeys } = await import("../../../src/model/registry.ts");
+  const registry = {
+    prototypes: [{ slug: "story-ui-button", spec: null }],
+    flows: [],
+    stories: [{ slug: "ui-button" }],
+  };
+  expect(reviewKeys(registry)).toContain("story--ui-button");
+  const h = await makeFileStore({ registry: async () => registry });
+  try {
+    const component = await h.store.add(
+      "story--ui-button",
+      { ...input, context: { ...input.context, state: "ui-button--primary" } },
+      reviewer
+    );
+    const prototype = await h.store.add("story-ui-button", input, reviewer);
+    for (const key of reviewKeys(registry))
+      await h.store.transition(key, "approved", reviewer, {
+        commit: "a".repeat(40),
+        confirmOpen: true,
+      });
+    registry.stories = [];
+    expect((await h.store.get(component.id)).context.state).toBe("ui-button--primary");
+    expect((await h.store.list({ status: "all" })).map(comment => comment.id)).toContain(
+      component.id
+    );
+    expect((await h.store.readFile(component.slug)).events).toHaveLength(1);
+    registry.stories = [{ slug: "ui-button" }];
+    registry.prototypes = [];
+    expect((await h.store.get(prototype.id)).slug).toBe("story-ui-button");
+    expect((await h.store.readFile(prototype.slug)).events).toHaveLength(1);
+    expect((await h.store.readFile(component.slug)).comments[0]?.context.state).toBe(
+      "ui-button--primary"
+    );
+    expect(await readFile(join(h.store.directory, "story--ui-button.json"), "utf8")).toContain(
+      component.id
+    );
+    expect(await readFile(join(h.store.directory, "story-ui-button.json"), "utf8")).toContain(
+      prototype.id
+    );
+  } finally {
+    await h.dispose();
+  }
+});

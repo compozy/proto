@@ -19,19 +19,11 @@ import { SessionWatch } from "./session-watch";
 import { useStore } from "@xstate/store-react";
 import { previewLogic, PreviewSchedulerProvider } from "./preview-scheduler";
 
-import { bootstrapSchema, type Bootstrap } from "../../model/bootstrap";
+import { bootstrapSchema } from "../../model/bootstrap";
 import type { Registry } from "../../model/registry";
+import { bootstrapHref, type ShellEnv } from "./shell-env";
 
-/** Relative, so the shell works under any base path (static builds, remote `basePath`). */
-export const bootstrapHref = "__proto/bootstrap.json";
-
-export type ShellEnv = {
-  bootstrap: Bootstrap;
-  /** Absolute render base (bootstrap `renderUrl` resolved against the document). */
-  renderUrl: string;
-  /** The only origin render messages are accepted from. */
-  renderOrigin: string;
-};
+export type { FrameEndpoint, ShellEnv } from "./shell-env";
 
 /** Fetch and validate the shell bootstrap, resolving render URLs against the document base. */
 async function loadBootstrap(base = document.baseURI, signal?: AbortSignal): Promise<ShellEnv> {
@@ -70,7 +62,7 @@ async function loadRegistry(env: ShellEnv, signal?: AbortSignal): Promise<Regist
 
 export type ShellEventType = "registry" | "comments" | "review" | "snapshot";
 /** `key` names a changed review; `id` the new version of a `snapshot` event. */
-type EventData = { key?: string; id?: string };
+type EventData = { key?: string; id?: string; revision?: number };
 type EventListener = (data: EventData) => void;
 
 /** Consecutive failed reconnects (no `open` between them) that make a stream a session check. */
@@ -233,6 +225,7 @@ function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNod
   );
   const query = useQuery(registryQuery(env));
   useEffect(() => {
+    // The event names a revision, never the registry itself: always refetch the snapshot.
     return events.subscribe("registry", () => {
       void client.invalidateQueries({ queryKey: registryQuery(env).queryKey });
     });

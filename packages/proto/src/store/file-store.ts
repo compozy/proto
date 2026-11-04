@@ -20,6 +20,7 @@ import {
   type CommentAttachment,
   type ReviewFileV3,
 } from "../model/review.ts";
+import { reviewKeys } from "../model/registry.ts";
 import { sourceRoots, type SourceRoots } from "../model/source.ts";
 import { inspectImage } from "../node/image.ts";
 import { KeyLocks, type LockEnvironment } from "./lock.ts";
@@ -39,6 +40,7 @@ export type FileStoreOptions = {
   commit?: () => Promise<string | null>;
   directory?: string;
   registry?: () => Promise<{
+    stories?: { slug: string }[];
     sourceRoots?: SourceRoots;
     prototypes: { slug: string; spec: string | null }[];
     flows: { id: string; spec: string | null }[];
@@ -127,10 +129,7 @@ export class FileStore extends ReviewEngine implements ReviewStore {
     keySchema.parse(key);
     if (this.options.registry) {
       const registry = await this.options.registry();
-      if (
-        !registry.prototypes.some(item => item.slug === key) &&
-        !registry.flows.some(item => `flow-${item.id}` === key)
-      )
+      if (!reviewKeys(registry).includes(key))
         throw new ProtoError("comment_not_found", `Unknown review key "${key}".`);
     }
   }

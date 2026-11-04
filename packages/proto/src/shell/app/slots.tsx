@@ -9,10 +9,19 @@ import type { RenderMessage } from "../../model/protocol";
 import type { FrameGeometry } from "../frames/screen-frame";
 import type { RenderFrameHandle } from "../frames/use-render-frame";
 
-/** The reviewable item on screen: a prototype state or a flow (key `flow-<id>`). */
+/**
+ * The reviewable item on screen: a prototype state, a flow (key `flow-<id>`) or a component
+ * (key `story--<slug>`) with the story on screen (null on the component page).
+ */
 export type ReviewTarget =
   | { kind: "prototype"; key: string; slug: string; state: string }
-  | { kind: "flow"; key: string; flow: string; node: string | null };
+  | { kind: "flow"; key: string; flow: string; node: string | null }
+  | { kind: "story"; key: string; slug: string; story: string | null };
+
+/** A target shown in one interactive frame: a prototype state or one story. */
+export type FrameReviewTarget =
+  | Extract<ReviewTarget, { kind: "prototype" }>
+  | (Extract<ReviewTarget, { kind: "story" }> & { story: string });
 
 /** `count` is a number (rendered as a pill) or a node that renders its own pill. */
 export type InspectorTab = {
@@ -33,8 +42,8 @@ export type ShellSlots = {
   inspectorTabs?: (target: ReviewTarget) => InspectorTab[];
   /** Tools appended to the canvas toolbars (comment mode). */
   canvasTools?: (target: ReviewTarget) => ReactNode;
-  /** Protocol messages and the in-frame overlay (picking, pins) of the screen view's frame. */
-  screenFrame?: (target: Extract<ReviewTarget, { kind: "prototype" }>) => {
+  /** Protocol messages and the in-frame overlay (picking, pins) of a screen or story frame. */
+  screenFrame?: (target: FrameReviewTarget) => {
     onMessage?: (message: RenderMessage) => void;
     overlay?: (frame: RenderFrameHandle, geometry: FrameGeometry) => ReactNode;
   };

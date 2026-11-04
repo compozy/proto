@@ -1,8 +1,21 @@
+import {
+  indexStoryFile,
+  storyIdentity,
+  indexStories,
+  mockWarnings,
+} from "../../../src/node/stories.ts";
+import { keyKind, storyOfKey, storyKey, reviewKeys } from "../../../src/model/registry.ts";
+import { keySchema } from "../../../src/model/review.ts";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { findPrototypes } from "../../../src/node/discovery.ts";
+// Keep filesystem calls real while allowing a deterministic unlink between two I/O operations.
+vi.mock("node:fs", async importOriginal => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+}));
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 const meta =
@@ -184,3 +197,395 @@ it.each([
     expect((await project.registry()).prototypes[0]?.title).toBe("Unwatched");
   }
 );
+
+// Invariant: CSF identities are static, deterministic and distinct from prototype review keys.
+// Owner: registry discovery; this is the canonical Node registry suite.
+describe("story registry", () => {
+  const parse = (body: string, file = "src/button.stories.tsx") => indexStoryFile(body, file, "ui");
+  it("indexes CSF3 without executing modules", () => {
+    const result = parse(
+      'throw Error("never execute"); const meta = { title: "UI/Button" } satisfies Meta; export default meta; export const Primary = {}; export const Disabled = {};'
+    );
+    expect(result.problems).toEqual([]);
+    expect(result.entry).toMatchObject({
+      slug: "ui-button",
+      path: ["UI", "Button"],
+      stories: [{ id: "ui-button--primary" }, { id: "ui-button--disabled" }],
+    });
+  });
+  it.each([
+    ["UI/Button", "Primary", "ui-button--primary"],
+    ["UI/Button", "withIcon", "ui-button--with-icon"],
+    ["A / B", "XMLParser", "a-b--xml-parser"],
+    ["Forms/Input", "Input2", "forms-input--input-2"],
+    ["Foo.Bar", "under_score", "foo-bar--under-score"],
+    ["A+B", "HTTP2", "a-b--http-2"],
+    ["Hello, World!", "isOK", "hello-world--is-ok"],
+    ["X_Y", "Small", "x-y--small"],
+    ["A--B", "UPPER_CASE", "a-b--upper-case"],
+    [" A ", "one2Three", "a--one-2-three"],
+  ])("matches Storybook identity %s/%s", (title, exportName, id) => {
+    expect(storyIdentity({ title }, exportName).id).toBe(id);
+  });
+  it("respects explicit ids, export filters and export order", () => {
+    const result = parse(
+      'export default { title: "UI/Button", id: "stable-button", excludeStories: /^helper/ }; export const helper = {}; export const Primary = { name: "Visible", parameters: { __id: "explicit-id" } }; export const Secondary = {}; export const __namedExportsOrder = ["Secondary", "Primary"];'
+    );
+    expect(result.entry?.stories.map(story => story.id)).toEqual([
+      "stable-button--secondary",
+      "explicit-id",
+    ]);
+    expect(result.entry?.stories[1]?.name).toBe("Visible");
+    expect(
+      parse(
+        'export default { title: "UI/Button", parameters: { __id: "meta-only" } }; export const Primary = {}; export const Secondary = { parameters: { __id: "story-only" } };'
+      ).entry?.stories.map(story => story.id)
+    ).toEqual(["ui-button--primary", "story-only"]);
+    expect(
+      parse('export default { title: "UI/Button" }; export const helper = {};').entry?.stories
+    ).toHaveLength(1);
+    expect(parse('export default { title: "UI/Button" };').entry).toBeNull();
+  });
+  it("reports syntax locations, derived titles and invalid component identities", () => {
+    expect(parse("export default {};\n\n\nexport const Bad = { x: };").problems[0]).toMatchObject({
+      code: "story_parse",
+      line: 4,
+    });
+    expect(
+      parse("export default { title: dynamic() }; export const Primary = {};").warnings
+    ).toContainEqual(expect.objectContaining({ code: "story_title_dynamic" }));
+    for (const title of ["你好", "x".repeat(200)])
+      expect(
+        parse(`export default { title: ${JSON.stringify(title)} }; export const Primary = {};`)
+          .problems
+      ).toContainEqual(expect.objectContaining({ code: "story_slug_invalid" }));
+    expect(
+      parse('export default { title: "X", id: "a--b" }; export const Primary = {};').problems[0]
+        ?.code
+    ).toBe("story_slug_invalid");
+  });
+  it("warns about inert module mocks in stories and preview", () => {
+    for (const code of [
+      'sb.mock("x")',
+      'sb.mock(import("x"), { spy: true })',
+      'import { mocked as alias } from "storybook/test"',
+    ])
+      expect(mockWarnings(code, "preview.ts", "ui")[0]).toMatchObject({
+        code: "story_mock_unsupported",
+        file: "preview.ts",
+        root: "ui",
+      });
+  });
+  it("isolates component keys and widens the review schema", () => {
+    expect(keyKind("story--ui-button")).toBe("story");
+    expect(storyOfKey("story--ui-button")).toBe("ui-button");
+    expect(keyKind("story-foo")).toBe("prototype");
+    expect(keyKind("flow-x")).toBe("flow");
+    expect(keySchema.safeParse("story--").success).toBe(false);
+    expect(keySchema.parse(storyKey("ui-button"))).toBe("story--ui-button");
+    expect(
+      reviewKeys({
+        prototypes: [{ slug: "story-ui-button" }],
+        flows: [],
+        stories: [{ slug: "ui-button" }],
+      })
+    ).toEqual(["story--ui-button", "story-ui-button"]);
+  });
+  it("rejects duplicate slugs and ids across files and roots and diagnoses empty globs", () => {
+    const app = mkdtempSync(join(tmpdir(), "proto-stories-index-"));
+    roots.push(app);
+    writeFileSync(join(app, "preview.ts"), "export const decorators = [];");
+    writeFileSync(
+      join(app, "one.stories.tsx"),
+      'export default { title: "UI/Button" }; export const Primary = { parameters: { __id: "shared" } };'
+    );
+    writeFileSync(
+      join(app, "two.stories.tsx"),
+      'export default { title: "UI/Button" }; export const Secondary = { parameters: { __id: "shared" } };'
+    );
+    const root = { id: "ui", stories: "*.stories.tsx", preview: "preview.ts", vite: "vite.ts" };
+    const indexed = indexStories(app, [root]);
+    expect(indexed.entries).toEqual([]);
+    expect(indexed.problems.map(problem => problem.code)).toEqual(
+      expect.arrayContaining(["story_slug_duplicate", "story_id_duplicate"])
+    );
+    writeFileSync(
+      join(app, "one.stories.tsx"),
+      'export default { title: "UI/Button", id: "one" }; export const Primary = {};'
+    );
+    writeFileSync(
+      join(app, "two.stories.tsx"),
+      'export default { title: "UI/Button", id: "two" }; export const Secondary = {};'
+    );
+    const duplicateTitle = indexStories(app, [root]);
+    expect(duplicateTitle.entries).toEqual([]);
+    expect(duplicateTitle.problems).toContainEqual(
+      expect.objectContaining({
+        code: "story_slug_duplicate",
+        message: "Slug two comes from two files.",
+        chain: ["ui/one.stories.tsx", "ui/two.stories.tsx"],
+      })
+    );
+    expect(indexStories(app, [{ ...root, stories: "none/*.tsx" }]).warnings[0]?.code).toBe(
+      "story_glob_empty"
+    );
+    expect(indexStories(app, [{ ...root, preview: "absent.ts" }]).problems[0]?.code).toBe(
+      "story_preview_missing"
+    );
+    expect(
+      indexStories(app, [root, { ...root, id: "other" }]).problems.some(
+        problem => problem.code === "story_id_duplicate"
+      )
+    ).toBe(true);
+  });
+});
+
+it("keeps cache entries stable until file metadata changes or explicit invalidation", () => {
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-cache-"));
+  roots.push(app);
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const root = { id: "ui", preview: "preview.ts", vite: "vite.ts", stories: "*.stories.tsx" };
+  const cache: import("../../../src/node/stories.ts").StoryCache = new Map();
+  const first = indexStories(app, [root], cache);
+  expect(indexStories(app, [root], cache).entries[0]).toBe(first.entries[0]);
+  writeFileSync(join(app, "preview.ts"), 'sb.mock("boring-avatars");');
+  writeFileSync(
+    file,
+    'import { mocked } from "storybook/test"; export default { title: "UI/Button" }; export const Primary = {};'
+  );
+  cache.clear();
+  const warned = indexStories(app, [root], cache);
+  expect(warned.warnings).toContainEqual(
+    expect.objectContaining({
+      message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())',
+    })
+  );
+  expect(indexStories(app, [root], cache).warnings).toEqual(warned.warnings);
+  // Invariant: one root summary is printable; file diagnostics remain addressable by the shell.
+  // Owner: story index warnings, in the canonical registry suite.
+  expect(
+    warned.warnings.filter(warning => warning.code === "story_mock_unsupported" && !warning.file)
+  ).toEqual([
+    expect.objectContaining({
+      root: "ui",
+      message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())',
+    }),
+  ]);
+  expect(warned.warnings.filter(warning => warning.file).map(warning => warning.file)).toEqual([
+    "preview.ts",
+    "button.stories.tsx",
+  ]);
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
+  expect(indexStories(app, [root], cache).entries[0]?.stories[0]?.id).toBe("ui-button--secondary");
+  expect(indexStories(app, [root], cache).warnings.filter(warning => !warning.file)).toEqual([
+    expect.objectContaining({ message: 'sb.mock("boring-avatars") is inert' }),
+  ]);
+  rmSync(file);
+  expect(indexStories(app, [root], cache).entries).toEqual([]);
+  expect(cache.size).toBe(0);
+});
+
+// Invariant: an unlink during indexing omits the vanished story and evicts its stale cache.
+// Owner: story registry indexing; spies only schedule a real unlink at filesystem boundaries.
+it.each(["glob", "stat"] as const)("skips a story removed after %s during indexing", boundary => {
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-unlink-"));
+  roots.push(app);
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const root = { id: "ui", preview: "preview.ts", vite: "vite.ts", stories: "*.stories.tsx" };
+  const cache: import("../../../src/node/stories.ts").StoryCache = new Map();
+  expect(indexStories(app, [root], cache).entries).toHaveLength(1);
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
+  const glob = fs.globSync;
+  const stat = fs.statSync;
+  const scan = vi.spyOn(fs, "globSync").mockImplementation((...args) => {
+    const files = glob(...args);
+    if (boundary === "glob") rmSync(file);
+    return files;
+  });
+  const metadata = vi.spyOn(fs, "statSync").mockImplementation((...args) => {
+    const info = stat(...args);
+    if (boundary === "stat" && args[0] === file) rmSync(file);
+    return info;
+  });
+  try {
+    expect(indexStories(app, [root], cache).entries).toEqual([]);
+    expect(cache.size).toBe(0);
+  } finally {
+    scan.mockRestore();
+    metadata.mockRestore();
+  }
+});
+
+// Invariant: only ENOENT is recoverable; unexpected read errors remain visible to callers.
+// Owner: story registry filesystem boundary, in the canonical registry suite.
+it("propagates story read errors other than a vanished file", () => {
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-read-error-"));
+  roots.push(app);
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const failure = Object.assign(new Error("Permission denied"), { code: "EACCES" });
+  const read = fs.readFileSync;
+  const denied = vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+    if (args[0] === file) throw failure;
+    return read(...args);
+  });
+  try {
+    expect(() =>
+      indexStories(app, [
+        { id: "ui", preview: "preview.ts", vite: "vite.ts", stories: "*.stories.tsx" },
+      ])
+    ).toThrow(failure);
+  } finally {
+    denied.mockRestore();
+  }
+});
+
+// Invariant: a failed background read is logged and does not prevent a later registry publication.
+// Owner: watched project refresh orchestration; registry reads and warning output are I/O boundaries.
+it("logs a failed registry refresh and publishes the next successful refresh", async () => {
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-refresh-error-"));
+  roots.push(app);
+  writeFileSync(
+    join(app, "proto.config.ts"),
+    'export default { title: "Stories", stories: { roots: [{ id: "ui", stories: "*.stories.tsx", preview: "preview.ts", vite: "vite.ts" }] } };'
+  );
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const project = await loadProject(app);
+  const failure = Object.assign(new Error("Read failed"), { code: "EACCES" });
+  const read = vi.spyOn(project, "registry").mockRejectedValueOnce(failure);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const changed = vi.fn();
+  const stop = project.watch(changed);
+  try {
+    project.invalidateStories("ui", [file]);
+    await expect.poll(() => warn.mock.calls.length).toBe(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(app), failure);
+    expect(changed).not.toHaveBeenCalled();
+    project.invalidateStories("ui", [file]);
+    await expect.poll(() => changed.mock.calls.length).toBe(1);
+    expect(changed.mock.calls[0]![0].stories[0].stories[0].id).toBe("ui-button--primary");
+  } finally {
+    stop();
+    read.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+it("reads CSF2 assignments and inherited play without executing either", () => {
+  const parsed = indexStoryFile(
+    'export default { title: "UI/Button", play() {} }; export const Named = () => null; Named.storyName = "Legacy"; Named.parameters = { __id: "stable" };',
+    "button.stories.tsx",
+    "ui"
+  );
+  expect(parsed.entry?.stories[0]).toMatchObject({ id: "stable", play: true });
+});
+
+// IT-023 invariant: one refresh publishes its newest snapshot even when a concurrent read wins.
+// Owner: project refresh orchestration; the registry read is the filesystem I/O boundary.
+it("publishes the newest generation once after a concurrent registry read during refresh", async () => {
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const app = mkdtempSync(join(tmpdir(), "proto-stories-generation-"));
+  roots.push(app);
+  writeFileSync(join(app, "proto.config.ts"), 'export default { title: "No stories" };');
+  expect(await (await loadProject(app)).registry()).not.toHaveProperty("storyRoots");
+  writeFileSync(
+    join(app, "proto.config.ts"),
+    'export default { title: "Stories", stories: { roots: [{ id: "ui", stories: "*.stories.tsx", preview: "preview.ts", vite: "vite.ts" }] } };'
+  );
+  writeFileSync(join(app, "preview.ts"), "export {};");
+  const file = join(app, "button.stories.tsx");
+  writeFileSync(file, 'export default { title: "UI/Button" }; export const Primary = {};');
+  const project = await loadProject(app);
+  const readRegistry = project.registry.bind(project);
+  const seen: string[] = [];
+  let notify: () => void = () => {};
+  let entered: () => void = () => {};
+  let release: () => void = () => {};
+  const next = new Promise<void>(resolve => {
+    notify = resolve;
+  });
+  const refreshing = new Promise<void>(resolve => {
+    entered = resolve;
+  });
+  const released = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const onChange = (registry: Awaited<ReturnType<typeof project.registry>>) => {
+    seen.push(registry.stories![0]!.stories[0].id);
+    notify();
+  };
+  let stop = project.watch(onChange);
+  // Delay one real filesystem result so another real read can complete before it.
+  const read = vi.spyOn(project, "registry").mockImplementationOnce(async () => {
+    const older = await readRegistry();
+    entered();
+    await released;
+    return older;
+  });
+  try {
+    project.invalidateStories("ui", [file]);
+    await refreshing;
+    // Reconnecting the last subscriber drops the observed cache without requesting another refresh.
+    stop();
+    writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
+    stop = project.watch(onChange);
+    const newer = await project.registry();
+    const revision = project.revision;
+    release();
+    await next;
+    // Flush the refresh continuation; a stale result must neither publish nor replace the newer one.
+    await Promise.resolve();
+    expect(seen).toEqual(["ui-button--secondary"]);
+    expect((await project.registry()).stories).toEqual(newer.stories);
+    expect(project.revision).toBe(revision);
+  } finally {
+    release();
+    read.mockRestore();
+    stop();
+  }
+});
+
+// Invariant: check reports story index diagnostics without importing the story or root Vite config.
+// Owner: project registry/check contract; graph code would throw if accidentally loaded.
+it("stories UT-021: check reports root and file without loading stories", async () => {
+  const { storiesFixture } = await import("../app-fixture.ts");
+  const { loadProject } = await import("../../../src/node/project.ts");
+  const { checkProject } = await import("../../../src/node/check.ts");
+  const fixture = storiesFixture();
+  try {
+    // The prototype config must remain usable: only the separate story pipeline throws.
+    writeFileSync(join(fixture.app, "story-vite.ts"), 'throw new Error("story Vite loaded");');
+    writeFileSync(
+      join(fixture.app, "preview.tsx"),
+      'import "./missing-preview-dependency"; throw new Error("preview loaded");'
+    );
+    writeFileSync(
+      join(fixture.app, "src/button.stories.tsx"),
+      'import "./missing-story-dependency"; export default { title: "Clean" }; export const Default = {};'
+    );
+    writeFileSync(
+      join(fixture.app, "proto.canvas.tsx"),
+      "export function Canvas({ children }) { return children; }"
+    );
+    const project = await loadProject(fixture.app);
+    project.config.stories!.roots[0]!.vite = "story-vite.ts";
+    expect(await checkProject(project)).toMatchObject({ ok: true, problems: [] });
+    rmSync(join(fixture.app, "preview.tsx"));
+    const result = await checkProject(await loadProject(fixture.app));
+    expect(result.ok).toBe(false);
+    expect(result.problems).toContainEqual(
+      expect.objectContaining({ code: "story_preview_missing", root: "app", file: "preview.tsx" })
+    );
+    expect(result).not.toHaveProperty("error");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

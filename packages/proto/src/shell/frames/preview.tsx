@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
-import { renderHref } from "../../model/protocol";
+import type { StoryFrameTarget } from "../../model/protocol";
 import { useT } from "../lib/i18n";
 import { usePreviewScheduler, usePreviewSlot } from "../lib/preview-scheduler";
 import { useShellData } from "../lib/shell-data";
@@ -8,10 +8,13 @@ import { useBox, useVisibility } from "../lib/use-box";
 import { TriangleAlert } from "../ui/icons";
 import { cn } from "../ui/utils";
 import { FrameSkeleton } from "./frame-status";
-import { useRenderFrame, type FrameTarget } from "./use-render-frame";
+import { frameHref, isStoryTarget, useRenderFrame, type FrameTarget } from "./use-render-frame";
+
+/** A prototype state or a story; a story thumbnail never runs `play`. */
+export type PreviewTarget = Omit<FrameTarget, "width"> | Omit<StoryFrameTarget, "width" | "play">;
 
 type PreviewProps = {
-  target: Omit<FrameTarget, "width">;
+  target: PreviewTarget;
   title: string;
   /** Virtual viewport of the preview, scaled to the container width. */
   width?: number;
@@ -44,8 +47,12 @@ export function Preview({
 }: PreviewProps) {
   const [ref, box] = useBox();
   const visibility = useVisibility(ref);
-  const { renderUrl } = useShellData();
-  const src = renderHref(renderUrl, { ...target, chrome: 0 });
+  const env = useShellData();
+  const frameTarget = isStoryTarget(target) ? { ...target, play: false } : target;
+  // The scheduling key; a story root without a server still takes a slot to show its failure.
+  const src =
+    frameHref(env, frameTarget) ??
+    (isStoryTarget(target) ? `story:${target.root}:${target.story}` : "");
   const id = useId();
   const slot = usePreviewSlot(id, {
     src,
@@ -66,7 +73,7 @@ export function Preview({
         <PreviewFrame
           id={id}
           src={src}
-          target={target}
+          target={frameTarget}
           title={title}
           width={width}
           height={height}
@@ -92,7 +99,7 @@ function PreviewFrame({
 }: {
   id: string;
   src: string;
-  target: Omit<FrameTarget, "width">;
+  target: Omit<FrameTarget, "width"> | Omit<StoryFrameTarget, "width">;
   title: string;
   width: number;
   height: number;

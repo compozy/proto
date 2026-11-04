@@ -9,6 +9,8 @@ import type { Bootstrap } from "../model/bootstrap.ts";
 import { renderPlugins } from "../vite/index.ts";
 import { remoteUrl } from "../store/http-store.ts";
 import { commitAt } from "./dev.ts";
+import { buildStories } from "./story-build.ts";
+import { reviewKeys } from "../model/registry.ts";
 
 export type BuildOptions = {
   shellDir?: string;
@@ -28,7 +30,24 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
   if (options.output === undefined) await rm(output, { recursive: true, force: true });
   const staging = await mkdtemp(join(project.root, ".proto-build-"));
   try {
-    const registry = await project.registry();
+    const indexed = await project.registry();
+    const { stories: _stories, storyRoots: _storyRoots, ...snapshot } = indexed;
+    const registry = remote
+      ? {
+          ...snapshot,
+          problems: indexed.problems.filter(
+            problem => !problem.root && !problem.code.startsWith("story_")
+          ),
+          warnings: indexed.warnings.filter(
+            warning => !warning.root && !warning.code.startsWith("story_")
+          ),
+        }
+      : indexed;
+    if (remote && project.config.stories)
+      registry.warnings.push({
+        code: "stories_not_built",
+        message: "Stories are omitted from this build.",
+      });
     if (registry.problems.length) throw new Error(JSON.stringify({ problems: registry.problems }));
     const shell = options.shellDir ?? fileURLToPath(new URL("../../dist/shell/", import.meta.url));
     if (!existsSync(join(shell, "index.html")))
@@ -69,6 +88,7 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
         rollupOptions: { input: fileURLToPath(new URL("../render/main.tsx", import.meta.url)) },
       },
     });
+    const storyRoots = remote ? undefined : await buildStories(project, staging);
     const bootstrap: Bootstrap = {
       mode: remote ? "remote" : "read-only",
       title: project.config.title,
@@ -82,15 +102,13 @@ export async function buildProject(project: ProtoProject, options: BuildOptions 
       reviewSnapshotBase: project.config.build.includeReview ? "__proto/review/" : null,
       principal: null,
       signInUrl: null,
+      ...(storyRoots ? { storyRoots } : {}),
     };
     await writeFile(join(data, "bootstrap.json"), JSON.stringify(bootstrap));
     await writeFile(join(data, "registry.json"), JSON.stringify(registry));
     if (project.config.build.includeReview) {
       const store = project.store();
-      const keys = [
-        ...registry.prototypes.map(item => item.slug),
-        ...registry.flows.map(item => `flow-${item.id}`),
-      ];
+      const keys = reviewKeys(registry);
       await mkdir(join(data, "review"), { recursive: true });
       for (const key of keys) {
         const comments = await store.list({ key, status: "all" });
