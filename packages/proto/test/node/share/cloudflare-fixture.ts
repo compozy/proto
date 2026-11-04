@@ -1,5 +1,43 @@
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { once } from "node:events";
+import { Readable } from "node:stream";
+
+/** Preserve the public Host over loopback; fetch may replace it with the socket address.
+ * Redirects are returned as-is and response streams remain live, as at the tunnel boundary.
+ */
+export async function loopbackRequest(port: number, url: URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("host", url.host);
+  const body = init.body ? Buffer.from(await new Response(init.body).arrayBuffer()) : undefined;
+  return new Promise<Response>((resolve, reject) => {
+    const upstream = request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: `${url.pathname}${url.search}`,
+        method: init.method ?? "GET",
+        headers: Object.fromEntries(headers),
+        signal: init.signal ?? undefined,
+      },
+      response => {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(response.headers))
+          for (const item of Array.isArray(value) ? value : value ? [value] : [])
+            headers.append(name, item);
+        resolve(
+          new Response(
+            init.method === "HEAD" || [204, 205, 304].includes(response.statusCode!)
+              ? null
+              : (Readable.toWeb(response) as ReadableStream<Uint8Array>),
+            { status: response.statusCode!, headers }
+          )
+        );
+      }
+    );
+    upstream.on("error", reject);
+    upstream.end(body);
+  });
+}
 
 /** Network-boundary fake shared with session integration suites. No production modules are mocked. */
 export async function fakeCloudflare() {

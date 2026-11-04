@@ -36,7 +36,7 @@ import { shareDirectory, type ShareTarget } from "../../../src/share/snapshot.ts
 import { systemLockEnvironment } from "../../../src/store/lock.ts";
 import { appFixture } from "../app-fixture.ts";
 import { input } from "../store/contract.ts";
-import { fakeCloudflare } from "./cloudflare-fixture.ts";
+import { fakeCloudflare, loopbackRequest } from "./cloudflare-fixture.ts";
 import { cloudflaredStub } from "./cloudflared-stub.ts";
 
 const disposals: (() => Promise<unknown>)[] = [];
@@ -187,6 +187,7 @@ async function fixture() {
   };
   // Local HTTP edge is the fake provider boundary. Probe reaches the real origin adapter.
   const edge = createServer((request, response) => {
+    probes.push(request.headers.host ?? "");
     if (request.url === "/cdn-cgi/access/certs") {
       response.setHeader("Content-Type", "application/json");
       response.end(
@@ -233,12 +234,7 @@ async function fixture() {
     readinessTimeout: 500,
     fetch: async (resource, init) => {
       const url = new URL(String(resource));
-      probes.push(url.host);
-      return fetch(`http://127.0.0.1:${edgePort}${url.pathname}`, {
-        ...init,
-        headers: { host: url.host },
-        redirect: "manual",
-      });
+      return loopbackRequest(edgePort, url, init);
     },
     activity: event => activity.push(event),
     notice: message => notices.push(message),
@@ -734,13 +730,14 @@ it("IT-026: SIGKILL closes the sentinel pipe and kills the connector without a s
 import { startShare } from ${JSON.stringify(join(source, "share/session.ts"))};
 import { loadProject } from ${JSON.stringify(join(source, "node/project.ts"))};
 import { CloudflareClient } from ${JSON.stringify(join(source, "share/cloudflare.ts"))};
+import { loopbackRequest } from ${JSON.stringify(resolve(import.meta.dirname, "cloudflare-fixture.ts"))};
 const session = await startShare(await loadProject(${JSON.stringify(f.root)}), {
  target:{kind:'prototype',slug:'example'},approvers:[],commenters:['bob@example.com']
 }, {
  path:${JSON.stringify(f.path)}, connectionPath:${JSON.stringify(f.runtime.connectionPath)},
  client:new CloudflareClient('api-secret',${JSON.stringify(f.api.url)}),
  binary:${JSON.stringify(f.runtime.binary)},shellDir:${JSON.stringify(f.runtime.shellDir)},
- fetch:(resource,init)=>{const url=new URL(String(resource));return fetch('http://127.0.0.1:${f.edgePort}'+url.pathname,{...init,headers:{host:url.host},redirect:'manual'})}
+ fetch:(resource,init)=>loopbackRequest(${f.edgePort},new URL(String(resource)),init)
 });
 console.log(JSON.stringify(session.summary));
 await session.closed;

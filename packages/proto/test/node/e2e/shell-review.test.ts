@@ -24,7 +24,7 @@ import { connect } from "../../../src/share/connection.ts";
 import { startShare, type ShareSession } from "../../../src/share/session.ts";
 import { appFixture } from "../app-fixture.ts";
 import { browserServer } from "../server/harness.ts";
-import { fakeCloudflare } from "../share/cloudflare-fixture.ts";
+import { fakeCloudflare, loopbackRequest } from "../share/cloudflare-fixture.ts";
 import { cloudflaredStub } from "../share/cloudflared-stub.ts";
 import {
   buildShell,
@@ -427,7 +427,7 @@ describe("proto share journeys", () => {
     for (const [name, value] of request.headers) if (!hop.has(name)) headers.set(name, value);
     headers.set("host", url.host);
     if (url.host === shellHost) headers.set("Cf-Access-Jwt-Assertion", jwt(approver));
-    return fetch(`http://127.0.0.1:${originPort()}${url.pathname}${url.search}`, {
+    return loopbackRequest(originPort(), url, {
       method: request.method,
       headers,
       redirect: "manual",
@@ -492,11 +492,7 @@ export default function Private() { return <main>Not shared</main>; }
               status: 302,
               headers: { Location: "https://acme.cloudflareaccess.com/cdn-cgi/access/login" },
             });
-          return fetch(`http://127.0.0.1:${originPort()}${url.pathname}${url.search}`, {
-            ...init,
-            headers: { host: url.host },
-            redirect: "manual",
-          });
+          return loopbackRequest(originPort(), url, init);
         },
       }
     );
@@ -657,24 +653,27 @@ export default function Private() { return <main>Not shared</main>; }
     let seen = { count: 0 };
     const passing = await openShare(async page => {
       seen = bootstraps(page);
-      await page.route(
-        api,
+    });
+    try {
+      await shown(passing, "Version two");
+      const composer = await draft(passing, "Unsent thought");
+      // Fail an explicit write after mounting; cancelled startup queries are not network failures.
+      await passing.route(
+        url => url.host === shellHost && url.pathname === "/api/comments" && !url.search,
         route => {
           failed += 1;
           return route.abort();
         },
         { times: 1 }
       );
-    });
-    try {
-      await shown(passing, "Version two");
+      await composer.locator('button[type="submit"]').click();
+      await expect.poll(() => failed).toBe(1);
       expect(failed).toBe(1);
       await expect.poll(() => seen.count).toBeGreaterThanOrEqual(2);
       await passing.waitForTimeout(500);
       expect(await notice(passing).count()).toBe(0);
 
       // The API and the bootstrap retry both fail: S4, warning about the unsent draft.
-      const composer = await draft(passing, "Unsent thought");
       await passing.route(api, route => route.abort());
       await passing.route(`https://${shellHost}/__proto/bootstrap.json`, route => route.abort());
       await composer.locator('button[type="submit"]').click();

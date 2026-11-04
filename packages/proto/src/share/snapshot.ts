@@ -85,12 +85,13 @@ export async function checkDirtyTree(
       [
         "status",
         "--porcelain",
-        "--untracked-files=normal",
+        // Expand untracked parents so the exclusions apply to their individual files.
+        "--untracked-files=all",
         "--",
         ".",
         `:(exclude)${path(join(appRoot, "proto/review"))}`,
         `:(exclude)${path(shareDirectory(appRoot))}`,
-        `:(glob,exclude)${path(join(appRoot, ".proto-build-*"))}`,
+        `:(glob,exclude)${path(join(appRoot, ".proto-build-*/**"))}`,
       ],
       top
     );
