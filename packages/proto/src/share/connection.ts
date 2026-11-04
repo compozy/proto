@@ -3,7 +3,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { ProtoError } from "../model/errors.ts";
-import { CloudflareClient, type Account, type Zone, type AccessApp } from "./cloudflare.ts";
+import {
+  CloudflareClient,
+  type Account,
+  type Zone,
+  type AccessApp,
+  type DnsRecord,
+} from "./cloudflare.ts";
 
 export type Connection = {
   apiToken: string;
@@ -171,7 +177,7 @@ export async function connect(options: ConnectOptions) {
     tunnel = await client.createTunnel(account.id, label);
     created = true;
   }
-  const names = [hosts.shellHost, hosts.renderHost];
+  const names = [hosts.shellHost, hosts.renderHost] as const;
   const existing = await Promise.all(
     names.map(async host => ({ host, records: await client.records(zone.id, host) }))
   );
@@ -189,18 +195,15 @@ export async function connect(options: ConnectOptions) {
         `${host} is already in use. Choose another with --name.`
       );
   }
-  // Validate both hostnames before creating DNS records, then keep resumable creation ordered.
+  // Both hostnames are validated above; independent creates retain shell/render result order.
   const tunnelId = tunnel.id;
-  const ids = await existing.reduce(async (previous, { host, records }) => {
-    const ids = await previous;
-    let record = records[0];
-    if (!record) {
-      record = await client.createRecord(zone.id, host, tunnelId);
+  const records = await Promise.all(
+    existing.map(async ({ host, records }) => {
+      if (records[0]) return records[0];
       created = true;
-    }
-    ids.push(record.id);
-    return ids;
-  }, Promise.resolve<string[]>([]));
+      return client.createRecord(zone.id, host, tunnelId);
+    }) as [Promise<DnsRecord>, Promise<DnsRecord>]
+  );
   let app = (await client.apps(account.id)).find(
     item => item.domain === hosts.shellHost && item.name === `proto-share ${label}`
   );
@@ -223,7 +226,7 @@ export async function connect(options: ConnectOptions) {
     tunnelId: tunnel.id,
     tunnelToken: tunnel.token ?? (await client.tunnelToken(account.id, tunnel.id)),
     ...hosts,
-    dnsRecordIds: [ids[0]!, ids[1]!],
+    dnsRecordIds: [records[0].id, records[1].id],
     accessAppId: app.id,
     accessAud: app.aud,
     otpProviderId: otp.id,
@@ -250,18 +253,27 @@ export async function disconnect(
   if (!connection) return { removed, kept: [] as string[] };
   const c = connection,
     client = options.client ?? new CloudflareClient(c.apiToken);
-  // Preserve deletion order and stop on failure so the local connection remains retryable.
-  await (
-    [
-      ["tunnel", `/accounts/${c.accountId}/cfd_tunnel/${c.tunnelId}`],
-      ...c.dnsRecordIds.map(id => ["dns", `/zones/${c.zoneId}/dns_records/${id}`]),
-      ["access_app", `/accounts/${c.accountId}/access/apps/${c.accessAppId}`],
-    ] as [string, string][]
-  ).reduce(async (previous, [name, resource]) => {
-    await previous;
-    const result = await client.request<unknown>("DELETE", resource, undefined, true);
-    if (result !== undefined) removed.push(name);
-  }, Promise.resolve());
+  // Close the tunnel first; retain local credentials until every remote deletion succeeds.
+  const tunnel = await client.request<unknown>(
+    "DELETE",
+    `/accounts/${c.accountId}/cfd_tunnel/${c.tunnelId}`,
+    undefined,
+    true
+  );
+  if (tunnel !== undefined) removed.push("tunnel");
+  const records = await Promise.all(
+    c.dnsRecordIds.map(id =>
+      client.request<unknown>("DELETE", `/zones/${c.zoneId}/dns_records/${id}`, undefined, true)
+    )
+  );
+  removed.push(...records.filter(record => record !== undefined).map(() => "dns"));
+  const app = await client.request<unknown>(
+    "DELETE",
+    `/accounts/${c.accountId}/access/apps/${c.accessAppId}`,
+    undefined,
+    true
+  );
+  if (app !== undefined) removed.push("access_app");
   await rm(path, { force: true });
   removed.push("local");
   return { removed, kept: ["otp_provider"] };
@@ -301,12 +313,13 @@ export async function checkConnection(c: Connection, client = new CloudflareClie
 }
 export async function closeInvitations(c: Connection, client = new CloudflareClient(c.apiToken)) {
   const policies = await client.policies(c.accountId, c.accessAppId);
-  await policies
-    .filter(policy => policy.name === "proto-share invitees")
-    .reduce(async (previous, policy) => {
-      await previous;
-      await client.request("DELETE", `${appPath(c)}/policies/${policy.id}`, undefined, true);
-    }, Promise.resolve());
+  await Promise.all(
+    policies
+      .filter(policy => policy.name === "proto-share invitees")
+      .map(policy =>
+        client.request("DELETE", `${appPath(c)}/policies/${policy.id}`, undefined, true)
+      )
+  );
   const foreign = policies.find(policy => policy.name !== "proto-share invitees");
   if (foreign) stale(`policy ${foreign.name}`);
 }

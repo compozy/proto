@@ -2,7 +2,7 @@
 // IN: real discovery and Git status across an isolated workspace.
 // OUT: Cloudflare/session orchestration; render output belongs to build/build.test.ts.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import { loadProject } from "../../../src/node/project.ts";
 import { appFixture } from "../app-fixture.ts";
 import {
   checkDirtyTree,
+  cleanupBuildDirectories,
   cleanupSnapshots,
   scopedProject,
   shareDirectory,
@@ -110,22 +111,40 @@ function repository() {
   return { root, app, git };
 }
 
-it("UT-004: clean trees and review/cache/staging edits remain approvable without ignore rules", async () => {
-  const { app } = repository();
-  const before = await checkDirtyTree(app, { approvers: true });
-  expect(before).toMatchObject({ dirty: false, approvable: true, commit: expect.any(String) });
-  writeFileSync(join(app, "proto/review/example.json"), '{"comments":[]}');
-  writeFileSync(join(app, "proto/review/.gitignore"), ".server");
-  mkdirSync(shareDirectory(app), { recursive: true });
-  writeFileSync(join(shareDirectory(app), "artifact"), "snapshot");
-  mkdirSync(join(app, ".proto-build-crashed"));
-  writeFileSync(join(app, ".proto-build-crashed/asset"), "staging");
-  expect(await checkDirtyTree(app, { approvers: true, before })).toEqual(before);
-  await cleanupSnapshots(app);
-  expect(existsSync(shareDirectory(app))).toBe(false);
-  expect(existsSync(join(app, ".proto-build-crashed"))).toBe(false);
-  expect(existsSync(join(app, "proto/review/example.json"))).toBe(true);
-});
+// Owner: snapshot Git certification and cleanup. Canonical suite: node/share/snapshot.
+// Invariant: exclusions follow the physical app path, and stop leaves independent build staging intact.
+it.each(["direct", "symlink"])(
+  "UT-004: %s app review/cache/staging edits remain approvable without ignore rules",
+  async mode => {
+    const repositoryApp = repository().app;
+    let app = repositoryApp;
+    if (mode === "symlink") {
+      const directory = mkdtempSync(join(tmpdir(), "proto-share-link-"));
+      roots.push(directory);
+      app = join(directory, "app");
+      symlinkSync(repositoryApp, app, process.platform === "win32" ? "junction" : "dir");
+    }
+    const before = await checkDirtyTree(app, { approvers: true });
+    expect(before).toMatchObject({ dirty: false, approvable: true, commit: expect.any(String) });
+    writeFileSync(join(app, "proto/review/example.json"), '{"comments":[]}');
+    writeFileSync(join(app, "proto/review/.gitignore"), ".server");
+    mkdirSync(shareDirectory(app), { recursive: true });
+    writeFileSync(join(shareDirectory(app), "artifact"), "snapshot");
+    mkdirSync(join(app, ".proto-build-crashed"));
+    writeFileSync(join(app, ".proto-build-crashed/asset"), "staging");
+    expect(await checkDirtyTree(app, { approvers: true, before })).toEqual(before);
+    await cleanupSnapshots(app);
+    expect(existsSync(shareDirectory(app))).toBe(false);
+    expect(existsSync(join(app, ".proto-build-crashed/asset"))).toBe(true);
+    await cleanupBuildDirectories(app);
+    expect(existsSync(join(app, ".proto-build-crashed"))).toBe(false);
+    expect(existsSync(join(app, "proto/review/example.json"))).toBe(true);
+    writeFileSync(join(app, "source.ts"), "changed");
+    await expect(checkDirtyTree(app, { approvers: true })).rejects.toMatchObject({
+      code: "share_dirty_tree",
+    });
+  }
+);
 
 it.each(["untracked", "sibling", "commit"])(
   "UT-004: %s changes across build checks prevent approval",

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, readlink, rename, rm, symlink } from "node:fs/promises";
+import { readdir, readFile, readlink, realpath, rename, rm, symlink } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { ProtoError } from "../model/errors.ts";
@@ -77,7 +77,8 @@ export async function checkDirtyTree(
   try {
     const git = async (args: string[], cwd: string) =>
       (await exec("git", args, { cwd, encoding: "utf8" })).stdout.trim();
-    const top = await git(["rev-parse", "--show-toplevel"], root);
+    const appRoot = await realpath(root);
+    const top = await git(["rev-parse", "--show-toplevel"], appRoot);
     const path = (file: string) => relative(top, file).replaceAll("\\", "/");
     commit = await git(["rev-parse", "HEAD"], top);
     const status = await git(
@@ -87,9 +88,9 @@ export async function checkDirtyTree(
         "--untracked-files=normal",
         "--",
         ".",
-        `:(exclude)${path(join(root, "proto/review"))}`,
-        `:(exclude)${path(shareDirectory(root))}`,
-        `:(glob,exclude)${path(join(root, ".proto-build-*"))}`,
+        `:(exclude)${path(join(appRoot, "proto/review"))}`,
+        `:(exclude)${path(shareDirectory(appRoot))}`,
+        `:(glob,exclude)${path(join(appRoot, ".proto-build-*"))}`,
       ],
       top
     );
@@ -105,7 +106,7 @@ export async function checkDirtyTree(
   return result;
 }
 
-/** Start-only cleanup: never call while another build for this app is running. */
+/** Start-only cleanup of staging directories left by a crashed build. */
 export async function cleanupBuildDirectories(root: string): Promise<void> {
   for (const entry of await readdir(root, { withFileTypes: true }))
     if (entry.isDirectory() && entry.name.startsWith(".proto-build-"))
@@ -115,7 +116,6 @@ export async function cleanupBuildDirectories(root: string): Promise<void> {
 /** Stop and next-start cleanup. Session.ts owns serialization with builds and requests. */
 export async function cleanupSnapshots(root: string): Promise<void> {
   await rm(shareDirectory(root), { recursive: true, force: true });
-  await cleanupBuildDirectories(root);
 }
 
 export type SnapshotResult = {

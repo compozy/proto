@@ -49,6 +49,11 @@ it("IT-001/002: connect provisions exact resources and private credentials; repe
   expect((await stat(f.path)).mode & 0o777).toBe(0o600);
   expect((await stat(join(f.path, ".."))).mode & 0o777).toBe(0o700);
   expect(f.state.records).toHaveLength(2);
+  expect(c.dnsRecordIds).toEqual(
+    [c.shellHost, c.renderHost].map(
+      host => f.state.records.find(record => record.name === host)?.id
+    )
+  );
   expect(
     f.state.records.every(
       record => record.proxied === true && record.content === `${c.tunnelId}.cfargotunnel.com`
@@ -160,19 +165,64 @@ it("IT-005: failure after tunnel creation resumes; another machine adopts and re
     true
   );
 });
-it("IT-006: disconnect skips missing resources and preserves the organization email provider", async () => {
-  const f = await fixture();
-  await connect(f.options);
-  f.state.records.shift();
-  const result = await disconnect({ path: f.path, client: f.client });
-  expect(result.kept).toEqual(["otp_provider"]);
-  expect(result.removed).toEqual(["tunnel", "dns", "access_app", "local"]);
-  expect(f.state.providers).toHaveLength(1);
-  expect(f.state.tunnels).toHaveLength(0);
-  expect(f.state.apps).toHaveLength(0);
-  expect(await readConnection(f.path)).toBeNull();
-  expect(await disconnect({ path: f.path, client: f.client })).toEqual({ removed: [], kept: [] });
-});
+// Invariant: tunnel removal precedes independent DNS removals, then Access and local credentials.
+// Owner/canonical suite: node/share/connection at the Cloudflare HTTP boundary.
+it.each([false, true])(
+  "IT-006: disconnect preserves deletion order and OTP with missing DNS = %s",
+  async missing => {
+    const f = await fixture();
+    await connect(f.options);
+    const c = await f.saved();
+    if (missing) f.state.records.shift();
+    f.state.calls.length = 0;
+    const result = await disconnect({ path: f.path, client: f.client });
+    expect(result.kept).toEqual(["otp_provider"]);
+    expect(result.removed).toEqual(
+      missing
+        ? ["tunnel", "dns", "access_app", "local"]
+        : ["tunnel", "dns", "dns", "access_app", "local"]
+    );
+    const deletions = f.state.calls.filter(call => call.method === "DELETE");
+    expect(deletions[0]?.path).toBe(`/accounts/${c.accountId}/cfd_tunnel/${c.tunnelId}`);
+    expect(
+      deletions
+        .slice(1, 3)
+        .map(call => call.path)
+        .sort()
+    ).toEqual(c.dnsRecordIds.map(id => `/zones/${c.zoneId}/dns_records/${id}`).sort());
+    expect(deletions[3]?.path).toBe(`/accounts/${c.accountId}/access/apps/${c.accessAppId}`);
+    expect(f.state.providers).toHaveLength(1);
+    expect(f.state.records).toHaveLength(0);
+    expect(f.state.tunnels).toHaveLength(0);
+    expect(f.state.apps).toHaveLength(0);
+    expect(await readConnection(f.path)).toBeNull();
+    expect(await disconnect({ path: f.path, client: f.client })).toEqual({ removed: [], kept: [] });
+  }
+);
+it.each(["tunnel", "dns", "access_app"] as const)(
+  "IT-006: failed %s deletion retains local credentials for retry",
+  async resource => {
+    const f = await fixture();
+    await connect(f.options);
+    const c = await f.saved();
+    const before = await readFile(f.path, "utf8");
+    const paths = {
+      tunnel: `/cfd_tunnel/${c.tunnelId}`,
+      dns: `/dns_records/${c.dnsRecordIds[0]}`,
+      access_app: `/access/apps/${c.accessAppId}`,
+    };
+    f.state.failures.push({ path: paths[resource], status: 500 });
+    await expect(disconnect({ path: f.path, client: f.client })).rejects.toMatchObject({
+      code: "cloudflare_api_error",
+    });
+    expect(await readFile(f.path, "utf8")).toBe(before);
+    if (resource !== "access_app") expect(f.state.apps).toHaveLength(1);
+    await disconnect({ path: f.path, client: f.client });
+    expect(await readConnection(f.path)).toBeNull();
+    expect(f.state.records).toHaveLength(0);
+    expect(f.state.providers).toHaveLength(1);
+  }
+);
 it("connection ownership: disconnect refuses a running session without touching credentials", async () => {
   const f = await fixture();
   await connect(f.options);
@@ -229,6 +279,7 @@ it("OPUS-N02: foreign policies are reported after own invitations have been dele
   const c = await f.saved();
   f.state.policies.push({ id: "foreign", name: "Dashboard policy" });
   f.state.policies.push({ id: "own", name: "proto-share invitees" });
+  f.state.policies.push({ id: "own-other", name: "proto-share invitees" });
   await expect(closeInvitations(c, f.client)).rejects.toMatchObject({
     code: "share_connection_stale",
   });

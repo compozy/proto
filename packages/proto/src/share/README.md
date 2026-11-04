@@ -11,9 +11,10 @@ diagnostics still fail the build. Unknown targets raise `share_target_not_found`
 The session composition root uses these helpers:
 
 - `shareDirectory(root)` returns `<app>/node_modules/.cache/compozy-proto/share`.
-- `cleanupSnapshots(root)` removes all snapshots and leftover `.proto-build-*` directories. Call at
-  start and stop, after excluding another live session and serializing with builds. The narrower
-  `cleanupBuildDirectories(root)` removes only crash staging directories.
+- `cleanupSnapshots(root)` removes only the share snapshots. Call at start and stop, after excluding
+  another live session and serializing with share builds. It leaves `.proto-build-*` staging directories
+  intact so stopping a share does not interrupt a concurrent `proto build`.
+- `cleanupBuildDirectories(root)` removes crash staging directories. Call only at session start.
 - `checkDirtyTree(root, { approvers, before? })` checks from the Git top level, excluding this app's
   review directory, share cache and staging directories. Pass the pre-build result as `before` to
   check that HEAD did not move. It raises `share_dirty_tree` for uncertifiable approver builds;

@@ -26,7 +26,13 @@ import {
 } from "./connection.ts";
 import { serveHandler } from "./http.ts";
 import { notInvitedPage } from "./pages.ts";
-import { buildAndSwap, cleanupSnapshots, shareDirectory, type ShareTarget } from "./snapshot.ts";
+import {
+  buildAndSwap,
+  cleanupBuildDirectories,
+  cleanupSnapshots,
+  shareDirectory,
+  type ShareTarget,
+} from "./snapshot.ts";
 
 export type ShareOptions = {
   target: ShareTarget;
@@ -344,6 +350,7 @@ export async function startShare(
     if (!connection) throw new ProtoError("share_not_connected");
     client = runtime.client ?? new CloudflareClient(connection.apiToken);
     await checkConnection(connection, client);
+    await cleanupBuildDirectories(project.root);
     await cleanupSnapshots(project.root);
     if (interrupted) throw new ProtoError("share_not_running");
     const publicOrigin = `https://${connection.shellHost}`,
