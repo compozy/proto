@@ -130,9 +130,40 @@ export class CloudflareClient {
     throw new ProtoError("cloudflare_api_error");
   }
   async verify() {
-    const result = await this.request<{ status: string }>("GET", "/user/tokens/verify");
-    if (result.status !== "active") throw new ProtoError("cloudflare_token_invalid");
-    return result;
+    try {
+      const result = await this.request<{ status?: string } | undefined>(
+        "GET",
+        "/user/tokens/verify"
+      );
+      if (result?.status !== "active") throw new ProtoError("cloudflare_token_invalid");
+      return result;
+    } catch (original) {
+      if (!(original instanceof ProtoError) || original.code !== "cloudflare_token_invalid")
+        throw original;
+      try {
+        const accounts = await this.accounts();
+        const results = await Promise.all(
+          accounts.map(async account => {
+            try {
+              return await this.request<{ status?: string } | undefined>(
+                "GET",
+                `/accounts/${account.id}/tokens/verify`
+              );
+            } catch (error) {
+              if (error instanceof ProtoError && error.code === "cloudflare_token_invalid")
+                return undefined;
+              throw error;
+            }
+          })
+        );
+        const active = results.find(result => result?.status === "active");
+        if (active) return active;
+      } catch (error) {
+        if (!(error instanceof ProtoError) || error.code !== "cloudflare_token_invalid")
+          throw error;
+      }
+      throw original;
+    }
   }
   accounts() {
     return this.list<Account>("/accounts");

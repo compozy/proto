@@ -9,7 +9,8 @@ Proto does not send invitations. Reviewers need only a browser and their mailbox
 1. Add a domain to Cloudflare.
 2. Open Zero Trust in the dashboard and choose a team name. Its free plan covers up to 50 users;
    onboarding asks for payment details.
-3. In **My Profile → API Tokens**, create a **user API token**. Grant account-level edit permissions
+3. Create a **user API token** in **My Profile → API Tokens**, or an **account API token** in
+   **Manage Account → Account API Tokens**. For either type, grant account-level edit permissions
    for Cloudflare Tunnel, Access applications and policies, and Access identity providers. Grant
    **Zone → DNS → Edit** and **Zone → Zone → Read** for the chosen domain. The account permission
    labels are **Cloudflare Tunnel**, **Access: Apps and Policies**, and **Access: Organizations,

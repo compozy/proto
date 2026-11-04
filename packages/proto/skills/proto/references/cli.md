@@ -163,6 +163,12 @@ scope, so remote approval or deletion fails with `scope_denied`.
 
 ## Temporary sharing (CLI only)
 
+Both user API tokens (**My Profile → API Tokens**) and account API tokens
+(**Manage Account → Account API Tokens**) work. Either type needs account-level Edit permissions
+for **Cloudflare Tunnel**, **Access: Apps and Policies**, and **Access: Organizations, Identity
+Providers, and Groups**, plus **Zone → DNS → Edit** and **Zone → Zone → Read** for the chosen zone.
+Scope the token to the intended account and zone.
+
 - `proto share connect [--domain <domain>] [--name <label>]` reads a hidden Cloudflare token or
   `CLOUDFLARE_API_TOKEN`, provisions tunnel/DNS/Access, and returns `{link, domain, created}`.
 - `proto share <slug> --approver <email> --commenter <email>` shares one snapshot; both flags repeat.

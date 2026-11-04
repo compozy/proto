@@ -84,6 +84,86 @@ it("IT-003: invalid token, absent organization and absent domain fail before pro
   await expect(connect(f.options)).rejects.toMatchObject({ code: "cloudflare_no_domain" });
   expect(f.state.tunnels).toHaveLength(0);
 });
+// Invariant: both token owners can connect and pass startup verification; only auth failures
+// trigger fallback, and an unsuccessful fallback preserves the original authentication error.
+// Owner/canonical suite: Cloudflare client at the HTTP boundary, node/share/connection.
+it("IT-003/account-token: connect and startup accept an account token", async () => {
+  const f = await fixture();
+  f.state.tokenType = "account";
+  await expect(connect(f.options)).resolves.toMatchObject({ created: true });
+  await checkConnection(await f.saved(), f.client);
+  expect(
+    f.state.calls.filter(call => call.path.endsWith("/tokens/verify")).map(call => call.path)
+  ).toEqual([
+    "/user/tokens/verify",
+    "/accounts/account/tokens/verify",
+    "/user/tokens/verify",
+    "/accounts/account/tokens/verify",
+  ]);
+});
+it("IT-003/user-token: an active user token never needs account fallback", async () => {
+  const f = await fixture();
+  await expect(f.client.verify()).resolves.toEqual({ status: "active" });
+  expect(f.state.calls.map(call => call.path)).toEqual(["/user/tokens/verify"]);
+});
+it("IT-003/account-token: rejects on one account do not hide an active result", async () => {
+  const f = await fixture();
+  f.state.tokenType = "account";
+  f.state.accounts.unshift({ id: "other", name: "Other" });
+  f.state.failures.push({ path: "/accounts/other/tokens/verify", status: 403 });
+  await expect(f.client.verify()).resolves.toEqual({ status: "active" });
+});
+it.each([undefined, null, {}, { status: "disabled" }])(
+  "IT-003/account-token: an inactive or missing result %j preserves the original error",
+  async result => {
+    const f = await fixture();
+    f.state.tokenType = "account";
+    f.state.accountTokenResults.account = result;
+    await expect(f.client.verify()).rejects.toMatchObject({
+      code: "cloudflare_token_invalid",
+      message: "The token is invalid or lacks permission: User token verification failed.",
+    });
+  }
+);
+it.each(["invalid", "no-accounts", "accounts-denied"])(
+  "IT-003/account-token: %s fallback preserves the original error",
+  async failure => {
+    const f = await fixture();
+    f.state.tokenType = "invalid";
+    if (failure === "no-accounts") f.state.accounts = [];
+    if (failure === "accounts-denied")
+      f.state.failures.push({ path: "/accounts", status: 403, message: "Account list denied" });
+    await expect(f.client.verify()).rejects.toMatchObject({
+      code: "cloudflare_token_invalid",
+      message: "The token is invalid or lacks permission: User token verification failed.",
+    });
+  }
+);
+it.each([
+  ["/user/tokens/verify", 500],
+  ["/user/tokens/verify", 0],
+  ["/accounts", 500],
+  ["/accounts", 0],
+  ["/accounts/account/tokens/verify", 500],
+  ["/accounts/account/tokens/verify", 0],
+] as const)(
+  "IT-003/account-token: non-auth failure at %s (%i) surfaces unchanged",
+  async (path, status) => {
+    const f = await fixture();
+    f.state.tokenType = "account";
+    f.state.failures.push({ path, status, message: "Service unavailable" });
+    if (status === 0) f.state.failures.push({ path, status });
+    await expect(f.client.verify()).rejects.toMatchObject({
+      code: "cloudflare_api_error",
+      message:
+        status === 0
+          ? "Cloudflare said: network request failed."
+          : "Cloudflare said: Service unavailable.",
+    });
+    if (path === "/user/tokens/verify")
+      expect(f.state.calls.every(call => call.path === path)).toBe(true);
+  }
+);
 // Invariant: stale resources suggest reconnecting; only foreign policies suggest policy removal.
 // Owner/canonical suite: provisioning at the HTTP boundary, node/share/connection.
 it.each([

@@ -42,7 +42,12 @@ export async function loopbackRequest(port: number, url: URL, init: RequestInit 
 /** Network-boundary fake shared with session integration suites. No production modules are mocked. */
 export async function fakeCloudflare() {
   const state = {
+    tokenType: "user" as "user" | "account" | "invalid",
     tokenStatus: "active",
+    accountTokenResults: { account: { status: "active" } } as Record<
+      string,
+      { status?: string } | null | undefined
+    >,
     accounts: [{ id: "account", name: "Acme" }],
     zones: [{ id: "zone", name: "example.com", account: { id: "account", name: "Acme" } }],
     organization: { auth_domain: "acme.cloudflareaccess.com" } as { auth_domain: string } | null,
@@ -107,7 +112,15 @@ export async function fakeCloudflare() {
       return;
     }
     if (path === "/user/tokens/verify") {
-      send({ status: state.tokenStatus });
+      if (state.tokenType === "user") send({ status: state.tokenStatus });
+      else send(null, 401, "User token verification failed");
+      return;
+    }
+    const accountVerification = path.match(/^\/accounts\/([^/]+)\/tokens\/verify$/);
+    if (accountVerification) {
+      const account = accountVerification[1];
+      if (state.tokenType === "account" && account) send(state.accountTokenResults[account]);
+      else send(null, 403, "Account token verification failed");
       return;
     }
     if (path === "/accounts") {
