@@ -338,8 +338,17 @@ it("keeps cache entries stable until file metadata changes or explicit invalidat
   const warned = indexStories(app, [root], cache);
   expect(warned.warnings).toContainEqual(expect.objectContaining({ message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())' }));
   expect(indexStories(app, [root], cache).warnings).toEqual(warned.warnings);
+  // Invariant: one root summary is printable; file diagnostics remain addressable by the shell.
+  // Owner: story index warnings, in the canonical registry suite.
+  expect(warned.warnings.filter(warning => warning.code === "story_mock_unsupported" && !warning.file)).toEqual([
+    expect.objectContaining({ root: "ui", message: 'sb.mock("boring-avatars") is inert (1 file calls mocked())' }),
+  ]);
+  expect(warned.warnings.filter(warning => warning.file).map(warning => warning.file)).toEqual(["preview.ts", "button.stories.tsx"]);
   writeFileSync(file, 'export default { title: "UI/Button" }; export const Secondary = {};');
   expect(indexStories(app, [root], cache).entries[0]?.stories[0]?.id).toBe("ui-button--secondary");
+  expect(indexStories(app, [root], cache).warnings.filter(warning => !warning.file)).toEqual([
+    expect.objectContaining({ message: 'sb.mock("boring-avatars") is inert' }),
+  ]);
   rmSync(file);
   expect(indexStories(app, [root], cache).entries).toEqual([]);
   expect(cache.size).toBe(0);

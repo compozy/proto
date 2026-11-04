@@ -138,6 +138,7 @@ workers/site data after reordering roots. Stories use their preview, not `proto.
   and missing/unsupported peers fail them. MSW needs a base-aware worker URL and scope confined
   to that root (see the package README). Remote builds omit stories with `stories_not_built`;
   story problems/missing peers do not fail remote builds.
+  Reference `static` mounts and `publicDir` assets base-relative (e.g. via `import.meta.env.BASE_URL`) so they work in local static builds.
 - Component comments use `story--<slug>`; `comments add` requires `--state <story-id>` from that
   component plus `--note` and `--selector`. Remote review does not accept story keys.
 

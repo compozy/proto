@@ -715,6 +715,23 @@ it("hosts real Storybook roots, lifecycle stages and bounded terminal results", 
       expect(await frame.locator("button").textContent()).toBe("Mock response");
       expect(await frame.locator("html").getAttribute("data-project-loader")).toBe("1");
     }
+    // IT-014: picker controls are visible to the document but outside within(canvasElement).
+    // Owner: real story-host integration; the parent uses the actual trusted bridge.
+    await shellPage.evaluate(origin => {
+      document.querySelector("iframe")!.contentWindow!.postMessage(
+        { proto: 1, frame: "network-0", type: "pick:start", mode: "element" }, origin
+      );
+    }, new URL(storyBase).origin);
+    const picking = shellPage.frames().find(frame => frame.url().includes("frame=network-0"))!;
+    await picking.getByTestId("proto-picker").waitFor();
+    expect(await picking.evaluate(async () => {
+      const runtime = "/@id/__x00__virtual:proto/story-runtime";
+      const { within } = await import(runtime);
+      return {
+        document: within(document.body).getAllByTestId("proto-picker").length,
+        canvas: within(document.getElementById("proto-story-canvas")!).queryAllByTestId("proto-picker").length,
+      };
+    })).toEqual({ document: 1, canvas: 0 });
     await shellPage.close();
     const network = await open("ui-button--network");
     expect(network.result.status).toBe("passed");
@@ -1140,6 +1157,7 @@ it("isolates concurrent import failures on the same root", async () => {
   if (!sharedBrowser) throw new Error("Chromium is required for story host integration");
   const clean = await sharedBrowser.newPage();
   const broken = await sharedBrowser.newPage();
+  const sibling = await sharedBrowser.newPage();
   let dev: Awaited<ReturnType<typeof startDev>> | undefined;
   try {
     writeFileSync(join(fixture.app, "preview.tsx"), `export const beforeAll = async () => {
@@ -1148,22 +1166,31 @@ it("isolates concurrent import failures on the same root", async () => {
     writeFileSync(join(fixture.app, "src/clean.stories.tsx"), 'export default { title: "Clean" }; export const Default = { render: () => <button>Clean</button> };');
     writeFileSync(join(fixture.app, "src/broken.stories.tsx"), 'import "./broken-dependency"; export default { title: "Broken" }; export const Default = {};');
     writeFileSync(join(fixture.app, "src/broken-dependency.ts"), 'export const value = ;');
+    writeFileSync(join(fixture.app, "src/sibling.stories.tsx"), 'import "./broken-dependency"; export default { title: "Sibling" }; export const Default = {};');
     const project = await loadProject(fixture.app);
     dev = await onFreePorts(port => startDev(project, { port, quiet: true, storyRoots: ["app"] }));
     const base = dev.storyRoots[0]!.renderUrl;
     await clean.goto(base + "clean--default?pause=1&timeout=30000");
     await clean.waitForFunction(() => typeof (window as unknown as { resumeStory: unknown }).resumeStory === "function");
-    await broken.goto(base + "broken--default?timeout=30000");
+    await Promise.all([
+      broken.goto(base + "broken--default?timeout=30000"),
+      sibling.goto(base + "sibling--default?timeout=30000"),
+    ]);
     await broken.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed");
     const failure = await broken.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!));
     expect(failure).toMatchObject({ stage: "import", status: "failed" });
     expect(failure.error).toMatch(/Unexpected|Expression expected|Expected|Parse failure/i);
+    await sibling.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "failed");
+    const sharedFailure = await sibling.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!));
+    expect(sharedFailure).toMatchObject({ stage: "import", status: "failed" });
+    expect(sharedFailure.error).toMatch(/Unexpected|Expression expected|Expected|Parse failure/i);
     expect(await clean.evaluate(() => JSON.parse(document.documentElement.dataset.protoStory!))).toMatchObject({ stage: "import", status: "running" });
     await clean.evaluate(() => (window as unknown as { resumeStory(): void }).resumeStory());
     await clean.waitForFunction(() => JSON.parse(document.documentElement.dataset.protoStory ?? "null")?.status === "passed");
   } finally {
     await clean.close();
     await broken.close();
+    await sibling.close();
     await dev?.close();
     rmSync(fixture.root, { recursive: true, force: true });
   }

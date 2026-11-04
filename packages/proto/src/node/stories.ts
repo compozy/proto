@@ -324,10 +324,21 @@ export function indexStories(
     const callers = rootWarnings.filter(
       warning => warning.message.includes("1 file calls mocked()")
     ).length;
-    for (const warning of rootWarnings)
-      if (warning.message.includes("sb.mock("))
-        warning.message = warning.message.replace(" (1 file calls mocked())", "") +
-          ` (${callers} ${callers === 1 ? "file calls" : "files call"} mocked())`;
+    if (!rootWarnings.length) continue;
+    const declarations = [
+      ...new Set(rootWarnings.flatMap(warning =>
+        warning.message
+          .replace(" (1 file calls mocked())", "")
+          .split("; ")
+          .filter(message => message.startsWith("sb.mock("))
+      )),
+    ];
+    warnings.push({
+      code: "story_mock_unsupported",
+      root: root.id,
+      message: (declarations.join("; ") || "Module mocks are inert") +
+        (callers ? ` (${callers} ${callers === 1 ? "file calls" : "files call"} mocked())` : ""),
+    });
   }
   const bad = new Set<RegistryStoryFile>();
   const titles = new Map<string, RegistryStoryFile>();

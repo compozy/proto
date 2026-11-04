@@ -40,6 +40,10 @@ export const Network: Story = {
   },
   loaders: [async () => ({ response: await fetch("/fixture").then(response => response.json()) })],
   render: (_, { loaded }) => <Button label={loaded.response.label} />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button")).toHaveTextContent("Mock response");
+    await expect(document.documentElement.dataset.effect).toBe("ready");
+  },
 };
 export const Fail: Story = {
   play: async () => {

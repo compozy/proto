@@ -299,7 +299,10 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
         console.log(
           `stories ${root.id} http://127.0.0.1:${storyPort}  ${files.length} files, ${count} stories`
         );
-        for (const warning of registry.warnings.filter(warning => warning.root === root.id))
+        for (const warning of registry.warnings.filter(
+          warning => warning.root === root.id &&
+            (warning.code !== "story_mock_unsupported" || !warning.file)
+        ))
           console.warn(`warning ${warning.code} ${root.id}: ${warning.message}`);
       }
     }

@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { resolve, matchesGlob, sep, extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Plugin } from "vite";
+import type { Plugin, HotPayload, EnvironmentModuleNode } from "vite";
 import type { StoryRootConfig } from "../config.ts";
 import type { ProtoProject } from "../node/project.ts";
 import { presentationGuard } from "./index.ts";
@@ -54,6 +54,43 @@ export function storyPlugins(
         const patterns = typeof root.stories === "string" ? [root.stories] : root.stories;
         const authored = (file: string) =>
           patterns.some(pattern => matchesGlob(file, resolve(dir, pattern)));
+        // Vite reports transform failures on the client environment's hot channel.
+        // Stop at each authored entry: the virtual index imports every story, so walking
+        // past it would incorrectly attribute one failure to unrelated stories.
+        const { hot, moduleGraph } = server.environments.client;
+        const send = hot.send.bind(hot);
+        hot.send = (payload: HotPayload | string, data?: unknown) => {
+          if (typeof payload === "string") return send(payload, data);
+          if (payload.type === "error") {
+            const entries = new Set<string>();
+            const pending = new Set<EnvironmentModuleNode>();
+            for (const id of [payload.err.id, payload.err.loc?.file]) {
+              if (!id) continue;
+              const file = id.split("?")[0]!;
+              if (file === resolve(dir, root.preview) || authored(file)) entries.add(file);
+              const module = moduleGraph.getModuleById(id);
+              if (module) pending.add(module);
+              for (const module of moduleGraph.getModulesByFile(file) ?? []) pending.add(module);
+            }
+            // Set iteration visits newly added importers once, including cyclic graphs.
+            for (const module of pending) {
+              if (
+                module.file &&
+                (module.file === resolve(dir, root.preview) || authored(module.file))
+              ) {
+                entries.add(module.file);
+                continue;
+              }
+              for (const importer of module.importers) pending.add(importer);
+            }
+            send({
+              type: "custom",
+              event: "proto:story-import-error",
+              data: { entries: [...entries], message: payload.err.message },
+            });
+          }
+          send(payload);
+        };
         const changed = (file: string) => {
           if (file === resolve(dir, root.preview) || authored(file))
             project.invalidateStories(root.id, [file]);

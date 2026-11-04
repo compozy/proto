@@ -110,6 +110,9 @@ function setupUserEvent() {
   return user;
 }
 if (import.meta.hot) {
+  import.meta.hot.on("proto:story-import-error", (payload: { entries: string[]; message: string }) => {
+    compilerErrors.push({ files: payload.entries.map(modulePath), message: payload.message });
+  });
   import.meta.hot.on("vite:error", payload => {
     compilerErrors.push({
       files: [payload.err.id, payload.err.loc?.file]
