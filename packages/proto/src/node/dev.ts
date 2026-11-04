@@ -288,6 +288,10 @@ export async function startDev(project: ProtoProject, options: DevOptions = {}) 
       server.listen(port, "127.0.0.1", resolve);
     });
     await vite.listen();
+    if (!options.quiet && selected.length) {
+      console.log(`proto  ${origin}`);
+      console.log(`render http://127.0.0.1:${port + 1}`);
+    }
     for (const { root, port: storyPort } of selected) {
       storyServers.push(
         await startStoryServer(project, root, { shell: port, story: storyPort }, options.quiet)

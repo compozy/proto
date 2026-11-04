@@ -567,6 +567,39 @@ it("checks each root's installed peers and the supported 10.6 line", () => {
   }
 });
 
+// Invariant: human startup lists shell/render before story roots; quiet and story-free
+// startup retain their existing output. Owner: real dev startup, canonical dev suite.
+it.each([
+  { stories: true, quiet: false },
+  { stories: true, quiet: true },
+  { stories: false, quiet: false },
+])("prints startup URLs for stories=$stories quiet=$quiet", async ({ stories, quiet }) => {
+  const fixture = storiesFixture();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  let dev: Awaited<ReturnType<typeof startDev>> | undefined;
+  try {
+    const project = await loadProject(fixture.app);
+    if (!stories) delete project.config.stories;
+    dev = await onFreePorts(port => {
+      log.mockClear();
+      return startDev(project, { port, quiet });
+    });
+    const startup = log.mock.calls.map(args => args.join(" ")).filter(
+      line => /^(?:proto  |render |stories )/.test(line)
+    );
+    expect(startup).toEqual(stories && !quiet ? [
+      `proto  ${dev.origin}`,
+      `render ${dev.renderOrigin}`,
+      `stories app ${new URL(dev.storyRoots[0]!.renderUrl).origin}  1 files, 9 stories`,
+      `stories ui ${new URL(dev.storyRoots[1]!.renderUrl).origin}  1 files, 1 stories`,
+    ] : []);
+  } finally {
+    await dev?.close();
+    log.mockRestore();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 120000);
+
 // Invariants: real portable lifecycle, one terminal result, root isolation, shutdown and host policy.
 // Owner: existing real dev-server integration suite (Chromium, no runtime mocks).
 it("hosts real Storybook roots, lifecycle stages and bounded terminal results", async () => {
