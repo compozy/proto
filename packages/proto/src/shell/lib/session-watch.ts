@@ -5,7 +5,8 @@
  *
  * - `compare()`: a `snapshot` event, a stream reconnect or a frame load failure. A different
  *   live id makes the watch `stale` (S1). A failed read changes nothing.
- * - `failure()`: a network failure on an API call or a stream that cannot reconnect. The
+ * - `failure()`: a network failure on an API call, a stream that cannot reconnect or one that
+ *   keeps failing to (a bounded run of reconnect errors, `shell-data.tsx`). The
  *   bootstrap is retried; when that also fails the session `ended` (S4). A passing failure
  *   keeps today's behavior.
  * - `stale()`: the server refused an approval as `snapshot_stale`.

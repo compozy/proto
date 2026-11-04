@@ -73,20 +73,25 @@ export type ShellEventType = "registry" | "comments" | "review" | "snapshot";
 type EventData = { key?: string; id?: string };
 type EventListener = (data: EventData) => void;
 
+/** Consecutive failed reconnects (no `open` between them) that make a stream a session check. */
+const lostAfter = 3;
+
 /**
  * One EventSource per shell, fanned out to subscribers by event type. It connects with the first
- * subscriber and closes with the last, so creating it has no side effect. `onClosed` runs when
- * the browser gives up reconnecting (the stream answered something other than events).
+ * subscriber and closes with the last, so creating it has no side effect. `onLost` runs when the
+ * browser gives up reconnecting (the stream answered something other than events), and after
+ * every `lostAfter` consecutive failed reconnects without an `open` (the network is gone, so the
+ * browser keeps retrying in CONNECTING). A passing blip reopens before the budget runs out.
  */
 class ShellEvents {
   #listeners = new Map<ShellEventType, Set<EventListener>>();
   #source: EventSource | null = null;
   #url: string | null;
-  #onClosed: (() => void) | undefined;
+  #onLost: (() => void) | undefined;
 
-  constructor(url: string | null, onClosed?: () => void) {
+  constructor(url: string | null, onLost?: () => void) {
     this.#url = url;
-    this.#onClosed = onClosed;
+    this.#onLost = onLost;
   }
 
   /** Open the shared event stream and reconcile observed data after a reconnect gap. */
@@ -95,13 +100,22 @@ class ShellEvents {
     const source = new EventSource(new URL(this.#url, document.baseURI));
     this.#source = source;
     let interrupted = afterGap;
+    let failures = 0;
     source.addEventListener("error", () => {
       interrupted = true;
-      if (source.readyState !== EventSource.CLOSED || this.#source !== source) return;
-      this.#source = null;
-      this.#onClosed?.();
+      if (this.#source !== source) return;
+      if (source.readyState === EventSource.CLOSED) {
+        this.#source = null;
+        this.#onLost?.();
+        return;
+      }
+      failures += 1;
+      if (failures < lostAfter) return;
+      failures = 0;
+      this.#onLost?.();
     });
     source.addEventListener("open", () => {
+      failures = 0;
       if (!interrupted) return;
       interrupted = false;
       // The server does not replay missed events. Reconcile every observed slice after a gap.
@@ -207,7 +221,8 @@ function ShellDataContent({ env, children }: { env: ShellEnv; children: ReactNod
         async () => (await loadBootstrap()).bootstrap.snapshot ?? null
       )
   );
-  // A stream the browser stopped retrying is a session check; a live session reopens it.
+  // A stream the browser stopped retrying, or one that keeps failing to reconnect, is a session
+  // check; a live session reopens a closed stream (one still retrying is left to the browser).
   const [events] = useState(
     () => new ShellEvents(env.bootstrap.eventsUrl, () => session.failure(() => events.reconnect()))
   );

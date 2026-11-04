@@ -35,6 +35,7 @@ import { Settings } from "../../../src/shell/review/settings/settings.tsx";
 import { ReviewActions } from "../../../src/shell/review/approval/approval.tsx";
 import { SessionWatch } from "../../../src/shell/lib/session-watch.ts";
 import { SessionNotice } from "../../../src/shell/app/session-notice.tsx";
+import { useDraft } from "../../../src/shell/review/drafts.ts";
 import { ShellRail } from "../../../src/shell/app/chrome.tsx";
 import { bootstrapFor, registry } from "../../harness/fixtures.ts";
 
@@ -676,6 +677,131 @@ describe("the shell in a share (proto-share S1, S3, S4, S5)", () => {
     expect(notice(ended)?.getAttribute("role")).toBe("alert");
     expect(notice(ended)?.textContent).toContain("This session ended.");
     expect(notice(ended)?.textContent).toContain("Your unsent comment will be lost.");
+  });
+
+  test("S4: a stream that keeps failing to reconnect retries the bootstrap; a passing blip does not", async () => {
+    // Invariant (ASTRA-004, US-007.EC-3): with no API call, a bounded run of reconnect errors
+    // without an `open` is a session check, and S4 follows when the bootstrap also fails; a blip
+    // that reopens and any failure outside a share keep today's behavior. Owner: shell events +
+    // session watch.
+    class FakeSource extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 2;
+      static all: FakeSource[] = [];
+      readyState = FakeSource.CONNECTING;
+      constructor(readonly url: string | URL) {
+        super();
+        FakeSource.all.push(this);
+      }
+      close() {
+        this.readyState = FakeSource.CLOSED;
+      }
+      /** The browser lost the connection and stays in CONNECTING to retry. */
+      fail() {
+        this.readyState = FakeSource.CONNECTING;
+        this.dispatchEvent(new Event("error"));
+      }
+      open() {
+        this.readyState = FakeSource.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+    }
+    vi.stubGlobal("EventSource", FakeSource);
+    let bootstrapUp = true;
+    const env = shareEnv({ eventsUrl: "/__proto/events" });
+    const network = shareNetwork((_call, path) => {
+      if (!path.endsWith("/__proto/bootstrap.json")) return json({ comments: [] });
+      if (!bootstrapUp) throw new TypeError("Failed to fetch");
+      return json(env.bootstrap);
+    });
+    const bootstraps = () =>
+      network.calls.filter(call => call.url.endsWith("/__proto/bootstrap.json")).length;
+
+    const gallery = mount(shareEnv({ snapshot: undefined, eventsUrl: "/__proto/events" }), null);
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(1));
+    act(() => {
+      for (let index = 0; index < 6; index++) FakeSource.all[0]!.fail();
+    });
+    await act(async () => {});
+    expect(bootstraps()).toBe(0);
+    expect(notice(gallery)).toBeNull();
+    for (const cleanup of cleanups.splice(0)) cleanup();
+
+    const container = mount(env, <SessionNotice />);
+    await vi.waitFor(() => expect(FakeSource.all).toHaveLength(2));
+    const source = FakeSource.all[1]!;
+    act(() => {
+      source.fail();
+      source.fail();
+      source.open();
+    });
+    // The reopen after a gap compares versions once; the blip itself is no failure.
+    await vi.waitFor(() => expect(bootstraps()).toBe(1));
+    act(() => {
+      source.fail();
+      source.fail();
+    });
+    await act(async () => {});
+    expect(bootstraps()).toBe(1);
+    act(() => source.fail());
+    await vi.waitFor(() => expect(bootstraps()).toBe(2));
+    await act(async () => {});
+    expect(notice(container)).toBeNull();
+
+    bootstrapUp = false;
+    act(() => {
+      for (let index = 0; index < 3; index++) source.fail();
+    });
+    await vi.waitFor(() => expect(notice(container)?.dataset.status).toBe("ended"));
+    expect(bootstraps()).toBe(3);
+    expect(FakeSource.all).toHaveLength(2);
+  });
+
+  test("S1, S4: a draft that storage refused still confirms Reload and is warned about", async () => {
+    // Invariant (ASTRA-006): draft presence follows the mounted composer's in-memory text, not
+    // only localStorage, so a refused write keeps the S1 confirmation and the S4 warning.
+    // Owner: drafts + SessionNotice.
+    const refuse = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+    cleanups.push(() => refuse.mockRestore());
+    function Composer() {
+      const [body, setBody] = useDraft("new:login-form");
+      return (
+        <button type="button" data-body={body} onClick={() => setBody("Half-written note")}>
+          Type
+        </button>
+      );
+    }
+    let live: string | Error = "snap-b";
+    const env = shareEnv();
+    shareNetwork((_call, path) => {
+      if (!path.endsWith("/__proto/bootstrap.json")) return json({ comments: [] });
+      if (live instanceof Error) throw live;
+      return json({ ...env.bootstrap, snapshot: live });
+    });
+    const container = mount(
+      env,
+      <>
+        <SessionNotice />
+        <Composer />
+      </>
+    );
+    await vi.waitFor(() => expect(session).not.toBeNull());
+    act(() => session!.compare());
+    await vi.waitFor(() => expect(notice(container)?.dataset.status).toBe("stale"));
+    act(() => button(container, "Type")?.click());
+    expect(button(container, "Type")?.dataset.body).toBe("Half-written note");
+    expect(window.localStorage.getItem("proto:draft:new:login-form")).toBeNull();
+    act(() => button(container, "Reload")?.click());
+    expect(notice(container)?.textContent).toContain("You have an unsent comment. Reload anyway?");
+    expect(button(container, "Reload anyway")).toBeDefined();
+
+    live = new TypeError("Failed to fetch");
+    act(() => session!.failure());
+    await vi.waitFor(() => expect(notice(container)?.dataset.status).toBe("ended"));
+    expect(notice(container)?.textContent).toContain("Your unsent comment will be lost.");
   });
 
   test("S5: Settings has no Credentials section when the bootstrap disables credentials", async () => {

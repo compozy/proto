@@ -3,7 +3,7 @@
  * `localStorage` under `proto:draft:<scope>` until the message is sent or discarded. Only the
  * text is kept; pending uploads are server state and expire on their own.
  */
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 const prefix = "proto:draft:";
 /** Dispatched on `window` after this document changes a draft. */
@@ -27,8 +27,18 @@ function write(scope: string, value: string) {
   window.dispatchEvent(new Event(changeEvent));
 }
 
-/** Whether any composer holds unsent text (a reload or an ended session would interrupt it). */
+/**
+ * Mounted composers that hold text in memory. Storage may refuse a draft (private mode, quota),
+ * so presence never depends on storage alone.
+ */
+const held = new Set<symbol>();
+
+/**
+ * Whether any composer holds unsent text (a reload or an ended session would interrupt it): a
+ * mounted composer's in-memory text, or a persisted draft of one that is not mounted.
+ */
 export function hasUnsentDraft() {
+  if (held.size > 0) return true;
   try {
     const storage = window.localStorage;
     for (let index = 0; index < storage.length; index++) {
@@ -36,7 +46,7 @@ export function hasUnsentDraft() {
       if (name?.startsWith(prefix) && storage.getItem(name)) return true;
     }
   } catch {
-    // Without storage no draft survives anyway.
+    // Without storage only the mounted composers above hold drafts.
   }
   return false;
 }
@@ -60,6 +70,17 @@ export function useDraft(scope: string) {
   const [state, setState] = useState(() => ({ scope, value: read(scope) }));
   const current = state.scope === scope ? state.value : read(scope);
   if (state.scope !== scope) setState({ scope, value: current });
+  const holding = current !== "";
+  useEffect(() => {
+    if (!holding) return;
+    const token = Symbol(scope);
+    held.add(token);
+    window.dispatchEvent(new Event(changeEvent));
+    return () => {
+      held.delete(token);
+      window.dispatchEvent(new Event(changeEvent));
+    };
+  }, [holding, scope]);
   const set = (value: string) => {
     write(scope, value);
     setState({ scope, value });
