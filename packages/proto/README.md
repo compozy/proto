@@ -463,9 +463,35 @@ required) and `proto_stories_url({ id })`, returning the same JSON as the CLI.
 Story comments use `story--<component slug>`. `comments add` requires `--state <story-id>` from
 that component, plus the usual `--note` and `--selector`. Read with
 `comments list --slug story--<component slug>`. Remote review rejects these keys.
-`check` validates story configuration and index without loading the story graph. Local and
-remote `build` currently omit stories with `stories_not_built`; story problems and missing peers
-do not fail those builds. Application production bundles gain no story runtime.
+`check` validates story configuration and index without loading the story graph. Local `build`
+includes each root under `__stories/<root>/index.html?story=<id>`, using its own Vite config,
+`publicDir` and `static` mounts with lazy story and preview chunks. Story problems, missing or
+unsupported peers, and any root build failure fail the local build without publishing output.
+The read-only bootstrap carries relative `storyRoots`; `projectId` remains dev-only. With
+`build.includeReview`, snapshots include `story--` keys from the local FileStore.
+`build --remote` omits stories permanently and warns `stories_not_built`; story problems and
+missing peers do not fail remote builds. Remote stores continue rejecting story keys.
+Application production bundles gain no story runtime.
+
+MSW previews must use a base-aware worker URL (put the worker in the root's `publicDir` or a
+`static` mount at `/`):
+
+```ts
+const base = new URL(import.meta.env.BASE_URL, window.location.href);
+initialize({
+  serviceWorker: {
+    url: new URL("mockServiceWorker.js", base).href,
+    options: { scope: base.pathname },
+  },
+});
+```
+
+This uses `/` on a dev root's separate origin and `__stories/<root>/` inside a static gallery,
+including galleries hosted under a subpath. Keep the static worker scope inside its root and
+serve without a broader `Service-Worker-Allowed` header so it cannot control the shell or other
+roots. Serve the gallery over HTTPS or a loopback HTTP host; stories report a secure-context
+error on other HTTP origins. Existing consumers using `/mockServiceWorker.js` need this preview
+update; proto does not rewrite consumer previews.
 
 Errors: `invalid_input` (exit 2) for unknown roots or missing/invalid comment state;
 `story_not_found` (1) for unknown ids/empty filters; `project_mismatch` (1) for a different

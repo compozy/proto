@@ -45,5 +45,27 @@ addon panels and addon-vitest remain separate; `sb.mock` is inert and emits a wa
 Each root gets its own origin on `dev.port + 2 + index`, its own preview and dependency cache.
 After reordering roots, clear the old MSW service-worker registrations and site data on those
 loopback origins: a port can now belong to a different root. Static dirs and worker URLs belong
-in the root configuration. Local and remote gallery builds currently omit stories and warn
-`stories_not_built`. This repository's app adoption is a separate decision.
+in the root configuration. Local `proto build` includes each root's Vite output, public directory
+and static mounts under `__stories/<root>/`, with lazy story chunks and query-form story URLs.
+Story index problems, missing/unsupported peers and root build failures fail local publication.
+`build.includeReview` includes local `story--` snapshots. `proto build --remote` omits stories
+permanently with `stories_not_built`; remote review does not accept story keys.
+
+For MSW, place `mockServiceWorker.js` in that root's public directory or a static mount at `/`,
+and initialize it in the preview with a base-aware URL:
+
+```ts
+const base = new URL(import.meta.env.BASE_URL, window.location.href);
+initialize({
+  serviceWorker: {
+    url: new URL("mockServiceWorker.js", base).href,
+    options: { scope: base.pathname },
+  },
+});
+```
+
+Static workers stay scoped to `__stories/<root>/`, away from the gallery shell and other roots.
+Do not serve them with a broader `Service-Worker-Allowed` header. Use HTTPS or loopback HTTP;
+other HTTP hosts report that service workers need a secure context. Consumers with a hard-coded
+`/mockServiceWorker.js` must update their own preview; proto leaves previews unchanged.
+This repository's app adoption is a separate decision.

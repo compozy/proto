@@ -10,7 +10,8 @@ import { presentationGuard } from "./index.ts";
 export function storyPlugins(
   project: ProtoProject,
   root: StoryRootConfig,
-  shellOrigin: string
+  shellOrigin: string,
+  staticBuild = false
 ): Plugin[] {
   const dir = resolve(project.root, root.dir ?? ".");
   let snapshot: string | undefined;
@@ -31,7 +32,7 @@ export function storyPlugins(
       },
       async load(id) {
         if (id === `\0${ids[0]}`)
-          return `export const config = ${JSON.stringify({ shellOrigin, root: root.id, themeGlobal: root.themeGlobal ?? "theme" })};`;
+          return `export const config = { ...${JSON.stringify({ shellOrigin, root: root.id, themeGlobal: root.themeGlobal ?? "theme", staticBuild })}${staticBuild ? ", shellOrigin: window.location.origin" : ""} };`;
         if (id === `\0${ids[1]}`) {
           const registry = await project.registry();
           const entries = (registry.stories ?? []).filter(entry => entry.root === root.id);

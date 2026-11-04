@@ -128,8 +128,11 @@ workers/site data after reordering roots. Stories use their preview, not `proto.
 - `proto stories url <id>` links `/?c=<component>&story=<id>`.
 - MCP: `proto_stories_list`, `proto_stories_run` (requires root or filter), `proto_stories_url`.
 - `check` validates story config/index only. Guards run in the story server/runner, without
-  inheriting the app prototype guard. Local and remote builds omit stories and warn
-  `stories_not_built`; story problems/missing peers do not fail those builds.
+  inheriting the app prototype guard. Local builds include lazy story roots under
+  `__stories/<root>/`, including local `story--` review snapshots when requested; story problems
+  and missing/unsupported peers fail them. MSW needs a base-aware worker URL and scope confined
+  to that root (see the package README). Remote builds omit stories with `stories_not_built`;
+  story problems/missing peers do not fail remote builds.
 - Component comments use `story--<slug>`; `comments add` requires `--state <story-id>` from that
   component plus `--note` and `--selector`. Remote review does not accept story keys.
 

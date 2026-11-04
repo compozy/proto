@@ -17,7 +17,7 @@ declare module "virtual:proto/canvas" {
 }
 
 declare module "virtual:proto/story-config" {
-  export const config: { shellOrigin: string; root: string; themeGlobal: string };
+  export const config: { shellOrigin: string; root: string; themeGlobal: string; staticBuild: boolean };
 }
 declare module "virtual:proto/story-runtime" {
   export type ComposedStory = ReturnType<typeof import("@storybook/react-vite").composeStory>;

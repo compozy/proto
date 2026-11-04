@@ -11,6 +11,8 @@ import { buildAndSwap, cleanupSnapshots, shareDirectory } from "../../../src/sha
 import { bootstrapSchema } from "../../../src/model/bootstrap.ts";
 import { png, input, reviewer } from "../store/contract.ts";
 import { buildShell } from "../e2e/shell.ts";
+import { storiesFixture } from "../app-fixture.ts";
+import { storyHref, type StoryResult } from "../../../src/model/protocol.ts";
 const pkg = resolve(import.meta.dirname, "../../..");
 const roots: string[] = [];
 const shell = join(pkg, "dist/shell");
@@ -320,9 +322,10 @@ it("UT-044: remote builds require an explicit boolean CLI flag or Node option", 
   expect(await mode()).toBe("read-only");
 }, 120000);
 
-// Invariant: pre-static-story builds ship a complete story-free gallery despite story problems/peers.
-// Owner: static build orchestration; local coverage belongs to S6 when static stories ship.
-it.each([undefined, "https://gallery.example.test"])("stories IT-027: omits stories for remote %s", async remote => {
+// Invariant: remote builds omit stories despite story problems and missing peers.
+// Owner: static build orchestration; local stories belong to IT-020 below.
+it("stories IT-027: remote builds keep omitting stories", async () => {
+  const remote = "https://gallery.example.test";
   const { root, project, options } = await fixture();
   project.config.stories = { roots: [{ id: "ui", title: "UI", dir: ".", stories: ["src/**/*.stories.tsx"], preview: "missing.ts", vite: "missing-vite.ts", static: [], themeGlobal: "theme", guards: { forbidRuntimeImports: [] } }] };
   await writeFile(join(root, "src/broken.stories.tsx"), "export default {");
@@ -336,3 +339,168 @@ it.each([undefined, "https://gallery.example.test"])("stories IT-027: omits stor
   expect(bootstrap).not.toHaveProperty("storyRoots");
   expect(registry.problems).toEqual([]);
 }, 30000);
+
+// Invariant: local artifacts preserve isolated roots, lazy modules, review history and the real
+// MSW → loader → render → play lifecycle under a subpath; workers cannot control the shell.
+// Owner: canonical static build integration suite, using real Vite, Storybook, MSW and Chromium.
+it("stories IT-020: local static roots run MSW and play with confined workers", async () => {
+  const fixture = storiesFixture();
+  roots.push(fixture.root);
+  const fixtureShell = join(fixture.app, "fixture-shell");
+  await mkdir(fixtureShell);
+  await writeFile(join(fixtureShell, "index.html"), "<!doctype html><title>Static stories</title>");
+  await writeFile(
+    join(fixture.app, "src/lazy.stories.tsx"),
+    `
+    export default { title: 'UI/Lazy' };
+    export const Default = { render: () => <span>Lazy story</span> };
+  `
+  );
+  const project = await loadProject(fixture.app);
+  project.config.build.includeReview = true;
+  await project.store().add(
+    "story--ui-button",
+    {
+      ...input,
+      context: { ...input.context, state: "ui-button--network" },
+      body: "Static story review",
+    },
+    reviewer
+  );
+  const result = await buildProject(project, { shellDir: fixtureShell });
+  expect(result.warnings.some(warning => warning.code === "stories_not_built")).toBe(false);
+  const bootstrap = bootstrapSchema.parse(
+    JSON.parse(await readFile(join(result.output, "__proto/bootstrap.json"), "utf8"))
+  );
+  expect(bootstrap.mode).toBe("read-only");
+  expect(bootstrap).not.toHaveProperty("projectId");
+  expect(bootstrap.storyRoots).toEqual([
+    { id: "app", renderUrl: "__stories/app/index.html" },
+    { id: "ui", renderUrl: "__stories/ui/index.html" },
+  ]);
+  const snapshot = JSON.parse(
+    await readFile(join(result.output, "__proto/review/story--ui-button.json"), "utf8")
+  );
+  expect(snapshot.comments[0].context.state).toBe("ui-button--network");
+  expect(snapshot.comments[0].thread[0].body).toBe("Static story review");
+  const server = await serve(result.output);
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--host-resolver-rules=MAP insecure.test 127.0.0.1", "--no-proxy-server"],
+  });
+  try {
+    const page = await browser.newPage();
+    const requested: string[] = [];
+    page.on("request", request => requested.push(request.url()));
+    const href = (root: string, story: string) =>
+      storyHref(
+        new URL(bootstrap.storyRoots!.find(item => item.id === root)!.renderUrl, server.url).href,
+        { kind: "story", root, slug: "ui-button", story, theme: "dark", play: true }
+      );
+    const outcome = async () => {
+      await page.waitForFunction(() => {
+        const result = document.documentElement.dataset.protoStory;
+        return result && JSON.parse(result).status !== "running";
+      });
+      return JSON.parse((await page.locator("html").getAttribute("data-proto-story"))!) as StoryResult;
+    };
+    await page.goto(href("app", "ui-button--network"));
+    expect(await outcome()).toMatchObject({ status: "passed", stage: "render" });
+    await page.getByRole("button", { name: "Mock response" }).waitFor();
+    expect(requested.some(url => /lazy\.stories/.test(url))).toBe(false);
+    expect(
+      await page.evaluate(async () =>
+        (await navigator.serviceWorker.getRegistrations()).map(
+          worker => new URL(worker.scope).pathname
+        )
+      )
+    ).toEqual(["/gallery/__stories/app/"]);
+    await expect(
+      page.evaluate(async () => {
+        await navigator.serviceWorker.register("./mockServiceWorker.js", { scope: "/gallery/" });
+      })
+    ).rejects.toThrow();
+    await page.goto(href("app", "ui-button--primary"));
+    expect(await outcome()).toMatchObject({ status: "passed", stage: "play", hasPlay: true });
+    await page.getByRole("button", { name: "Clicked" }).waitFor();
+    await page.goto(href("app", "ui-lazy--default"));
+    expect(await outcome()).toMatchObject({ status: "passed" });
+    expect(requested.some(url => /lazy\.stories/.test(url))).toBe(true);
+    await page.goto(href("ui", "ui-badge--default"));
+    expect(await outcome()).toMatchObject({ status: "passed" });
+    await page.locator('[data-root="ui"]').waitFor();
+    for (const [root, expected] of [
+      ["app", "app\n"],
+      ["ui", "packages/ui\n"],
+    ]) {
+      expect(
+        await (await page.request.get(server.url + `__stories/${root}/vendor/root.txt`)).text()
+      ).toBe(expected);
+    }
+    await page.goto(server.url);
+    expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull();
+    const insecure = href("app", "ui-button--network").replace("127.0.0.1", "insecure.test");
+    await page.goto(insecure);
+    expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+    expect(await outcome()).toMatchObject({
+      status: "failed",
+      stage: "import",
+      error: expect.stringMatching(/service workers need a secure context/i),
+    });
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}, 180000);
+
+// Invariant: story index/peer/graph failures block local publication and identify the root.
+// Owner: static build orchestration; failed builds must leave no stale or partial artifact.
+it("stories IT-020: a failing local root prevents publication", async () => {
+  const fixture = storiesFixture();
+  roots.push(fixture.root);
+  const fixtureShell = join(fixture.app, "fixture-shell");
+  await mkdir(fixtureShell);
+  await writeFile(join(fixtureShell, "index.html"), "<!doctype html><title>Fixture</title>");
+  const project = await loadProject(fixture.app);
+  const options = { shellDir: fixtureShell };
+  await mkdir(join(fixture.app, "dist-proto"));
+  await writeFile(join(fixture.app, "dist-proto/stale.txt"), "stale");
+  await writeFile(
+    join(fixture.root, "packages/ui/vite.config.ts"),
+    `throw new Error('root pipeline failed');`
+  );
+  await expect(buildProject(project, options)).rejects.toThrow(
+    /Story root ui failed to build.*root pipeline failed/s
+  );
+  expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
+  await writeFile(join(fixture.app, "src/broken.stories.tsx"), "export default {");
+  await expect(buildProject(project, options)).rejects.toThrow(/story_parse/);
+  expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
+}, 120000);
+
+// Invariant: dependency failures retain the public error code/exit and name the failing root.
+// Owner: static build integration; peer packages are filesystem inputs, never runtime mocks.
+it.each([
+  ["storybook_missing", { version: "10.6.2", exports: {} }],
+  ["storybook_unsupported", { version: "10.7.0" }],
+])("stories IT-020: local builds reject %s", async (code, manifest) => {
+  const fixture = storiesFixture();
+  roots.push(fixture.root);
+  const dir = join(fixture.root, "isolated");
+  await mkdir(join(dir, "node_modules/storybook"), { recursive: true });
+  await writeFile(join(dir, "node_modules/storybook/package.json"), JSON.stringify(manifest));
+  await writeFile(join(dir, "package.json"), '{"type":"module"}');
+  await writeFile(join(dir, "preview.ts"), "export {};");
+  const project = await loadProject(fixture.app);
+  project.config.stories!.roots[1]!.dir = "../isolated";
+  project.config.stories!.roots[1]!.preview = "preview.ts";
+  const shellDir = join(fixture.app, "fixture-shell");
+  await mkdir(shellDir);
+  await writeFile(join(shellDir, "index.html"), "<!doctype html><title>Fixture</title>");
+  await expect(buildProject(project, { shellDir })).rejects.toMatchObject({
+    code,
+    message: expect.stringContaining("Story root ui failed to build"),
+    exit: 3,
+  });
+  expect(existsSync(join(fixture.app, "dist-proto"))).toBe(false);
+}, 120000);

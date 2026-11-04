@@ -91,6 +91,8 @@ async function run() {
     const entry = entries.find(file => file.stories.some(story => story.id === storyId));
     const indexed = entry?.stories.find(story => story.id === storyId);
     if (!entry || !indexed) throw new Error(`Unknown story: ${storyId}`);
+    if (config.staticBuild && !window.isSecureContext)
+      throw new Error("Story service workers need a secure context: use HTTPS or a loopback host.");
     const preview = await loadPreview();
     if (terminal) return;
     const project = setProjectAnnotations([preview]);

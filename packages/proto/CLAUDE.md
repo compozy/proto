@@ -26,8 +26,9 @@ The CLI is `bun run proto <command> --app app`.
   `review.remote.url`, with path-form render URLs and the public shell origin. The Node API selects
   this mode with `buildProject(project, { remote: publicOrigin })`. Offline review snapshots are opt-in with `build.includeReview`.
   Story config/index diagnostics appear in `check`; it never loads or builds story graphs.
-  Until static stories ship, local and remote builds omit stories and warn `stories_not_built`;
-  story index problems and absent Storybook peers do not fail these builds.
+  Local builds include lazy story roots under `__stories/<root>/` and optional `story--` snapshots;
+  story index problems and missing/unsupported peers fail local builds. Remote builds omit stories
+  with `stories_not_built`. MSW needs a base-aware worker URL and root-local scope (README).
   Invalid prototype/flow registries and guard/build failures leave no output. `screenshot` and `evidence` use the capture implementation;
   `store()` returns FileStore; `store({ remote: true })` returns HttpStore using the configured URL
   and credential. `migrate` delegates to local file migration; the Node entry also exports

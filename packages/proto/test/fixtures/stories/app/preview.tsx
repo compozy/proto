@@ -2,7 +2,14 @@ import { useEffect, type ReactNode } from "react";
 import { initialize, mswLoader } from "msw-storybook-addon";
 import { withThemeByClassName } from "@storybook/addon-themes";
 import type { Preview } from "@storybook/react-vite";
-initialize({ onUnhandledRequest: "error" });
+const base = new URL(import.meta.env.BASE_URL, window.location.href);
+initialize({
+  onUnhandledRequest: "error",
+  serviceWorker: {
+    url: new URL("mockServiceWorker.js", base).href,
+    options: { scope: base.pathname },
+  },
+});
 const increment = (key: string) => {
   const html = document.documentElement;
   html.dataset[key] = String(Number(html.dataset[key] ?? 0) + 1);
