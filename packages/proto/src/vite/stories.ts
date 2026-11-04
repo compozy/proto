@@ -55,8 +55,8 @@ export function storyPlugins(
         const authored = (file: string) =>
           patterns.some(pattern => matchesGlob(file, resolve(dir, pattern)));
         // Vite reports transform failures on the client environment's hot channel.
-        // Stop at each authored entry: the virtual index imports every story, so walking
-        // past it would incorrectly attribute one failure to unrelated stories.
+        // Stop at the virtual index, which imports every story. Continue through authored
+        // entries so stories reusing another story also receive its compiler failure.
         const { hot, moduleGraph } = server.environments.client;
         const send = hot.send.bind(hot);
         hot.send = (payload: HotPayload | string, data?: unknown) => {
@@ -74,12 +74,12 @@ export function storyPlugins(
             }
             // Set iteration visits newly added importers once, including cyclic graphs.
             for (const module of pending) {
+              if (module.id === `\0${ids[1]}`) continue;
               if (
                 module.file &&
                 (module.file === resolve(dir, root.preview) || authored(module.file))
               ) {
                 entries.add(module.file);
-                continue;
               }
               for (const importer of module.importers) pending.add(importer);
             }

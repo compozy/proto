@@ -1151,7 +1151,7 @@ it("stories IT-015: missing Playwright returns exit 3 and releases ports", async
 }, 120000);
 
 // Invariant: a shared HMR compiler error can enrich only this document's rejected import.
-// Owner: real story-host/dev integration, with a clean document paused in beforeAll.
+// Owner: real story-host/dev integration, including CSF reuse and a clean document in beforeAll.
 it("isolates concurrent import failures on the same root", async () => {
   const fixture = storiesFixture();
   if (!sharedBrowser) throw new Error("Chromium is required for story host integration");
@@ -1166,7 +1166,7 @@ it("isolates concurrent import failures on the same root", async () => {
     writeFileSync(join(fixture.app, "src/clean.stories.tsx"), 'export default { title: "Clean" }; export const Default = { render: () => <button>Clean</button> };');
     writeFileSync(join(fixture.app, "src/broken.stories.tsx"), 'import "./broken-dependency"; export default { title: "Broken" }; export const Default = {};');
     writeFileSync(join(fixture.app, "src/broken-dependency.ts"), 'export const value = ;');
-    writeFileSync(join(fixture.app, "src/sibling.stories.tsx"), 'import "./broken-dependency"; export default { title: "Sibling" }; export const Default = {};');
+    writeFileSync(join(fixture.app, "src/sibling.stories.tsx"), 'import "./broken.stories"; export default { title: "Sibling" }; export const Default = {};');
     const project = await loadProject(fixture.app);
     dev = await onFreePorts(port => startDev(project, { port, quiet: true, storyRoots: ["app"] }));
     const base = dev.storyRoots[0]!.renderUrl;

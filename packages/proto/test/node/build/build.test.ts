@@ -405,7 +405,7 @@ it("stories IT-020: local static roots run MSW and play with confined workers", 
       return JSON.parse((await page.locator("html").getAttribute("data-proto-story"))!) as StoryResult;
     };
     await page.goto(href("app", "ui-button--network"));
-    expect(await outcome()).toMatchObject({ status: "passed", stage: "render" });
+    expect(await outcome()).toMatchObject({ status: "passed", stage: "play", hasPlay: true });
     await page.getByRole("button", { name: "Mock response" }).waitFor();
     expect(requested.some(url => /lazy\.stories/.test(url))).toBe(false);
     expect(
