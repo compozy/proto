@@ -216,26 +216,38 @@ export async function runStories(project: ProtoProject, options: StoryRunOptions
       const { story, ...result } = last;
       rows.push({ ...result, id: story, root: item.file.root });
     };
-    // Cold roots each compile their host, preview and optimized dependencies once
-    // before the concurrent wave. The first story is a real result with the usual
-    // lifecycle budget, not a hidden retry or a longer timeout.
-    const firstByRoot = new Map<string, (typeof selected)[number]>();
+    // Warm one document per file before admitting its siblings. Waiting siblings
+    // occupy no pool slots, so a cold module cannot stall independent files.
+    const files = new Map<string, typeof selected>();
     for (const item of selected) {
-      if (!firstByRoot.has(item.file.root)) firstByRoot.set(item.file.root, item);
+      const key = JSON.stringify([item.file.root, item.file.file]);
+      const group = files.get(key);
+      if (group) group.push(item);
+      else files.set(key, [item]);
     }
-    await [...firstByRoot.values()].reduce(
-      (ready, item) => ready.then(() => runStory(item)),
-      Promise.resolve()
-    );
-    const pending = selected.filter(item => firstByRoot.get(item.file.root) !== item);
-    let next = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(concurrency, pending.length) }, async () => {
-        while (next < pending.length && !options.signal?.aborted) {
-          await runStory(pending[next++]!);
-        }
-      })
-    );
+    const ready: typeof selected = [];
+    const siblings = new Map<(typeof selected)[number], typeof selected>();
+    for (const group of files.values()) {
+      ready.push(group[0]!);
+      siblings.set(group[0]!, group.slice(1));
+    }
+    const active = new Set<Promise<void>>();
+    while (ready.length || active.size) {
+      while (active.size < concurrency && ready.length && !options.signal?.aborted) {
+        const item = ready.shift()!;
+        const running: Promise<void> = runStory(item)
+          .then(() => {
+            // Failure is terminal too: keep its row and let the batch continue.
+            ready.push(...(siblings.get(item) ?? []));
+          })
+          .finally(() => {
+            active.delete(running);
+          });
+        active.add(running);
+      }
+      if (!active.size) break;
+      await Promise.race(active);
+    }
     options.signal?.throwIfAborted();
     const order = new Map(selected.map((item, index) => [item.story.id, index]));
     rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
